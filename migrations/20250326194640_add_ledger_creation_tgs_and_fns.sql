@@ -29,7 +29,7 @@ CREATE TRIGGER trigger_create_default_ledger_accounts
 EXECUTE FUNCTION api.create_default_ledger_accounts();
 
 -- Add constraint to prevent duplicate special accounts per ledger
-CREATE UNIQUE INDEX unique_special_accounts_per_ledger
+CREATE UNIQUE INDEX IF NOT EXISTS unique_special_accounts_per_ledger
     ON data.accounts (ledger_id, name)
     WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
 
@@ -61,5 +61,5 @@ DROP TRIGGER IF EXISTS trigger_create_default_ledger_accounts ON data.ledgers;
 DROP FUNCTION IF EXISTS api.create_default_ledger_accounts();
 
 -- Remove the constraint
-DROP INDEX IF EXISTS unique_special_accounts_per_ledger;
+DROP INDEX IF EXISTS data.unique_special_accounts_per_ledger;
 -- +goose StatementEnd
