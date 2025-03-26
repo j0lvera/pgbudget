@@ -1,0 +1,28 @@
+version: 3
+
+tasks:
+  # goose
+  migrate:up:
+    desc: Run all pending migrations
+    cmds:
+      - goose up
+
+  migrate:down:
+    desc: Rollback last migration
+    cmds:
+      - goose down
+
+  migrate:status:
+    desc: Show migration status
+    cmds:
+      - goose status
+
+  migrate:new:
+    desc: Create a new migration file
+    cmds:
+      - goose create {{.CLI_ARGS}} sql
+
+  ai:
+    desc: Run AI assistant
+    cmds:
+      - aider --model openrouter/anthropic/claude-3.7-sonnet
