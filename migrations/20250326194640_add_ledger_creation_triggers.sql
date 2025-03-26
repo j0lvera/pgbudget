@@ -35,7 +35,7 @@ WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
 CREATE OR REPLACE FUNCTION api.prevent_special_account_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
-    RAISE EXCEPTION 'Cannot delete special account: %', OLD.name;
+    RAISE EXCEPTION 'Cannot delete special account: %', OLD.name
     RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -50,7 +50,7 @@ EXECUTE FUNCTION api.prevent_special_account_deletion();
 -- +goose Down
 -- +goose StatementBegin
 -- Remove the triggers and functions
-DROP TRIGGER IF EXISTS trigger_prevent_special_account_deletion ON data.accounts;
+DROP TRIGGER IF EXISTS trigger_prevent_special_account_deletion ON data.accounts CASCADE;
 DROP FUNCTION IF EXISTS api.prevent_special_account_deletion();
 
 DROP TRIGGER IF EXISTS trigger_create_default_ledger_accounts ON data.ledgers;
