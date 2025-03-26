@@ -27,9 +27,8 @@ FOR EACH ROW
 EXECUTE FUNCTION create_default_ledger_accounts();
 
 -- Add constraint to prevent duplicate special accounts per ledger
-ALTER TABLE accounts
-ADD CONSTRAINT unique_special_accounts_per_ledger
-UNIQUE (ledger_id, name, type)
+CREATE UNIQUE INDEX unique_special_accounts_per_ledger
+ON accounts (ledger_id, name)
 WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
 
 -- Add constraint to prevent deletion of special accounts
@@ -60,5 +59,5 @@ DROP TRIGGER IF EXISTS trigger_create_default_ledger_accounts ON ledgers;
 DROP FUNCTION IF EXISTS create_default_ledger_accounts();
 
 -- Remove the constraint
-ALTER TABLE accounts DROP CONSTRAINT IF EXISTS unique_special_accounts_per_ledger;
+DROP INDEX IF EXISTS unique_special_accounts_per_ledger;
 -- +goose StatementEnd
