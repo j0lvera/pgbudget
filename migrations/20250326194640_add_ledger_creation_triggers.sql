@@ -29,14 +29,14 @@ EXECUTE FUNCTION create_default_ledger_accounts();
 -- Add constraint to prevent duplicate special accounts per ledger
 ALTER TABLE accounts
 ADD CONSTRAINT unique_special_accounts_per_ledger
-UNIQUE (ledger_id, name)
-WHERE name IN ('Income', 'Off-budget', 'Unassigned');
+UNIQUE (ledger_id, name, type)
+WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
 
 -- Add constraint to prevent deletion of special accounts
 CREATE OR REPLACE FUNCTION prevent_special_account_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF OLD.name IN ('Income', 'Off-budget', 'Unassigned') THEN
+    IF OLD.name IN ('Income', 'Off-budget', 'Unassigned') AND OLD.type = 'equity' THEN
         RAISE EXCEPTION 'Cannot delete special account: %', OLD.name;
     END IF;
     RETURN OLD;
@@ -46,6 +46,7 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trigger_prevent_special_account_deletion
 BEFORE DELETE ON accounts
 FOR EACH ROW
+WHEN (OLD.name IN ('Income', 'Off-budget', 'Unassigned') AND OLD.type = 'equity')
 EXECUTE FUNCTION prevent_special_account_deletion();
 -- +goose StatementEnd
 
