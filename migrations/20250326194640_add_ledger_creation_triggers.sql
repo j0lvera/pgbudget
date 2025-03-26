@@ -6,16 +6,16 @@ CREATE OR REPLACE FUNCTION api.create_default_ledger_accounts()
 $$
 BEGIN
     -- Create Income account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, created_at, updated_at)
-    VALUES (NEW.id, 'Income', 'equity', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, 'Income', 'equity', 'liability_like', NOW(), NOW());
 
     -- Create Off-budget account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, created_at, updated_at)
-    VALUES (NEW.id, 'Off-budget', 'equity', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, 'Off-budget', 'equity', 'liability_like', NOW(), NOW());
 
     -- Create Unassigned account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, created_at, updated_at)
-    VALUES (NEW.id, 'Unassigned', 'equity', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, 'Unassigned', 'equity', 'liability_like', NOW(), NOW());
 
     RETURN NEW;
 END;
