@@ -50,7 +50,7 @@ EXECUTE FUNCTION api.prevent_special_account_deletion();
 -- +goose Down
 -- +goose StatementBegin
 -- Remove the triggers and functions
-DROP TRIGGER IF EXISTS trigger_prevent_special_account_deletion ON data.accounts CASCADE;
+DROP TRIGGER IF EXISTS trigger_prevent_special_account_deletion ON data.accounts;
 DROP FUNCTION IF EXISTS api.prevent_special_account_deletion();
 
 DROP TRIGGER IF EXISTS trigger_create_default_ledger_accounts ON data.ledgers;
