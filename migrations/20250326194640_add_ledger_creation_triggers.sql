@@ -35,10 +35,8 @@ WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
 CREATE OR REPLACE FUNCTION prevent_special_account_deletion()
 RETURNS TRIGGER AS $$
 BEGIN
-    IF OLD.name IN ('Income', 'Off-budget', 'Unassigned') AND OLD.type = 'equity' THEN
-        RAISE EXCEPTION 'Cannot delete special account: %', OLD.name;
-    END IF;
-    RETURN OLD;
+    RAISE EXCEPTION 'Cannot delete special account: %', OLD.name;
+    RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
 
