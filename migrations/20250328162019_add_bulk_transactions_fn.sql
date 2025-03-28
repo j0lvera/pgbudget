@@ -17,7 +17,7 @@ declare
     v_amount decimal;
     v_account_id int;
     v_category_id int;
-    v_result record;
+    v_transaction_id int;
     v_unassigned_categories jsonb = '{}'::jsonb;
 begin
     -- start a transaction block to make the operation atomic
@@ -62,8 +62,8 @@ begin
                 v_category_id := null;
             end if;
             
-            -- call the existing add_transaction function
-            v_result.transaction_id := api.add_transaction(
+            -- call the existing add_transaction function and store result directly
+            v_transaction_id := api.add_transaction(
                 v_ledger_id,
                 v_date,
                 v_description,
@@ -75,7 +75,7 @@ begin
             
             -- store successful result
             insert into temp_results values (
-                v_result.transaction_id,
+                v_transaction_id,
                 'success',
                 'Transaction created successfully'
             );
