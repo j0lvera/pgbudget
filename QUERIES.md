@@ -134,6 +134,9 @@ CREATE INDEX idx_transactions_debit_account ON data.transactions(debit_account_i
 
 -- Composite index for account type lookups
 CREATE INDEX idx_accounts_type ON data.accounts(id, type);
+
+-- Composite index for budget category filtering
+CREATE INDEX idx_accounts_budget_filter ON data.accounts(ledger_id, type, name);
 ```
 
 ### For Large Datasets: Materialized View
