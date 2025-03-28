@@ -180,3 +180,94 @@ For budget categories (which are equity accounts):
 - A positive balance means you have money available to spend
 - A negative balance indicates overspending
 - The difference between budgeted and activity shows how much of your budget remains
+
+## Budget Transaction Functions
+
+### Add Budget Transaction
+
+This function creates a transaction using budgeting terminology rather than accounting terms:
+
+```sql
+-- function to add a budget transaction
+create or replace function api.add_budget_transaction(
+    p_ledger_id int,
+    p_date timestamptz,
+    p_description text,
+    p_type text, -- 'inflow' or 'outflow'
+    p_amount decimal,
+    p_account_id int, -- the bank account or credit card
+    p_category_id int -- the budget category
+) returns int as $$
+declare
+    v_transaction_id int;
+    v_debit_account_id int;
+    v_credit_account_id int;
+begin
+    -- validate transaction type
+    if p_type not in ('inflow', 'outflow') then
+        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', p_type;
+    end if;
+
+    -- validate amount is positive
+    if p_amount <= 0 then
+        raise exception 'Transaction amount must be positive: %', p_amount;
+    end if;
+
+    -- determine debit and credit accounts based on transaction type
+    if p_type = 'inflow' then
+        -- for inflow: debit the account (asset increases), credit the category (equity increases)
+        v_debit_account_id := p_account_id;
+        v_credit_account_id := p_category_id;
+    else
+        -- for outflow: debit the category (equity decreases), credit the account (asset decreases)
+        v_debit_account_id := p_category_id;
+        v_credit_account_id := p_account_id;
+    end if;
+
+    -- insert the transaction and return the new id
+    insert into data.transactions (
+        ledger_id,
+        date,
+        description,
+        debit_account_id,
+        credit_account_id,
+        amount
+    ) values (
+        p_ledger_id,
+        p_date,
+        p_description,
+        v_debit_account_id,
+        v_credit_account_id,
+        p_amount
+    ) returning id into v_transaction_id;
+
+    return v_transaction_id;
+end;
+$$ language plpgsql;
+```
+
+### Usage Examples
+
+```sql
+-- add an inflow transaction (income received)
+select api.add_budget_transaction(
+    1,                          -- ledger_id
+    '2023-04-15 09:00:00',      -- date
+    'Paycheck deposit',         -- description
+    'inflow',                   -- type
+    1500.00,                    -- amount
+    1,                          -- account_id (bank account)
+    5                           -- category_id (Income category)
+);
+
+-- add an outflow transaction (spending money)
+select api.add_budget_transaction(
+    1,                          -- ledger_id
+    '2023-04-16 14:30:00',      -- date
+    'Grocery shopping',         -- description
+    'outflow',                  -- type
+    85.75,                      -- amount
+    1,                          -- account_id (bank account)
+    3                           -- category_id (Groceries category)
+);
+```
