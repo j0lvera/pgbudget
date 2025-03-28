@@ -93,9 +93,6 @@ declare
     v_has_error boolean = false;
     v_error_message text;
 begin
-    -- start an explicit transaction block
-    BEGIN;
-    
     -- pre-fetch unassigned categories for all ledgers in the batch
     -- to avoid repeated lookups
     for v_ledger_id in (
@@ -163,17 +160,17 @@ begin
         end;
     end loop;
     
-    -- commit or rollback based on success
+    -- if there was an error, raise an exception to trigger rollback
     if v_has_error then
-        ROLLBACK;
         -- Add a note that the entire operation was rolled back
         v_results := v_results || jsonb_build_object(
             'transaction_id', null,
             'status', 'error',
             'message', 'All transactions rolled back due to error'
         );
-    else
-        COMMIT;
+        
+        -- Raise exception to trigger rollback
+        raise exception 'Transaction batch failed';
     end if;
     
     -- return the results from our JSON array
