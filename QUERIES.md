@@ -183,6 +183,32 @@ For budget categories (which are equity accounts):
 
 ## Transaction Functions
 
+### Find Category
+
+This helper function finds a category by name within a ledger:
+
+```sql
+-- function to find a category by name within a ledger
+create or replace function api.find_category(
+    p_ledger_id int,
+    p_category_name text
+) returns int as $$
+declare
+    v_category_id int;
+begin
+    -- find the category id
+    select id into v_category_id
+    from data.accounts
+    where ledger_id = p_ledger_id 
+      and name = p_category_name
+      and type = 'equity'
+    limit 1;
+    
+    return v_category_id;
+end;
+$$ language plpgsql;
+```
+
 ### Add Transaction
 
 This function creates a transaction using user-friendly terminology rather than accounting terms:
@@ -196,12 +222,13 @@ create or replace function api.add_transaction(
     p_type text, -- 'inflow' or 'outflow'
     p_amount decimal,
     p_account_id int, -- the bank account or credit card
-    p_category_id int -- the category
+    p_category_id int = null -- the category, now optional
 ) returns int as $$
 declare
     v_transaction_id int;
     v_debit_account_id int;
     v_credit_account_id int;
+    v_category_id int;
 begin
     -- validate transaction type
     if p_type not in ('inflow', 'outflow') then
@@ -212,15 +239,25 @@ begin
     if p_amount <= 0 then
         raise exception 'Transaction amount must be positive: %', p_amount;
     end if;
+    
+    -- handle null category by finding the "unassigned" category
+    if p_category_id is null then
+        v_category_id := api.find_category(p_ledger_id, 'unassigned');
+        if v_category_id is null then
+            raise exception 'Could not find "unassigned" category in ledger %', p_ledger_id;
+        end if;
+    else
+        v_category_id := p_category_id;
+    end if;
 
     -- determine debit and credit accounts based on transaction type
     if p_type = 'inflow' then
         -- for inflow: debit the account (asset increases), credit the category (equity increases)
         v_debit_account_id := p_account_id;
-        v_credit_account_id := p_category_id;
+        v_credit_account_id := v_category_id;
     else
         -- for outflow: debit the category (equity decreases), credit the account (asset decreases)
-        v_debit_account_id := p_category_id;
+        v_debit_account_id := v_category_id;
         v_credit_account_id := p_account_id;
     end if;
 
@@ -269,5 +306,16 @@ select api.add_transaction(
     85.75,                      -- amount
     1,                          -- account_id (bank account)
     3                           -- category_id (Groceries category)
+);
+
+-- add an outflow transaction without specifying a category (will use "unassigned")
+select api.add_transaction(
+    1,                          -- ledger_id
+    '2023-04-17 10:15:00',      -- date
+    'Coffee shop',              -- description
+    'outflow',                  -- type
+    4.50,                       -- amount
+    1                           -- account_id (bank account)
+    -- category_id omitted, will use "unassigned"
 );
 ```
