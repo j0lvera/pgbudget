@@ -1,1 +1,5 @@
 - Always write SQL queries in lowercase.
+- Always add comments to each step of the query.
+- Always put the comments above the SQL query.
+- Everything related to defining data shape, should go in the `data` schema.
+- Everything related to functions that modify data, should go in the `api` schema.
