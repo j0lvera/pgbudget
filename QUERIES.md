@@ -159,7 +159,16 @@ create materialized view data.account_balances_mat as
 ;
 
 -- then refresh when needed:
-refresh materialized view data.account_balances_mat;
+-- refresh materialized view using api schema function
+create or replace function api.refresh_account_balances()
+returns void as $$
+begin
+    refresh materialized view data.account_balances_mat;
+end;
+$$ language plpgsql;
+
+-- call the function to refresh:
+select api.refresh_account_balances();
 ```
 
 This query calculates:
