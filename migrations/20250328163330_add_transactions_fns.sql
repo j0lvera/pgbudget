@@ -28,7 +28,7 @@ begin
     
     -- handle null category by finding the "unassigned" category
     if p_category_id is null then
-        v_category_id := api.find_category(p_ledger_id, 'unassigned');
+        v_category_id := api.find_category(p_ledger_id, 'Unassigned');
         if v_category_id is null then
             raise exception 'Could not find "unassigned" category in ledger %', p_ledger_id;
         end if;
@@ -102,7 +102,7 @@ begin
         v_unassigned_categories = v_unassigned_categories || 
             jsonb_build_object(
                 v_ledger_id::text, 
-                api.find_category(v_ledger_id, 'unassigned')
+                api.find_category(v_ledger_id, 'Unassigned')
             );
     end loop;
     
