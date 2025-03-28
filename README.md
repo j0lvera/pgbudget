@@ -147,6 +147,32 @@ SELECT api.add_transaction(
 ### Check Budget Status
 
 ```sql
+-- View budget status for all categories
+SELECT * FROM data.budget_status;
+```
+
+Result:
+```
+ id |     account_name     | budgeted | activity | balance 
+----+----------------------+----------+----------+---------
+  5 | Groceries            |   200.00 |   -15.00 |  185.00
+  6 | Internet bill        |    75.00 |   -75.00 |    0.00
+```
+
+For a specific ledger:
+```sql
+-- View budget status for ledger ID 2
+SELECT * FROM api.get_budget_status(2);
+```
+
+The budget status shows:
+- **budgeted**: Money assigned to this category
+- **activity**: Money spent from this category
+- **balance**: Current available amount in the category
+
+You can also view all accounts and their balances:
+
+```sql
 -- View all accounts and their balances
 SELECT 
     a.name, 
