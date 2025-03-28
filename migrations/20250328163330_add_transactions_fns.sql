@@ -67,7 +67,9 @@ begin
     return v_transaction_id;
 end;
 $$ language plpgsql;
+-- +goose StatementEnd
 
+-- +goose StatementBegin
 -- function to add multiple transactions in a single operation
 create or replace function api.add_bulk_transactions(
     p_transactions jsonb
