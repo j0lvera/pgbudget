@@ -7,13 +7,17 @@
 The following query displays a budget view showing each account's budgeted amount, activity, and current balance with optimized performance:
 
 ```sql
+-- Select query to display budget information for each account
 SELECT 
+    -- Display the account name
     a.name AS account_name,
+    -- Calculate money budgeted to this category (transfers from Income)
     COALESCE(SUM(CASE 
         WHEN t.debit_account_id = income.id AND t.credit_account_id = a.id 
         THEN t.amount 
         ELSE 0 
     END), 0) AS budgeted,
+    -- Calculate spending activity (transactions with real-world accounts)
     COALESCE(SUM(CASE 
         WHEN (t.credit_account_id = a.id OR t.debit_account_id = a.id)
         AND (credit_acc.type IN ('asset', 'liability') OR debit_acc.type IN ('asset', 'liability'))
@@ -24,23 +28,31 @@ SELECT
             END
         ELSE 0 
     END), 0) AS activity,
+    -- Calculate current balance (all transactions affecting this account)
     COALESCE(SUM(CASE 
         WHEN t.credit_account_id = a.id THEN t.amount 
         WHEN t.debit_account_id = a.id THEN -t.amount 
         ELSE 0 
     END), 0) AS balance
 FROM 
+    -- Start with all accounts
     data.accounts a
+-- Include all transactions affecting each account
 LEFT JOIN data.transactions t ON 
     t.credit_account_id = a.id OR t.debit_account_id = a.id
+-- Find the Income account in the same ledger
 LEFT JOIN data.accounts income ON 
     income.name = 'Income' AND income.ledger_id = a.ledger_id
+-- Join to get credit account type information
 LEFT JOIN data.accounts credit_acc ON 
     t.credit_account_id = credit_acc.id
+-- Join to get debit account type information
 LEFT JOIN data.accounts debit_acc ON 
     t.debit_account_id = debit_acc.id
+-- Group results by account
 GROUP BY 
     a.id, a.name
+-- Sort alphabetically by account name
 ORDER BY 
     a.name;
 ```
