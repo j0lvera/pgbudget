@@ -27,6 +27,7 @@ select
             case 
                 when t.credit_account_id = a.id then t.amount 
                 when t.debit_account_id = a.id then -t.amount 
+                else 0
             end
         else 0 
     end), 0) as activity,
@@ -94,6 +95,7 @@ select
             case 
                 when t.credit_account_id = a.id then t.amount 
                 when t.debit_account_id = a.id then -t.amount 
+                else 0
             end
         else 0 
     end), 0) as activity,
