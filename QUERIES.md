@@ -276,6 +276,7 @@ declare
     v_debit_account_id int;
     v_credit_account_id int;
     v_category_id int;
+    v_account_type text;
 begin
     -- validate transaction type
     if p_type not in ('inflow', 'outflow') then
@@ -297,15 +298,38 @@ begin
         v_category_id := p_category_id;
     end if;
 
-    -- determine debit and credit accounts based on transaction type
-    if p_type = 'inflow' then
-        -- for inflow: debit the account (asset increases), credit the category (equity increases)
-        v_debit_account_id := p_account_id;
-        v_credit_account_id := v_category_id;
+    -- get the account type (asset or liability)
+    select type into v_account_type
+    from data.accounts
+    where id = p_account_id;
+    
+    if v_account_type is null then
+        raise exception 'Account with ID % not found', p_account_id;
+    end if;
+    
+    -- determine debit and credit accounts based on account type and transaction type
+    if v_account_type = 'asset' then
+        if p_type = 'inflow' then
+            -- for inflow to asset: debit asset (increase), credit category (increase)
+            v_debit_account_id := p_account_id;
+            v_credit_account_id := v_category_id;
+        else
+            -- for outflow from asset: debit category (decrease), credit asset (decrease)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := p_account_id;
+        end if;
+    elsif v_account_type = 'liability' then
+        if p_type = 'inflow' then
+            -- for inflow to liability: debit category (decrease), credit liability (increase)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := p_account_id;
+        else
+            -- for outflow from liability: debit liability (decrease), credit category (increase)
+            v_debit_account_id := p_account_id;
+            v_credit_account_id := v_category_id;
+        end if;
     else
-        -- for outflow: debit the category (equity decreases), credit the account (asset decreases)
-        v_debit_account_id := v_category_id;
-        v_credit_account_id := p_account_id;
+        raise exception 'Account type % is not supported for transactions', v_account_type;
     end if;
 
     -- insert the transaction and return the new id
@@ -333,26 +357,48 @@ $$ language plpgsql;
 ### Usage Examples
 
 ```sql
--- add an inflow transaction (income received)
+-- add an inflow transaction to a bank account (income received)
 select api.add_transaction(
     1,                          -- ledger_id
     '2023-04-15 09:00:00',      -- date
     'Paycheck deposit',         -- description
     'inflow',                   -- type
     1500.00,                    -- amount
-    1,                          -- account_id (bank account)
+    1,                          -- account_id (bank account - asset)
     5                           -- category_id (Income category)
 );
 
--- add an outflow transaction (spending money)
+-- add an outflow transaction from a bank account (spending money)
 select api.add_transaction(
     1,                          -- ledger_id
     '2023-04-16 14:30:00',      -- date
     'Grocery shopping',         -- description
     'outflow',                  -- type
     85.75,                      -- amount
-    1,                          -- account_id (bank account)
+    1,                          -- account_id (bank account - asset)
     3                           -- category_id (Groceries category)
+);
+
+-- add an inflow transaction to a credit card (charging something)
+select api.add_transaction(
+    1,                          -- ledger_id
+    '2023-04-18 12:00:00',      -- date
+    'Online purchase',          -- description
+    'inflow',                   -- type
+    120.50,                     -- amount
+    2,                          -- account_id (credit card - liability)
+    4                           -- category_id (Shopping category)
+);
+
+-- add an outflow transaction from a credit card (paying the bill)
+select api.add_transaction(
+    1,                          -- ledger_id
+    '2023-04-25 09:00:00',      -- date
+    'Credit card payment',      -- description
+    'outflow',                  -- type
+    120.50,                     -- amount
+    2,                          -- account_id (credit card - liability)
+    6                           -- category_id (Credit Card Payment category)
 );
 
 -- add an outflow transaction without specifying a category (will use "unassigned")
@@ -362,7 +408,7 @@ select api.add_transaction(
     'Coffee shop',              -- description
     'outflow',                  -- type
     4.50,                       -- amount
-    1                           -- account_id (bank account)
+    1                           -- account_id (bank account - asset)
     -- category_id omitted, will use "unassigned"
 );
 ```

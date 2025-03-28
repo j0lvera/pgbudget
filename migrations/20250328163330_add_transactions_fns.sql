@@ -15,6 +15,7 @@ declare
     v_debit_account_id int;
     v_credit_account_id int;
     v_category_id int;
+    v_account_type text;
 begin
     -- validate transaction type
     if p_type not in ('inflow', 'outflow') then
@@ -36,15 +37,38 @@ begin
         v_category_id := p_category_id;
     end if;
 
-    -- determine debit and credit accounts based on transaction type
-    if p_type = 'inflow' then
-        -- for inflow: debit the account (asset increases), credit the category (equity increases)
-        v_debit_account_id := p_account_id;
-        v_credit_account_id := v_category_id;
+    -- get the account type (asset or liability)
+    select type into v_account_type
+    from data.accounts
+    where id = p_account_id;
+    
+    if v_account_type is null then
+        raise exception 'Account with ID % not found', p_account_id;
+    end if;
+    
+    -- determine debit and credit accounts based on account type and transaction type
+    if v_account_type = 'asset' then
+        if p_type = 'inflow' then
+            -- for inflow to asset: debit asset (increase), credit category (increase)
+            v_debit_account_id := p_account_id;
+            v_credit_account_id := v_category_id;
+        else
+            -- for outflow from asset: debit category (decrease), credit asset (decrease)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := p_account_id;
+        end if;
+    elsif v_account_type = 'liability' then
+        if p_type = 'inflow' then
+            -- for inflow to liability: debit category (decrease), credit liability (increase)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := p_account_id;
+        else
+            -- for outflow from liability: debit liability (decrease), credit category (increase)
+            v_debit_account_id := p_account_id;
+            v_credit_account_id := v_category_id;
+        end if;
     else
-        -- for outflow: debit the category (equity decreases), credit the account (asset decreases)
-        v_debit_account_id := v_category_id;
-        v_credit_account_id := p_account_id;
+        raise exception 'Account type % is not supported for transactions', v_account_type;
     end if;
 
     -- insert the transaction and return the new id
