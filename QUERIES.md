@@ -362,3 +362,207 @@ select api.add_transaction(
     -- category_id omitted, will use "unassigned"
 );
 ```
+
+### Add Bulk Transactions
+
+This function allows adding multiple transactions at once in an atomic operation, which is particularly useful for importing transactions from CSV files or other bulk operations:
+
+```sql
+-- function to add multiple transactions in a single operation
+create or replace function api.add_bulk_transactions(
+    p_transactions jsonb
+) returns table (
+    transaction_id int,
+    status text,
+    message text
+) as $$
+declare
+    v_transaction jsonb;
+    v_ledger_id int;
+    v_date timestamptz;
+    v_description text;
+    v_type text;
+    v_amount decimal;
+    v_account_id int;
+    v_category_id int;
+    v_result record;
+    v_unassigned_categories jsonb = '{}'::jsonb;
+begin
+    -- start a transaction block to make the operation atomic
+    -- (will be automatically committed if the function completes successfully)
+    
+    -- create a temporary table to store results
+    create temporary table temp_results (
+        transaction_id int,
+        status text,
+        message text
+    ) on commit drop;
+    
+    -- pre-fetch unassigned categories for all ledgers in the batch
+    -- to avoid repeated lookups
+    for v_ledger_id in (
+        select distinct (t->>'ledger_id')::int 
+        from jsonb_array_elements(p_transactions) as t
+    ) loop
+        v_unassigned_categories = v_unassigned_categories || 
+            jsonb_build_object(
+                v_ledger_id::text, 
+                api.find_category(v_ledger_id, 'unassigned')
+            );
+    end loop;
+    
+    -- process each transaction in the array
+    for v_transaction in select * from jsonb_array_elements(p_transactions)
+    loop
+        begin
+            -- extract values from the JSON object
+            v_ledger_id := (v_transaction->>'ledger_id')::int;
+            v_date := (v_transaction->>'date')::timestamptz;
+            v_description := v_transaction->>'description';
+            v_type := v_transaction->>'type';
+            v_amount := (v_transaction->>'amount')::decimal;
+            v_account_id := (v_transaction->>'account_id')::int;
+            
+            -- category_id is optional
+            if v_transaction ? 'category_id' then
+                v_category_id := (v_transaction->>'category_id')::int;
+            else
+                v_category_id := null;
+            end if;
+            
+            -- call the existing add_transaction function
+            v_result.transaction_id := api.add_transaction(
+                v_ledger_id,
+                v_date,
+                v_description,
+                v_type,
+                v_amount,
+                v_account_id,
+                v_category_id
+            );
+            
+            -- store successful result
+            insert into temp_results values (
+                v_result.transaction_id,
+                'success',
+                'Transaction created successfully'
+            );
+            
+        exception when others then
+            -- store error result
+            insert into temp_results values (
+                null,
+                'error',
+                'Error processing transaction: ' || SQLERRM
+            );
+        end;
+    end loop;
+    
+    -- return the results
+    return query select * from temp_results;
+end;
+$$ language plpgsql;
+```
+
+### Usage Examples
+
+You can add multiple transactions at once by passing a JSON array of transaction objects:
+
+```sql
+-- add multiple transactions at once
+select * from api.add_bulk_transactions('[
+  {
+    "ledger_id": 1,
+    "date": "2023-04-15T09:00:00Z",
+    "description": "Paycheck deposit",
+    "type": "inflow",
+    "amount": 1500.00,
+    "account_id": 1,
+    "category_id": 5
+  },
+  {
+    "ledger_id": 1,
+    "date": "2023-04-16T14:30:00Z",
+    "description": "Grocery shopping",
+    "type": "outflow",
+    "amount": 85.75,
+    "account_id": 1,
+    "category_id": 3
+  },
+  {
+    "ledger_id": 1,
+    "date": "2023-04-17T10:15:00Z",
+    "description": "Coffee shop",
+    "type": "outflow",
+    "amount": 4.50,
+    "account_id": 1
+  }
+]');
+```
+
+### Expected Output
+
+When you run the function in a SQL console, you'll see a result set with status information for each transaction:
+
+```
+ transaction_id |  status  |              message
+---------------+----------+-----------------------------------
+           101 | success  | Transaction created successfully
+           102 | success  | Transaction created successfully
+           103 | success  | Transaction created successfully
+(3 rows)
+```
+
+If there are errors with some transactions, you'll see them in the results:
+
+```
+ transaction_id |  status  |                           message
+---------------+----------+-------------------------------------------------------------
+           104 | success  | Transaction created successfully
+           105 | success  | Transaction created successfully
+          null | error    | Error processing transaction: Invalid transaction type: test
+           106 | success  | Transaction created successfully
+(4 rows)
+```
+
+### From Go Code
+
+When calling this function from Go code, you can prepare the JSON like this:
+
+```go
+type Transaction struct {
+    LedgerID    int       `json:"ledger_id"`
+    Date        time.Time `json:"date"`
+    Description string    `json:"description"`
+    Type        string    `json:"type"`
+    Amount      float64   `json:"amount"`
+    AccountID   int       `json:"account_id"`
+    CategoryID  *int      `json:"category_id,omitempty"` // Optional
+}
+
+// Prepare transactions from CSV data
+transactions := []Transaction{
+    {
+        LedgerID:    1,
+        Date:        time.Now(),
+        Description: "Paycheck deposit",
+        Type:        "inflow",
+        Amount:      1500.00,
+        AccountID:   1,
+        CategoryID:  &categoryID, // Use pointer for optional field
+    },
+    // Add more transactions...
+}
+
+// Convert to JSON
+jsonData, err := json.Marshal(transactions)
+if err != nil {
+    log.Fatal(err)
+}
+
+// Call the database function
+rows, err := db.Query("SELECT * FROM api.add_bulk_transactions($1)", string(jsonData))
+// Process results...
+```
+
+This bulk transaction function provides significant performance benefits when importing many transactions at once, while maintaining data integrity through its atomic operation.
