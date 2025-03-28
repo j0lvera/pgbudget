@@ -116,6 +116,8 @@ declare
     v_results jsonb = '[]'::jsonb;
     v_has_error boolean = false;
     v_error_message text;
+    v_transaction_index int = 0;
+    v_detailed_error text;
 begin
     -- pre-fetch unassigned categories for all ledgers in the batch
     -- to avoid repeated lookups
@@ -133,6 +135,7 @@ begin
     -- process each transaction in the array
     for v_transaction in select * from jsonb_array_elements(p_transactions)
     loop
+        v_transaction_index := v_transaction_index + 1;
         begin
             -- extract values from the JSON object
             v_ledger_id := (v_transaction->>'ledger_id')::int;
@@ -171,12 +174,14 @@ begin
             -- capture error and set error flag
             v_has_error := true;
             v_error_message := SQLERRM;
+            v_detailed_error := format('Error in transaction %s (index %s): %s. Transaction data: %s', 
+                                      v_description, v_transaction_index, v_error_message, v_transaction);
             
-            -- store error result in our results array
+            -- store detailed error result in our results array
             v_results := v_results || jsonb_build_object(
                 'transaction_id', null,
                 'status', 'error',
-                'message', 'Error processing transaction: ' || v_error_message
+                'message', v_detailed_error
             );
             
             -- exit the loop early since we'll be rolling back anyway
@@ -193,8 +198,16 @@ begin
             'message', 'All transactions rolled back due to error'
         );
         
-        -- Raise exception to trigger rollback
-        raise exception 'Transaction batch failed';
+        -- Return the results before raising the exception
+        return query 
+        select 
+            (r->>'transaction_id')::int as transaction_id,
+            r->>'status' as status,
+            r->>'message' as message
+        from jsonb_array_elements(v_results) as r;
+        
+        -- Raise exception with detailed error to trigger rollback
+        raise exception 'Transaction batch failed: %', v_detailed_error;
     end if;
     
     -- return the results from our JSON array

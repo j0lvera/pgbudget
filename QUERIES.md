@@ -563,17 +563,23 @@ When you run the function in a SQL console, you'll see a result set with status 
 (3 rows)
 ```
 
-If there are errors with some transactions, you'll see them in the results:
+If there are errors with some transactions, you'll see them in the results with detailed error information:
 
 ```
  transaction_id |  status  |                           message
 ---------------+----------+-------------------------------------------------------------
            104 | success  | Transaction created successfully
            105 | success  | Transaction created successfully
-          null | error    | Error processing transaction: Invalid transaction type: test
-           106 | success  | Transaction created successfully
+          null | error    | Error in transaction Online purchase (index 3): Invalid transaction type: test. Transaction data: {"type": "test", "amount": 120.50, "date": "2023-04-18T12:00:00Z", "ledger_id": 1, "account_id": 2, "description": "Online purchase", "category_id": 4}
+          null | error    | All transactions rolled back due to error
 (4 rows)
 ```
+
+The detailed error message now includes:
+- The transaction description
+- The index of the transaction in the batch
+- The specific error message
+- The complete transaction data for debugging
 
 ### From Go Code
 
