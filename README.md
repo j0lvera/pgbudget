@@ -1,6 +1,10 @@
-# Zero-Sum Budget
+# pgbudget
 
-A double-entry accounting system for zero-sum budgeting.
+A PostgreSQL-based double-entry accounting system for zero-sum budgeting.
+
+## Description
+
+pgbudget lets you manage your personal budget directly in PostgreSQL using double-entry accounting principles. It helps you track income, assign money to categories, and record expenses while maintaining balance across all accounts.
 
 ## Setup
 
@@ -12,74 +16,96 @@ A double-entry accounting system for zero-sum budgeting.
 ### Create a Budget (Ledger)
 
 ```sql
-SELECT api.create_ledger('My Budget');
+-- Create a new budget ledger
+INSERT INTO data.ledgers (name) VALUES ('My Budget') RETURNING id;
 ```
 
 Result:
 ```
- create_ledger 
---------------
- 1
+ id 
+----
+  1
 ```
 
 ### Add Income
 
 ```sql
 -- Add income of $1000 from "Paycheck"
-SELECT api.record_income(1, 'Paycheck', 1000.00);
+SELECT api.add_transaction(
+    1,                          -- ledger_id
+    NOW(),                      -- date
+    'Paycheck',                 -- description
+    'inflow',                   -- type
+    1000.00,                    -- amount
+    1,                          -- account_id (Checking account)
+    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1)  -- category_id
+);
 ```
 
 Result:
 ```
- record_income 
---------------
- 1
+ add_transaction 
+----------------
+              1
 ```
 
 ### Assign Money to Categories
 
 ```sql
+-- First create the category accounts
+INSERT INTO data.accounts (ledger_id, name, type, internal_type) 
+VALUES (1, 'Groceries', 'equity', 'liability_like') RETURNING id;
+
+INSERT INTO data.accounts (ledger_id, name, type, internal_type) 
+VALUES (1, 'Internet bill', 'equity', 'liability_like') RETURNING id;
+
 -- Assign $200 to Groceries
-SELECT api.assign_to_category(1, 'Groceries', 200.00);
+SELECT api.add_transaction(
+    1,                          -- ledger_id
+    NOW(),                      -- date
+    'Budget: Groceries',        -- description
+    'outflow',                  -- type
+    200.00,                     -- amount
+    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1),  -- account_id
+    (SELECT id FROM data.accounts WHERE name = 'Groceries' AND ledger_id = 1)  -- category_id
+);
 
 -- Assign $75 to Internet bill
-SELECT api.assign_to_category(1, 'Internet bill', 75.00);
-```
-
-Result:
-```
- assign_to_category 
--------------------
- 2
-```
-
-```
- assign_to_category 
--------------------
- 3
+SELECT api.add_transaction(
+    1,                          -- ledger_id
+    NOW(),                      -- date
+    'Budget: Internet',         -- description
+    'outflow',                  -- type
+    75.00,                      -- amount
+    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1),  -- account_id
+    (SELECT id FROM data.accounts WHERE name = 'Internet bill' AND ledger_id = 1)  -- category_id
+);
 ```
 
 ### Spend Money
 
 ```sql
 -- Spend $15 on Milk from Groceries category
-SELECT api.record_expense(1, 'Groceries', 'Milk', 15.00);
+SELECT api.add_transaction(
+    1,                          -- ledger_id
+    NOW(),                      -- date
+    'Milk',                     -- description
+    'outflow',                  -- type
+    15.00,                      -- amount
+    1,                          -- account_id (Checking account)
+    (SELECT id FROM data.accounts WHERE name = 'Groceries' AND ledger_id = 1)  -- category_id
+);
 
 -- Pay the entire Internet bill
-SELECT api.record_expense(1, 'Internet bill', 'Monthly Internet', 75.00);
-```
-
-Result:
-```
- record_expense 
----------------
- 4
-```
-
-```
- record_expense 
----------------
- 5
+SELECT api.add_transaction(
+    1,                          -- ledger_id
+    NOW(),                      -- date
+    'Monthly Internet',         -- description
+    'outflow',                  -- type
+    75.00,                      -- amount
+    1,                          -- account_id (Checking account)
+    (SELECT id FROM data.accounts WHERE name = 'Internet bill' AND ledger_id = 1)  -- category_id
+);
 ```
 
 ### Check Budget Status
@@ -103,6 +129,7 @@ Result:
  Income          | equity    |  725.00
  Groceries       | equity    |  185.00
  Internet bill   | equity    |    0.00
+ Unassigned      | equity    |    0.00
 ```
 
 ```sql
@@ -112,21 +139,10 @@ SELECT
     t.amount, 
     da.name as debit_account, 
     ca.name as credit_account,
-    t.created_at
+    t.date
 FROM data.transactions t
 JOIN data.accounts da ON t.debit_account_id = da.id
 JOIN data.accounts ca ON t.credit_account_id = ca.id
 WHERE da.ledger_id = 1
-ORDER BY t.created_at;
-```
-
-Result:
-```
-  description   | amount | debit_account | credit_account |        created_at        
-----------------+--------+---------------+----------------+---------------------------
- Paycheck       | 1000.00| Checking      | Income         | 2023-04-01 10:00:00+00
- Budget: Groceries| 200.00| Income        | Groceries      | 2023-04-01 10:05:00+00
- Budget: Internet| 75.00 | Income        | Internet bill  | 2023-04-01 10:10:00+00
- Milk           | 15.00  | Groceries     | Checking       | 2023-04-02 15:30:00+00
- Monthly Internet| 75.00 | Internet bill | Checking       | 2023-04-05 09:00:00+00
+ORDER BY t.date;
 ```
