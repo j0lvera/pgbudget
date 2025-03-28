@@ -1,5 +1,25 @@
 -- +goose Up
 -- +goose StatementBegin
+-- function to find a category by name in a ledger
+create or replace function api.find_category(
+    p_ledger_id int,
+    p_category_name text
+) returns int as
+$$
+declare
+    v_category_id int;
+begin
+    -- find the category by name in the specified ledger
+    select id into v_category_id
+    from data.accounts
+    where ledger_id = p_ledger_id
+      and name = p_category_name
+      and type = 'equity';
+      
+    return v_category_id;
+end;
+$$ language plpgsql;
+
 -- function to add a transaction
 create or replace function api.add_transaction(
     p_ledger_id int,

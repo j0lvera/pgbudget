@@ -1,10 +1,15 @@
 # pgbudget
 
-A PostgreSQL-based double-entry accounting system for zero-sum budgeting.
+A PostgreSQL-based zero-sum budgeting system.
 
 ## Description
 
-pgbudget lets you manage your personal budget directly in PostgreSQL using double-entry accounting principles. It helps you track income, assign money to categories, and record expenses while maintaining balance across all accounts.
+pgbudget lets you manage your personal budget directly in PostgreSQL. It helps you track income, assign money to categories, and record expenses while maintaining balance across all accounts.
+
+## Requirements
+
+- PostgreSQL 12 or higher
+- [Goose](https://github.com/pressly/goose) for database migrations
 
 ## Default Accounts
 
@@ -18,8 +23,14 @@ These accounts are essential to the zero-sum budgeting system. As explained in [
 
 ## Setup
 
-1. Initialize the database
-2. Run migrations
+1. Create a PostgreSQL database for your budget
+2. Run migrations using Goose:
+
+```bash
+goose -dir migrations postgres "user=username password=password dbname=pgbudget sslmode=disable" up
+```
+
+For more configuration options, refer to the [Goose documentation](https://github.com/pressly/goose).
 
 ## Usage Examples
 
@@ -48,7 +59,7 @@ SELECT api.add_transaction(
     'inflow',                   -- type
     1000.00,                    -- amount
     1,                          -- account_id (Checking account)
-    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1)  -- category_id
+    api.find_category(1, 'Income')  -- category_id
 );
 ```
 
@@ -76,8 +87,8 @@ SELECT api.add_transaction(
     'Budget: Groceries',        -- description
     'outflow',                  -- type
     200.00,                     -- amount
-    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1),  -- account_id
-    (SELECT id FROM data.accounts WHERE name = 'Groceries' AND ledger_id = 1)  -- category_id
+    api.find_category(1, 'Income'),  -- account_id
+    api.find_category(1, 'Groceries')  -- category_id
 );
 
 -- Assign $75 to Internet bill
@@ -87,8 +98,8 @@ SELECT api.add_transaction(
     'Budget: Internet',         -- description
     'outflow',                  -- type
     75.00,                      -- amount
-    (SELECT id FROM data.accounts WHERE name = 'Income' AND ledger_id = 1),  -- account_id
-    (SELECT id FROM data.accounts WHERE name = 'Internet bill' AND ledger_id = 1)  -- category_id
+    api.find_category(1, 'Income'),  -- account_id
+    api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
 
@@ -103,7 +114,7 @@ SELECT api.add_transaction(
     'outflow',                  -- type
     15.00,                      -- amount
     1,                          -- account_id (Checking account)
-    (SELECT id FROM data.accounts WHERE name = 'Groceries' AND ledger_id = 1)  -- category_id
+    api.find_category(1, 'Groceries')  -- category_id
 );
 
 -- Pay the entire Internet bill
@@ -114,7 +125,7 @@ SELECT api.add_transaction(
     'outflow',                  -- type
     75.00,                      -- amount
     1,                          -- account_id (Checking account)
-    (SELECT id FROM data.accounts WHERE name = 'Internet bill' AND ledger_id = 1)  -- category_id
+    api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
 
