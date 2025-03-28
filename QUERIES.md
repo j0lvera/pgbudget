@@ -209,6 +209,49 @@ end;
 $$ language plpgsql;
 ```
 
+### Find Category Examples
+
+The `find_category` function can be used in various scenarios where you need to locate a category by name:
+
+```sql
+-- find the "groceries" category in ledger 1
+select api.find_category(1, 'groceries');
+
+-- find the "unassigned" category in ledger 2
+select api.find_category(2, 'unassigned');
+
+-- use the function in a query to get category details
+select 
+    a.id,
+    a.name,
+    a.description
+from 
+    data.accounts a
+where 
+    a.id = api.find_category(1, 'income');
+
+-- check if a category exists before using it
+do $$
+declare
+    v_category_id int;
+begin
+    v_category_id := api.find_category(1, 'entertainment');
+    
+    if v_category_id is null then
+        raise notice 'Entertainment category not found, creating it...';
+        -- code to create the category would go here
+    else
+        raise notice 'Found entertainment category with ID: %', v_category_id;
+    end if;
+end;
+$$;
+```
+
+This function is particularly useful when:
+- Looking up system categories like "income" or "unassigned"
+- Validating that a category exists before performing operations
+- Finding category IDs by name for reporting or transaction creation
+
 ### Add Transaction
 
 This function creates a transaction using user-friendly terminology rather than accounting terms:
