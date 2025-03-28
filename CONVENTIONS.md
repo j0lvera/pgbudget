@@ -1,4 +1,4 @@
-- Always write SQL queries in lowercase.
+- Always write SQL queries in lowercase, but only queries, strings inside queries can be capitalized in any way.
 - Always add comments to each step of the query.
 - Always put the comments above the SQL query.
 - Everything related to defining data shape, should go in the `data` schema.
