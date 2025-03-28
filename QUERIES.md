@@ -35,8 +35,12 @@ SELECT
         ELSE 0 
     END), 0) AS balance
 FROM 
-    -- Start with all accounts
+    -- Start with budget category accounts only
     data.accounts a
+WHERE
+    -- Filter to only include budget categories (equity accounts that aren't system accounts)
+    a.type = 'equity'
+    AND a.name NOT IN ('Income', 'Unallocated')
 -- Include all transactions affecting each account
 LEFT JOIN data.transactions t ON 
     t.credit_account_id = a.id OR t.debit_account_id = a.id
@@ -89,6 +93,10 @@ SELECT
     END), 0) AS balance
 FROM 
     data.accounts a
+WHERE
+    -- Filter to only include budget categories (equity accounts that aren't system accounts)
+    a.type = 'equity'
+    AND a.name NOT IN ('Income', 'Unallocated')
 LEFT JOIN data.transactions t ON 
     t.credit_account_id = a.id OR t.debit_account_id = a.id
 LEFT JOIN data.accounts income ON 
