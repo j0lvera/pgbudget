@@ -6,6 +6,16 @@ A PostgreSQL-based double-entry accounting system for zero-sum budgeting.
 
 pgbudget lets you manage your personal budget directly in PostgreSQL using double-entry accounting principles. It helps you track income, assign money to categories, and record expenses while maintaining balance across all accounts.
 
+## Default Accounts
+
+When creating a new ledger, the system automatically creates three special accounts:
+
+- **Income**: Holds your unallocated funds until you assign them to specific categories
+- **Off-budget**: For transactions you want to track but not include in your budget
+- **Unassigned**: Default category for transactions without a specified category
+
+These accounts are essential to the zero-sum budgeting system. As explained in [Zero-Sum Budgeting with Double-Entry Accounting](https://jolvera.com/zero-sum-budgeting-with-double-entry-accounting/), categories (including Income) function as equity accounts rather than expense accounts because they track what you can spend, not what you've spent. Income serves as "unassigned equity" while budget categories represent "assigned equity." Budgeting is simply the process of moving money from unassigned to assigned status.
+
 ## Setup
 
 1. Initialize the database
