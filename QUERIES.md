@@ -43,7 +43,7 @@ from
 where
     -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    and a.name not in ('Income', 'Unallocated')
+    and a.name not in ('income', 'unallocated')
     
 -- include all transactions affecting each account
 left join data.transactions t on 
@@ -51,7 +51,7 @@ left join data.transactions t on
     
 -- find the Income account in the same ledger
 left join data.accounts income on 
-    income.name = 'Income' and income.ledger_id = a.ledger_id
+    income.name = 'income' and income.ledger_id = a.ledger_id
     
 -- join to get credit account type information
 left join data.accounts credit_acc on 
@@ -105,11 +105,11 @@ from
 where
     -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    and a.name not in ('Income', 'Unallocated')
+    and a.name not in ('income', 'unallocated')
 left join data.transactions t on 
     t.credit_account_id = a.id or t.debit_account_id = a.id
 left join data.accounts income on 
-    income.name = 'Income' and income.ledger_id = a.ledger_id
+    income.name = 'income' and income.ledger_id = a.ledger_id
 left join data.accounts credit_acc on 
     t.credit_account_id = credit_acc.id
 left join data.accounts debit_acc on 
@@ -134,7 +134,7 @@ select * from data.account_balances where balance > 0;
 To support these queries efficiently, add these indexes:
 
 ```sql
--- index for account lookups by name (for finding 'Income' accounts)
+-- index for account lookups by name (for finding 'income' accounts)
 create index idx_accounts_name on data.accounts(name, ledger_id);
 
 -- indexes for transaction lookups
@@ -163,7 +163,7 @@ refresh materialized view data.account_balances_mat;
 ```
 
 This query calculates:
-- **Budgeted**: The amount allocated from Income to each category
+- **Budgeted**: The amount allocated from income to each category
 - **Activity**: Transactions involving real-world accounts (assets/liabilities)
 - **Balance**: The current balance of each account
 
