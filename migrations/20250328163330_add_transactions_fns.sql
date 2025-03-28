@@ -87,16 +87,12 @@ declare
     v_category_id int;
     v_transaction_id int;
     v_unassigned_categories jsonb = '{}'::jsonb;
+    v_results jsonb = '[]'::jsonb;
+    v_has_error boolean = false;
+    v_error_message text;
 begin
-    -- start a transaction block to make the operation atomic
-    -- (will be automatically committed if the function completes successfully)
-    
-    -- create a temporary table to store results
-    create temporary table temp_results (
-        transaction_id int,
-        status text,
-        message text
-    ) on commit drop;
+    -- start an explicit transaction block
+    BEGIN;
     
     -- pre-fetch unassigned categories for all ledgers in the batch
     -- to avoid repeated lookups
@@ -141,25 +137,50 @@ begin
                 v_category_id
             );
             
-            -- store successful result
-            insert into temp_results values (
-                v_transaction_id,
-                'success',
-                'Transaction created successfully'
+            -- store successful result in our results array
+            v_results := v_results || jsonb_build_object(
+                'transaction_id', v_transaction_id,
+                'status', 'success',
+                'message', 'Transaction created successfully'
             );
             
         exception when others then
-            -- store error result
-            insert into temp_results values (
-                null,
-                'error',
-                'Error processing transaction: ' || SQLERRM
+            -- capture error and set error flag
+            v_has_error := true;
+            v_error_message := SQLERRM;
+            
+            -- store error result in our results array
+            v_results := v_results || jsonb_build_object(
+                'transaction_id', null,
+                'status', 'error',
+                'message', 'Error processing transaction: ' || v_error_message
             );
+            
+            -- exit the loop early since we'll be rolling back anyway
+            exit;
         end;
     end loop;
     
-    -- return the results
-    return query select * from temp_results;
+    -- commit or rollback based on success
+    if v_has_error then
+        ROLLBACK;
+        -- Add a note that the entire operation was rolled back
+        v_results := v_results || jsonb_build_object(
+            'transaction_id', null,
+            'status', 'error',
+            'message', 'All transactions rolled back due to error'
+        );
+    else
+        COMMIT;
+    end if;
+    
+    -- return the results from our JSON array
+    return query 
+    select 
+        (r->>'transaction_id')::int as transaction_id,
+        r->>'status' as status,
+        r->>'message' as message
+    from jsonb_array_elements(v_results) as r;
 end;
 $$ language plpgsql;
 -- +goose StatementEnd
