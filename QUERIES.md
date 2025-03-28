@@ -181,22 +181,22 @@ For budget categories (which are equity accounts):
 - A negative balance indicates overspending
 - The difference between budgeted and activity shows how much of your budget remains
 
-## Budget Transaction Functions
+## Transaction Functions
 
-### Add Budget Transaction
+### Add Transaction
 
-This function creates a transaction using budgeting terminology rather than accounting terms:
+This function creates a transaction using user-friendly terminology rather than accounting terms:
 
 ```sql
--- function to add a budget transaction
-create or replace function api.add_budget_transaction(
+-- function to add a transaction
+create or replace function api.add_transaction(
     p_ledger_id int,
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
     p_amount decimal,
     p_account_id int, -- the bank account or credit card
-    p_category_id int -- the budget category
+    p_category_id int -- the category
 ) returns int as $$
 declare
     v_transaction_id int;
@@ -250,7 +250,7 @@ $$ language plpgsql;
 
 ```sql
 -- add an inflow transaction (income received)
-select api.add_budget_transaction(
+select api.add_transaction(
     1,                          -- ledger_id
     '2023-04-15 09:00:00',      -- date
     'Paycheck deposit',         -- description
@@ -261,7 +261,7 @@ select api.add_budget_transaction(
 );
 
 -- add an outflow transaction (spending money)
-select api.add_budget_transaction(
+select api.add_transaction(
     1,                          -- ledger_id
     '2023-04-16 14:30:00',      -- date
     'Grocery shopping',         -- description
