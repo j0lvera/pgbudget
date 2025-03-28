@@ -48,6 +48,21 @@ Result:
   1
 ```
 
+### Create a Checking Account
+
+```sql
+-- Create a checking account (asset type)
+INSERT INTO data.accounts (ledger_id, name, type, internal_type) 
+VALUES (1, 'Checking', 'asset', 'asset_like') RETURNING id;
+```
+
+Result:
+```
+ id 
+----
+  4
+```
+
 ### Add Income
 
 ```sql
@@ -58,7 +73,7 @@ SELECT api.add_transaction(
     'Paycheck',                 -- description
     'inflow',                   -- type
     1000.00,                    -- amount
-    1,                          -- account_id (Checking account)
+    4,                          -- account_id (Checking account)
     api.find_category(1, 'Income')  -- category_id
 );
 ```
@@ -113,7 +128,7 @@ SELECT api.add_transaction(
     'Milk',                     -- description
     'outflow',                  -- type
     15.00,                      -- amount
-    1,                          -- account_id (Checking account)
+    4,                          -- account_id (Checking account)
     api.find_category(1, 'Groceries')  -- category_id
 );
 
@@ -124,7 +139,7 @@ SELECT api.add_transaction(
     'Monthly Internet',         -- description
     'outflow',                  -- type
     75.00,                      -- amount
-    1,                          -- account_id (Checking account)
+    4,                          -- account_id (Checking account)
     api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
