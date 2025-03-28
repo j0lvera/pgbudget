@@ -1,0 +1,1 @@
+- Always write SQL queries in lowercase.
