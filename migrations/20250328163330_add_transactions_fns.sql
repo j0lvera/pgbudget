@@ -15,7 +15,7 @@ declare
     v_debit_account_id int;
     v_credit_account_id int;
     v_category_id int;
-    v_account_behavior text;
+    v_account_internal_type text;
 begin
     -- validate transaction type
     if p_type not in ('inflow', 'outflow') then
@@ -37,17 +37,17 @@ begin
         v_category_id := p_category_id;
     end if;
 
-    -- get the account behavior (asset_like or liability_like)
-    select behavior into v_account_behavior
+    -- get the account internal_type (asset_like or liability_like)
+    select internal_type into v_account_internal_type
     from data.accounts
     where id = p_account_id;
     
-    if v_account_behavior is null then
+    if v_account_internal_type is null then
         raise exception 'Account with ID % not found', p_account_id;
     end if;
     
-    -- determine debit and credit accounts based on account behavior and transaction type
-    if v_account_behavior = 'asset_like' then
+    -- determine debit and credit accounts based on account internal_type and transaction type
+    if v_account_internal_type = 'asset_like' then
         if p_type = 'inflow' then
             -- for inflow to asset_like: debit asset_like (increase), credit category (increase)
             v_debit_account_id := p_account_id;
@@ -57,7 +57,7 @@ begin
             v_debit_account_id := v_category_id;
             v_credit_account_id := p_account_id;
         end if;
-    elsif v_account_behavior = 'liability_like' then
+    elsif v_account_internal_type = 'liability_like' then
         if p_type = 'inflow' then
             -- for inflow to liability_like: debit category (decrease), credit liability_like (increase)
             v_debit_account_id := v_category_id;
@@ -68,7 +68,7 @@ begin
             v_credit_account_id := v_category_id;
         end if;
     else
-        raise exception 'Account behavior % is not supported for transactions', v_account_behavior;
+        raise exception 'Account internal_type % is not supported for transactions', v_account_internal_type;
     end if;
 
     -- insert the transaction and return the new id
