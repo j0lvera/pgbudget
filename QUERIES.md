@@ -7,57 +7,66 @@
 The following query displays a budget view showing each account's budgeted amount, activity, and current balance with optimized performance:
 
 ```sql
--- Select query to display budget information for each account
-SELECT 
-    -- Display the account name
-    a.name AS account_name,
-    -- Calculate money budgeted to this category (transfers from Income)
-    COALESCE(SUM(CASE 
-        WHEN t.debit_account_id = income.id AND t.credit_account_id = a.id 
-        THEN t.amount 
-        ELSE 0 
-    END), 0) AS budgeted,
-    -- Calculate spending activity (transactions with real-world accounts)
-    COALESCE(SUM(CASE 
-        WHEN (t.credit_account_id = a.id OR t.debit_account_id = a.id)
-        AND (credit_acc.type IN ('asset', 'liability') OR debit_acc.type IN ('asset', 'liability'))
-        THEN 
-            CASE 
-                WHEN t.credit_account_id = a.id THEN t.amount 
-                WHEN t.debit_account_id = a.id THEN -t.amount 
-            END
-        ELSE 0 
-    END), 0) AS activity,
-    -- Calculate current balance (all transactions affecting this account)
-    COALESCE(SUM(CASE 
-        WHEN t.credit_account_id = a.id THEN t.amount 
-        WHEN t.debit_account_id = a.id THEN -t.amount 
-        ELSE 0 
-    END), 0) AS balance
-FROM 
-    -- Start with budget category accounts only
+-- select query to display budget information for each account
+select 
+    -- display the account name
+    a.name as account_name,
+    
+    -- calculate money budgeted to this category (transfers from Income)
+    coalesce(sum(case 
+        when t.debit_account_id = income.id and t.credit_account_id = a.id 
+        then t.amount 
+        else 0 
+    end), 0) as budgeted,
+    
+    -- calculate spending activity (transactions with real-world accounts)
+    coalesce(sum(case 
+        when (t.credit_account_id = a.id or t.debit_account_id = a.id)
+        and (credit_acc.type in ('asset', 'liability') or debit_acc.type in ('asset', 'liability'))
+        then 
+            case 
+                when t.credit_account_id = a.id then t.amount 
+                when t.debit_account_id = a.id then -t.amount 
+            end
+        else 0 
+    end), 0) as activity,
+    
+    -- calculate current balance (all transactions affecting this account)
+    coalesce(sum(case 
+        when t.credit_account_id = a.id then t.amount 
+        when t.debit_account_id = a.id then -t.amount 
+        else 0 
+    end), 0) as balance
+from 
+    -- start with budget category accounts only
     data.accounts a
-WHERE
-    -- Filter to only include budget categories (equity accounts that aren't system accounts)
+where
+    -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    AND a.name NOT IN ('Income', 'Unallocated')
--- Include all transactions affecting each account
-LEFT JOIN data.transactions t ON 
-    t.credit_account_id = a.id OR t.debit_account_id = a.id
--- Find the Income account in the same ledger
-LEFT JOIN data.accounts income ON 
-    income.name = 'Income' AND income.ledger_id = a.ledger_id
--- Join to get credit account type information
-LEFT JOIN data.accounts credit_acc ON 
+    and a.name not in ('Income', 'Unallocated')
+    
+-- include all transactions affecting each account
+left join data.transactions t on 
+    t.credit_account_id = a.id or t.debit_account_id = a.id
+    
+-- find the Income account in the same ledger
+left join data.accounts income on 
+    income.name = 'Income' and income.ledger_id = a.ledger_id
+    
+-- join to get credit account type information
+left join data.accounts credit_acc on 
     t.credit_account_id = credit_acc.id
--- Join to get debit account type information
-LEFT JOIN data.accounts debit_acc ON 
+    
+-- join to get debit account type information
+left join data.accounts debit_acc on 
     t.debit_account_id = debit_acc.id
--- Group results by account
-GROUP BY 
+    
+-- group results by account
+group by 
     a.id, a.name
--- Sort alphabetically by account name
-ORDER BY 
+    
+-- sort alphabetically by account name
+order by 
     a.name;
 ```
 
@@ -66,58 +75,58 @@ ORDER BY
 For better performance, create a view using the optimized query:
 
 ```sql
--- Create the view
-CREATE OR REPLACE VIEW data.account_balances AS
-SELECT 
+-- create the view
+create or replace view data.account_balances as
+select 
     a.ledger_id,
-    a.name AS account_name,
-    COALESCE(SUM(CASE 
-        WHEN t.debit_account_id = income.id AND t.credit_account_id = a.id 
-        THEN t.amount 
-        ELSE 0 
-    END), 0) AS budgeted,
-    COALESCE(SUM(CASE 
-        WHEN (t.credit_account_id = a.id OR t.debit_account_id = a.id)
-        AND (credit_acc.type IN ('asset', 'liability') OR debit_acc.type IN ('asset', 'liability'))
-        THEN 
-            CASE 
-                WHEN t.credit_account_id = a.id THEN t.amount 
-                WHEN t.debit_account_id = a.id THEN -t.amount 
-            END
-        ELSE 0 
-    END), 0) AS activity,
-    COALESCE(SUM(CASE 
-        WHEN t.credit_account_id = a.id THEN t.amount 
-        WHEN t.debit_account_id = a.id THEN -t.amount 
-        ELSE 0 
-    END), 0) AS balance
-FROM 
+    a.name as account_name,
+    coalesce(sum(case 
+        when t.debit_account_id = income.id and t.credit_account_id = a.id 
+        then t.amount 
+        else 0 
+    end), 0) as budgeted,
+    coalesce(sum(case 
+        when (t.credit_account_id = a.id or t.debit_account_id = a.id)
+        and (credit_acc.type in ('asset', 'liability') or debit_acc.type in ('asset', 'liability'))
+        then 
+            case 
+                when t.credit_account_id = a.id then t.amount 
+                when t.debit_account_id = a.id then -t.amount 
+            end
+        else 0 
+    end), 0) as activity,
+    coalesce(sum(case 
+        when t.credit_account_id = a.id then t.amount 
+        when t.debit_account_id = a.id then -t.amount 
+        else 0 
+    end), 0) as balance
+from 
     data.accounts a
-WHERE
-    -- Filter to only include budget categories (equity accounts that aren't system accounts)
+where
+    -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    AND a.name NOT IN ('Income', 'Unallocated')
-LEFT JOIN data.transactions t ON 
-    t.credit_account_id = a.id OR t.debit_account_id = a.id
-LEFT JOIN data.accounts income ON 
-    income.name = 'Income' AND income.ledger_id = a.ledger_id
-LEFT JOIN data.accounts credit_acc ON 
+    and a.name not in ('Income', 'Unallocated')
+left join data.transactions t on 
+    t.credit_account_id = a.id or t.debit_account_id = a.id
+left join data.accounts income on 
+    income.name = 'Income' and income.ledger_id = a.ledger_id
+left join data.accounts credit_acc on 
     t.credit_account_id = credit_acc.id
-LEFT JOIN data.accounts debit_acc ON 
+left join data.accounts debit_acc on 
     t.debit_account_id = debit_acc.id
-GROUP BY 
+group by 
     a.id, a.name, a.ledger_id
-ORDER BY 
+order by 
     a.name;
 
--- Then query it simply with:
-SELECT * FROM data.account_balances;
+-- then query it simply with:
+select * from data.account_balances;
 
--- Or filter by ledger:
-SELECT * FROM data.account_balances WHERE ledger_id = 1;
+-- or filter by ledger:
+select * from data.account_balances where ledger_id = 1;
 
--- Or filter by balance:
-SELECT * FROM data.account_balances WHERE balance > 0;
+-- or filter by balance:
+select * from data.account_balances where balance > 0;
 ```
 
 ### Recommended Indexes
@@ -125,18 +134,18 @@ SELECT * FROM data.account_balances WHERE balance > 0;
 To support these queries efficiently, add these indexes:
 
 ```sql
--- Index for account lookups by name (for finding 'Income' accounts)
-CREATE INDEX idx_accounts_name ON data.accounts(name, ledger_id);
+-- index for account lookups by name (for finding 'Income' accounts)
+create index idx_accounts_name on data.accounts(name, ledger_id);
 
--- Indexes for transaction lookups
-CREATE INDEX idx_transactions_credit_account ON data.transactions(credit_account_id);
-CREATE INDEX idx_transactions_debit_account ON data.transactions(debit_account_id);
+-- indexes for transaction lookups
+create index idx_transactions_credit_account on data.transactions(credit_account_id);
+create index idx_transactions_debit_account on data.transactions(debit_account_id);
 
--- Composite index for account type lookups
-CREATE INDEX idx_accounts_type ON data.accounts(id, type);
+-- composite index for account type lookups
+create index idx_accounts_type on data.accounts(id, type);
 
--- Composite index for budget category filtering
-CREATE INDEX idx_accounts_budget_filter ON data.accounts(ledger_id, type, name);
+-- composite index for budget category filtering
+create index idx_accounts_budget_filter on data.accounts(ledger_id, type, name);
 ```
 
 ### For Large Datasets: Materialized View
@@ -144,12 +153,13 @@ CREATE INDEX idx_accounts_budget_filter ON data.accounts(ledger_id, type, name);
 For large datasets, consider using a materialized view that can be refreshed periodically:
 
 ```sql
-CREATE MATERIALIZED VIEW data.account_balances_mat AS
--- Same query as the optimized view above
+-- create materialized view for better performance
+create materialized view data.account_balances_mat as
+-- same query as the optimized view above
 ;
 
--- Then refresh when needed:
-REFRESH MATERIALIZED VIEW data.account_balances_mat;
+-- then refresh when needed:
+refresh materialized view data.account_balances_mat;
 ```
 
 This query calculates:
