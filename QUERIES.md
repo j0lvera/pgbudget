@@ -12,7 +12,7 @@ select
     -- display the account name
     a.name as account_name,
     
-    -- calculate money budgeted to this category (transfers from Income)
+    -- calculate money budgeted to this category (transfers from income)
     coalesce(sum(case 
         when t.debit_account_id = income.id and t.credit_account_id = a.id 
         then t.amount 
@@ -43,7 +43,9 @@ from
 where
     -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    and a.name not in ('income', 'unallocated')
+    and a.name not in ('income', 'unassigned')
+    -- filter by ledger_id
+    and a.ledger_id = 1
     
 -- include all transactions affecting each account
 left join data.transactions t on 
@@ -105,7 +107,7 @@ from
 where
     -- filter to only include budget categories (equity accounts that aren't system accounts)
     a.type = 'equity'
-    and a.name not in ('income', 'unallocated')
+    and a.name not in ('income', 'unassigned')
 left join data.transactions t on 
     t.credit_account_id = a.id or t.debit_account_id = a.id
 left join data.accounts income on 
