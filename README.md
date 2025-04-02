@@ -96,24 +96,20 @@ INSERT INTO data.accounts (ledger_id, name, type, internal_type)
 VALUES (1, 'Internet bill', 'equity', 'liability_like') RETURNING id;
 
 -- Assign $200 to Groceries
-SELECT api.add_transaction(
+SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Groceries',        -- description
-    'outflow',                  -- type
     200.00,                     -- amount
-    api.find_category(1, 'Income'),  -- account_id
     api.find_category(1, 'Groceries')  -- category_id
 );
 
 -- Assign $75 to Internet bill
-SELECT api.add_transaction(
+SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Internet',         -- description
-    'outflow',                  -- type
     75.00,                      -- amount
-    api.find_category(1, 'Income'),  -- account_id
     api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
