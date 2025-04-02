@@ -73,6 +73,13 @@ The `api.add_account` function simplifies creating accounts by automatically set
 
 It returns the ID of the newly created account.
 
+The `api.add_account` function simplifies creating accounts by automatically setting the correct internal type. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `name`: The name of the account to create
+- `type`: The account type ('asset', 'liability', or 'equity')
+
+It returns the ID of the newly created account.
+
 ### Add Income
 
 ```sql
