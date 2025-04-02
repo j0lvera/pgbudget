@@ -114,6 +114,13 @@ SELECT api.assign_to_category(
 );
 ```
 
+The `api.assign_to_category` function handles moving money from your Income account to specific budget categories. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `date`: When the assignment occurs
+- `description`: A description for the assignment
+- `amount`: How much money to assign (must be positive)
+- `category_id`: The category to assign money to
+
 ### Spend Money
 
 ```sql
