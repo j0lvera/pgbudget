@@ -217,64 +217,32 @@ func TestDatabase(t *testing.T) {
 						t.Skip("Skipping because required accounts were not created")
 					}
 
-					// Create a transaction
+					// Create a transaction with proper debit and credit accounts
 					var txID int
 					err = conn.QueryRow(
 						ctx,
-						`INSERT INTO data.transactions (ledger_id, description, date) 
-				 VALUES ($1, $2, $3) RETURNING id`,
-						ledgerID, "Grocery shopping", "2023-01-01",
+						`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
+				 VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+						ledgerID, "Grocery shopping", "2023-01-01", groceriesID, checkingID, 50.00,
 					).Scan(&txID)
 					is.NoErr(err)     // Should create transaction without error
 					is.True(txID > 0) // Should return a valid transaction ID
 
-					// Create entries for the transaction
-					_, err = conn.Exec(
-						ctx,
-						`INSERT INTO data.entries (transaction_id, account_id, amount) 
-				 VALUES ($1, $2, $3), ($1, $4, $5)`,
-						txID, checkingID, -50.00, groceriesID, -50.00,
-					)
-					is.NoErr(err) // Should create entries without error
-
-					// Verify transaction entries were created correctly
-					var count int
+					// Verify the transaction was created correctly
+					var description string
+					var debitAccountID int
+					var creditAccountID int
+					var amount float64
 					err = conn.QueryRow(
 						ctx,
-						"SELECT COUNT(*) FROM data.entries WHERE transaction_id = $1",
+						"SELECT description, debit_account_id, credit_account_id, amount FROM data.transactions WHERE id = $1",
 						txID,
-					).Scan(&count)
-					is.NoErr(err) // Should query entries without error
-					is.Equal(
-						2, count,
-					) // Transaction should have exactly 2 entries
-
-					// Verify account balances
-					var checkingBalance float64
-					err = conn.QueryRow(
-						ctx,
-						`SELECT COALESCE(SUM(amount), 0) 
-				 FROM data.entries 
-				 WHERE account_id = $1`,
-						checkingID,
-					).Scan(&checkingBalance)
-					is.NoErr(err) // Should get checking balance without error
-					is.Equal(
-						-50.00, checkingBalance,
-					) // Checking account should be debited
-
-					var groceriesBalance float64
-					err = conn.QueryRow(
-						ctx,
-						`SELECT COALESCE(SUM(amount), 0) 
-				 FROM data.entries 
-				 WHERE account_id = $1`,
-						groceriesID,
-					).Scan(&groceriesBalance)
-					is.NoErr(err) // Should get groceries balance without error
-					is.Equal(
-						-50.00, groceriesBalance,
-					) // Groceries account should be debited
+					).Scan(&description, &debitAccountID, &creditAccountID, &amount)
+					is.NoErr(err) // Should find the created transaction
+					is.Equal("Grocery shopping", description) // Transaction should have the correct description
+					is.Equal(groceriesID, debitAccountID)     // Transaction should debit the groceries account
+					is.Equal(checkingID, creditAccountID)     // Transaction should credit the checking account
+					is.Equal(50.00, amount)                   // Transaction should have the correct amount
 				},
 			)
 		},
