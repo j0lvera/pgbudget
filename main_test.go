@@ -152,15 +152,14 @@ func TestDatabase(t *testing.T) {
 
 			// Test cases for different account types
 			testCases := []struct {
-				name          string
-				accountType   string
-				assetLike     bool
-				liabilityLike bool
+				name         string
+				accountType  string
+				internalType string
 			}{
-				{"Checking", "asset", true, false},
-				{"Credit Card", "liability", false, true},
-				{"Groceries", "equity", false, true},
-				{"Salary", "equity", false, true},
+				{"Checking", "asset", "asset_like"},
+				{"Credit Card", "liability", "liability_like"},
+				{"Groceries", "equity", "liability_like"},
+				{"Salary", "equity", "liability_like"},
 			}
 
 			// Store account IDs for later tests
@@ -174,8 +173,8 @@ func TestDatabase(t *testing.T) {
 						var accountID int
 						err = conn.QueryRow(
 							ctx,
-							"INSERT INTO data.accounts (ledger_id, name, type, asset_like, liability_like) VALUES ($1, $2, $3, $4, $5) RETURNING id",
-							ledgerID, tc.name, tc.accountType, tc.assetLike, tc.liabilityLike,
+							"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
+							ledgerID, tc.name, tc.accountType, tc.internalType,
 						).Scan(&accountID)
 						is.NoErr(err)          // Should create account without error
 						is.True(accountID > 0) // Should return a valid account ID
@@ -186,13 +185,12 @@ func TestDatabase(t *testing.T) {
 						// Verify the account was created correctly
 						var name string
 						var accountType string
-						var assetLike bool
-						var liabilityLike bool
+						var internalType string
 						err = conn.QueryRow(
 							ctx,
-							"SELECT name, type, asset_like, liability_like FROM data.accounts WHERE id = $1",
+							"SELECT name, type, internal_type FROM data.accounts WHERE id = $1",
 							accountID,
-						).Scan(&name, &accountType, &assetLike, &liabilityLike)
+						).Scan(&name, &accountType, &internalType)
 						is.NoErr(err) // Should find the created account
 						is.Equal(
 							tc.name, name,
@@ -201,11 +199,8 @@ func TestDatabase(t *testing.T) {
 							tc.accountType, accountType,
 						) // Account should have the correct type
 						is.Equal(
-							tc.assetLike, assetLike,
-						) // Account should have correct asset_like value
-						is.Equal(
-							tc.liabilityLike, liabilityLike,
-						) // Account should have correct liability_like value
+							tc.internalType, internalType,
+						) // Account should have correct internal type
 					},
 				)
 			}
