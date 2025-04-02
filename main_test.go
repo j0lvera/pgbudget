@@ -247,4 +247,68 @@ func TestDatabase(t *testing.T) {
 			)
 		},
 	)
+
+	// Test the find_category function
+	t.Run("FindCategory", func(t *testing.T) {
+		is := is.New(t)
+		
+		// Skip if ledger creation failed
+		if ledgerID <= 0 {
+			t.Skip("Skipping because ledger creation failed")
+		}
+		
+		// Test cases for different categories
+		testCases := []struct {
+			name           string
+			expectedToFind bool
+		}{
+			{"Income", true},        // Should find the default Income category
+			{"Unassigned", true},    // Should find the default Unassigned category
+			{"Off-budget", true},    // Should find the default Off-budget category
+			{"Groceries", true},     // Should find the Groceries category we created
+			{"NonExistentCategory", false}, // Should not find a non-existent category
+		}
+		
+		for _, tc := range testCases {
+			t.Run(tc.name, func(t *testing.T) {
+				is := is.New(t) // Create a new instance for each subtest
+				
+				var categoryID int
+				var found bool
+				
+				// Call the find_category function
+				err := conn.QueryRow(
+					ctx,
+					"SELECT api.find_category($1, $2)",
+					ledgerID, tc.name,
+				).Scan(&categoryID)
+				
+				// Check if category was found
+				if err != nil {
+					if tc.expectedToFind {
+						is.NoErr(err) // Should not have errors for categories we expect to find
+					} else {
+						// We expect an error for non-existent categories
+						found = false
+					}
+				} else {
+					found = categoryID > 0
+				}
+				
+				if tc.expectedToFind {
+					is.True(found) // Category should be found
+					is.True(categoryID > 0) // Should return a valid category ID
+					
+					var name string
+					err = conn.QueryRow(
+						ctx,
+						"SELECT name FROM data.accounts WHERE id = $1 AND ledger_id = $2",
+						categoryID, ledgerID,
+					).Scan(&name)
+					is.NoErr(err) // Should find the category
+					is.Equal(tc.name, name) // Category should have the correct name
+				}
+			})
+		}
+	})
 }
