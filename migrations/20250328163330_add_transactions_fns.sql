@@ -224,6 +224,7 @@ end;
 $$ language plpgsql;
 -- +goose StatementEnd
 
+
 -- +goose Down
 -- +goose StatementBegin
 -- drop the functions in reverse order
