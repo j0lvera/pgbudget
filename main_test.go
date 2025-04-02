@@ -311,4 +311,105 @@ func TestDatabase(t *testing.T) {
 			})
 		}
 	})
+
+	// Test the get_budget_status function
+	t.Run("GetBudgetStatus", func(t *testing.T) {
+		is := is.New(t)
+		
+		// Skip if ledger creation failed
+		if ledgerID <= 0 {
+			t.Skip("Skipping because ledger creation failed")
+		}
+		
+		// First, create a transaction to budget money from Income to Groceries
+		// Find the Income account ID
+		var incomeID int
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Income'",
+			ledgerID,
+		).Scan(&incomeID)
+		is.NoErr(err) // Should find the Income account
+		
+		// Find the Groceries account ID
+		var groceriesID int
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Groceries'",
+			ledgerID,
+		).Scan(&groceriesID)
+		is.NoErr(err) // Should find the Groceries account
+		
+		// Find the Checking account ID
+		var checkingID int
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Checking'",
+			ledgerID,
+		).Scan(&checkingID)
+		is.NoErr(err) // Should find the Checking account
+		
+		// 1. Create a transaction to simulate receiving income
+		var incomeTxID int
+		err = conn.QueryRow(
+			ctx,
+			`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			ledgerID, "Salary deposit", "2023-01-01", checkingID, incomeID, 1000.00,
+		).Scan(&incomeTxID)
+		is.NoErr(err) // Should create income transaction without error
+		
+		// 2. Create a transaction to budget money from Income to Groceries
+		var budgetTxID int
+		err = conn.QueryRow(
+			ctx,
+			`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			ledgerID, "Budget for groceries", "2023-01-01", incomeID, groceriesID, 200.00,
+		).Scan(&budgetTxID)
+		is.NoErr(err) // Should create budgeting transaction without error
+		
+		// 3. Create a transaction to spend from Groceries
+		var spendTxID int
+		err = conn.QueryRow(
+			ctx,
+			`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
+			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+			ledgerID, "Grocery shopping", "2023-01-02", groceriesID, checkingID, 75.00,
+		).Scan(&spendTxID)
+		is.NoErr(err) // Should create spending transaction without error
+		
+		// Now call the get_budget_status function and verify the results
+		rows, err := conn.Query(
+			ctx,
+			"SELECT * FROM api.get_budget_status($1) WHERE account_name = 'Groceries'",
+			ledgerID,
+		)
+		is.NoErr(err) // Should query budget status without error
+		defer rows.Close()
+		
+		// We should have one row for Groceries
+		is.True(rows.Next()) // Should have at least one row
+		
+		var id int
+		var accountName string
+		var budgeted float64
+		var activity float64
+		var balance float64
+		
+		err = rows.Scan(&id, &accountName, &budgeted, &activity, &balance)
+		is.NoErr(err) // Should scan row without error
+		
+		// Verify the budget status values
+		is.Equal("Groceries", accountName) // Should be the Groceries account
+		is.Equal(200.00, budgeted)         // Should show $200 budgeted
+		is.Equal(-75.00, activity)         // Should show -$75 activity (money spent)
+		is.Equal(125.00, balance)          // Should show $125 balance ($200 - $75)
+		
+		// Make sure there are no more rows for Groceries
+		is.False(rows.Next()) // Should have exactly one row for Groceries
+		
+		// Check for any errors from iterating over rows
+		is.NoErr(rows.Err())
+	})
 }
