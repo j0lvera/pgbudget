@@ -45,6 +45,16 @@ func TestMain(m *testing.M) {
 	os.Exit(exitCode)
 }
 
+// Helper function to check if a slice contains a string
+func contains(slice []string, str string) bool {
+	for _, item := range slice {
+		if item == str {
+			return true
+		}
+	}
+	return false
+}
+
 // TestDatabase uses nested subtests to share context between tests
 func TestDatabase(t *testing.T) {
 	// Setup logging
@@ -106,16 +116,29 @@ func TestDatabase(t *testing.T) {
 
 			// Verify that the internal accounts were created
 			var accountNames []string
-			err = conn.QueryRow(
+			rows, err := conn.Query(
 				ctx,
-				"SELECT name FROM data.accounts WHERE ledger_id = $1",
+				"SELECT name FROM data.accounts WHERE ledger_id = $1 ORDER BY name",
 				ledgerID,
-			).Scan(&accountNames)
-			log.Info().Interface("accounts", accountNames).Msg("Accounts")
-			is.NoErr(err) // Should query accounts without error
-			is.Equal(
-				accountNames[0], "Income",
 			)
+			is.NoErr(err) // Should query accounts without error
+			defer rows.Close()
+
+			// Collect all account names
+			for rows.Next() {
+				var name string
+				err = rows.Scan(&name)
+				is.NoErr(err)
+				accountNames = append(accountNames, name)
+			}
+			is.NoErr(rows.Err())
+
+			log.Info().Interface("accounts", accountNames).Msg("Accounts")
+			// According to README.md, we should have Income, Off-budget, and Unassigned accounts
+			is.Equal(3, len(accountNames)) // Should have 3 default accounts
+			is.True(contains(accountNames, "Income"))
+			is.True(contains(accountNames, "Off-budget"))
+			is.True(contains(accountNames, "Unassigned"))
 		},
 	)
 
@@ -129,14 +152,15 @@ func TestDatabase(t *testing.T) {
 
 			// Test cases for different account types
 			testCases := []struct {
-				name              string
-				accountType       string
-				shouldBeAssetLike bool
+				name          string
+				accountType   string
+				assetLike     bool
+				liabilityLike bool
 			}{
-				{"Checking", "asset", true},
-				{"Credit Card", "liability", false},
-				{"Groceries", "equity", false},
-				{"Salary", "equity", false},
+				{"Checking", "asset", true, false},
+				{"Credit Card", "liability", false, true},
+				{"Groceries", "equity", false, true},
+				{"Salary", "equity", false, true},
 			}
 
 			// Store account IDs for later tests
@@ -150,9 +174,8 @@ func TestDatabase(t *testing.T) {
 						var accountID int
 						err = conn.QueryRow(
 							ctx,
-							"INSERT INTO data.accounts (ledger_id, name, type, is_asset_like) VALUES ($1, $2, $3, $4) RETURNING id",
-							ledgerID, tc.name, tc.accountType,
-							tc.shouldBeAssetLike,
+							"INSERT INTO data.accounts (ledger_id, name, type, asset_like, liability_like) VALUES ($1, $2, $3, $4, $5) RETURNING id",
+							ledgerID, tc.name, tc.accountType, tc.assetLike, tc.liabilityLike,
 						).Scan(&accountID)
 						is.NoErr(err)          // Should create account without error
 						is.True(accountID > 0) // Should return a valid account ID
@@ -163,12 +186,13 @@ func TestDatabase(t *testing.T) {
 						// Verify the account was created correctly
 						var name string
 						var accountType string
-						var isAssetLike bool
+						var assetLike bool
+						var liabilityLike bool
 						err = conn.QueryRow(
 							ctx,
-							"SELECT name, type, is_asset_like FROM data.accounts WHERE id = $1",
+							"SELECT name, type, asset_like, liability_like FROM data.accounts WHERE id = $1",
 							accountID,
-						).Scan(&name, &accountType, &isAssetLike)
+						).Scan(&name, &accountType, &assetLike, &liabilityLike)
 						is.NoErr(err) // Should find the created account
 						is.Equal(
 							tc.name, name,
@@ -177,8 +201,11 @@ func TestDatabase(t *testing.T) {
 							tc.accountType, accountType,
 						) // Account should have the correct type
 						is.Equal(
-							tc.shouldBeAssetLike, isAssetLike,
-						) // Account should have correct is_asset_like value
+							tc.assetLike, assetLike,
+						) // Account should have correct asset_like value
+						is.Equal(
+							tc.liabilityLike, liabilityLike,
+						) // Account should have correct liability_like value
 					},
 				)
 			}
