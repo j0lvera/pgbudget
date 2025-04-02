@@ -93,16 +93,6 @@ declare
     v_internal_type text;
     v_income_id int;
 begin
-    -- validate the account name is not empty
-    if p_name is null or trim(p_name) = '' then
-        raise exception 'Account name cannot be empty';
-    end if;
-    
-    -- validate account type
-    if p_type not in ('asset', 'liability', 'equity') then
-        raise exception 'Invalid account type: %. Must be asset, liability, or equity', p_type;
-    end if;
-    
     -- determine internal type based on account type
     if p_type = 'asset' then
         v_internal_type := 'asset_like';
