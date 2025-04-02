@@ -4,6 +4,7 @@ go 1.23.3
 
 require (
 	github.com/jackc/pgx/v5 v5.7.4
+	github.com/matryer/is v1.4.1
 	github.com/pressly/goose/v3 v3.24.2
 	github.com/rs/zerolog v1.34.0
 	github.com/testcontainers/testcontainers-go v0.36.0

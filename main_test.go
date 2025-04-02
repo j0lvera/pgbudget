@@ -8,9 +8,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/matryer/is"
 	"github.com/rs/zerolog"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/j0lvera/pgbudget/testutils"
 )
@@ -49,27 +48,29 @@ func TestMain(m *testing.M) {
 
 // TestDatabaseConnection verifies we can connect to the test database
 func TestDatabaseConnection(t *testing.T) {
+	is := is.New(t)
 	ctx := context.Background()
 
 	// Connect to the database
 	conn, err := pgx.Connect(ctx, testDSN)
-	require.NoError(t, err, "Should connect to database without error")
+	is.NoErr(err) // Should connect to database without error
 	defer conn.Close(ctx)
 
 	// Verify connection works with a simple query
 	var result int
 	err = conn.QueryRow(ctx, "SELECT 1").Scan(&result)
-	require.NoError(t, err, "Should execute query without error")
-	assert.Equal(t, 1, result, "Should return expected result")
+	is.NoErr(err) // Should execute query without error
+	is.Equal(1, result) // Should return expected result
 }
 
 // TestCreateLedger tests the creation of a new ledger
 func TestCreateLedger(t *testing.T) {
+	is := is.New(t)
 	ctx := context.Background()
 
 	// Connect to the database
 	conn, err := pgx.Connect(ctx, testDSN)
-	require.NoError(t, err, "Should connect to database without error")
+	is.NoErr(err) // Should connect to database without error
 	defer conn.Close(ctx)
 
 	// Create a new ledger
@@ -79,8 +80,8 @@ func TestCreateLedger(t *testing.T) {
 		"SELECT api.create_ledger($1)",
 		"Test Ledger",
 	).Scan(&ledgerID)
-	require.NoError(t, err, "Should create ledger without error")
-	assert.Greater(t, ledgerID, 0, "Should return a valid ledger ID")
+	is.NoErr(err) // Should create ledger without error
+	is.True(ledgerID > 0) // Should return a valid ledger ID
 
 	// Verify the ledger was created correctly
 	var name string
@@ -89,17 +90,18 @@ func TestCreateLedger(t *testing.T) {
 		"SELECT name FROM data.ledgers WHERE id = $1",
 		ledgerID,
 	).Scan(&name)
-	require.NoError(t, err, "Should find the created ledger")
-	assert.Equal(t, "Test Ledger", name, "Ledger should have the correct name")
+	is.NoErr(err) // Should find the created ledger
+	is.Equal("Test Ledger", name) // Ledger should have the correct name
 }
 
 // TestCreateAccount tests the creation of accounts in a ledger
 func TestCreateAccount(t *testing.T) {
+	is := is.New(t)
 	ctx := context.Background()
 
 	// Connect to the database
 	conn, err := pgx.Connect(ctx, testDSN)
-	require.NoError(t, err, "Should connect to database without error")
+	is.NoErr(err) // Should connect to database without error
 	defer conn.Close(ctx)
 
 	// Create a test ledger
@@ -109,7 +111,7 @@ func TestCreateAccount(t *testing.T) {
 		"SELECT api.create_ledger($1)",
 		"Account Test Ledger",
 	).Scan(&ledgerID)
-	require.NoError(t, err, "Should create ledger without error")
+	is.NoErr(err) // Should create ledger without error
 
 	// Test cases for different account types
 	testCases := []struct {
@@ -127,16 +129,15 @@ func TestCreateAccount(t *testing.T) {
 		t.Run(
 			fmt.Sprintf("Account type: %s", tc.accountType),
 			func(t *testing.T) {
+				is := is.New(t) // Create a new instance for each subtest
 				var accountID int
 				err = conn.QueryRow(
 					ctx,
 					"SELECT api.create_account($1, $2, $3)",
 					ledgerID, tc.name, tc.accountType,
 				).Scan(&accountID)
-				require.NoError(t, err, "Should create account without error")
-				assert.Greater(
-					t, accountID, 0, "Should return a valid account ID",
-				)
+				is.NoErr(err) // Should create account without error
+				is.True(accountID > 0) // Should return a valid account ID
 
 				// Verify the account was created correctly
 				var name string
@@ -147,18 +148,10 @@ func TestCreateAccount(t *testing.T) {
 					"SELECT name, type, is_asset_like FROM data.accounts WHERE id = $1",
 					accountID,
 				).Scan(&name, &accountType, &isAssetLike)
-				require.NoError(t, err, "Should find the created account")
-				assert.Equal(
-					t, tc.name, name, "Account should have the correct name",
-				)
-				assert.Equal(
-					t, tc.accountType, accountType,
-					"Account should have the correct type",
-				)
-				assert.Equal(
-					t, tc.shouldBeAssetLike, isAssetLike,
-					"Account should have correct is_asset_like value",
-				)
+				is.NoErr(err) // Should find the created account
+				is.Equal(tc.name, name) // Account should have the correct name
+				is.Equal(tc.accountType, accountType) // Account should have the correct type
+				is.Equal(tc.shouldBeAssetLike, isAssetLike) // Account should have correct is_asset_like value
 			},
 		)
 	}
@@ -166,11 +159,12 @@ func TestCreateAccount(t *testing.T) {
 
 // TestTransaction tests creating and retrieving transactions
 func TestTransaction(t *testing.T) {
+	is := is.New(t)
 	ctx := context.Background()
 
 	// Connect to the database
 	conn, err := pgx.Connect(ctx, testDSN)
-	require.NoError(t, err, "Should connect to database without error")
+	is.NoErr(err) // Should connect to database without error
 	defer conn.Close(ctx)
 
 	// Create a test ledger
@@ -180,7 +174,7 @@ func TestTransaction(t *testing.T) {
 		"SELECT api.create_ledger($1)",
 		"Transaction Test Ledger",
 	).Scan(&ledgerID)
-	require.NoError(t, err, "Should create ledger without error")
+	is.NoErr(err) // Should create ledger without error
 
 	// Create test accounts
 	var checkingID, groceriesID int
@@ -189,14 +183,14 @@ func TestTransaction(t *testing.T) {
 		"SELECT api.create_account($1, $2, $3)",
 		ledgerID, "Checking", "asset",
 	).Scan(&checkingID)
-	require.NoError(t, err, "Should create checking account without error")
+	is.NoErr(err) // Should create checking account without error
 
 	err = conn.QueryRow(
 		ctx,
 		"SELECT api.create_account($1, $2, $3)",
 		ledgerID, "Groceries", "equity",
 	).Scan(&groceriesID)
-	require.NoError(t, err, "Should create groceries account without error")
+	is.NoErr(err) // Should create groceries account without error
 
 	// Create a transaction
 	var txID int
@@ -210,8 +204,8 @@ func TestTransaction(t *testing.T) {
 		groceriesID,
 		50.00,
 	).Scan(&txID)
-	require.NoError(t, err, "Should create transaction without error")
-	assert.Greater(t, txID, 0, "Should return a valid transaction ID")
+	is.NoErr(err) // Should create transaction without error
+	is.True(txID > 0) // Should return a valid transaction ID
 
 	// Verify transaction entries were created correctly
 	var count int
@@ -220,8 +214,8 @@ func TestTransaction(t *testing.T) {
 		"SELECT COUNT(*) FROM data.entries WHERE transaction_id = $1",
 		txID,
 	).Scan(&count)
-	require.NoError(t, err, "Should query entries without error")
-	assert.Equal(t, 2, count, "Transaction should have exactly 2 entries")
+	is.NoErr(err) // Should query entries without error
+	is.Equal(2, count) // Transaction should have exactly 2 entries
 
 	// Verify account balances
 	var checkingBalance, groceriesBalance float64
@@ -230,18 +224,14 @@ func TestTransaction(t *testing.T) {
 		"SELECT api.get_account_balance($1)",
 		checkingID,
 	).Scan(&checkingBalance)
-	require.NoError(t, err, "Should get checking balance without error")
-	assert.Equal(
-		t, -50.00, checkingBalance, "Checking account should be debited",
-	)
+	is.NoErr(err) // Should get checking balance without error
+	is.Equal(-50.00, checkingBalance) // Checking account should be debited
 
 	err = conn.QueryRow(
 		ctx,
 		"SELECT api.get_account_balance($1)",
 		groceriesID,
 	).Scan(&groceriesBalance)
-	require.NoError(t, err, "Should get groceries balance without error")
-	assert.Equal(
-		t, -50.00, groceriesBalance, "Groceries account should be debited",
-	)
+	is.NoErr(err) // Should get groceries balance without error
+	is.Equal(-50.00, groceriesBalance) // Groceries account should be debited
 }
