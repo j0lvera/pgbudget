@@ -73,7 +73,12 @@ func (p *PgContainer) Host() string {
 	return p.cfg.host
 }
 
-func (p *PgContainer) setup(ctx context.Context) (*PgContainerOutput, error) {
+func (c *Config) WithMigrationsPath(path string) *Config {
+	c.migrationsPath = path
+	return c
+}
+
+func (p *PgContainer) Start(ctx context.Context) (*PgContainerOutput, error) {
 	pgc, err := postgres.Run(
 		ctx,
 		p.cfg.image,
@@ -110,10 +115,23 @@ func (p *PgContainer) setup(ctx context.Context) (*PgContainerOutput, error) {
 		p.cfg.dbName,
 	)
 
-	return &PgContainerOutput{dsn: dsn}, nil
+	output := &PgContainerOutput{dsn: dsn}
+	
+	// Run migrations if a migrations path is specified
+	if p.cfg.migrationsPath != "" {
+		if err := p.migrate(ctx, dsn); err != nil {
+			return nil, fmt.Errorf("failed to run migrations: %w", err)
+		}
+	}
+	
+	return output, nil
 }
 
-func (p *PgContainer) migrate(ctx context.Context, dns string) error {
+func (o *PgContainerOutput) DSN() string {
+	return o.dsn
+}
+
+func (p *PgContainer) migrate(ctx context.Context, dsn string) error {
 	conn, err := pgx.Connect(ctx, dns)
 	if err != nil {
 		return fmt.Errorf("unable to open database connection: %w", err)
