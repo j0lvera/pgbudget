@@ -236,3 +236,33 @@ JOIN data.accounts ca ON t.credit_account_id = ca.id
 WHERE da.ledger_id = 1
 ORDER BY t.date;
 ```
+
+### View Account Transactions
+
+```sql
+-- View transactions for a specific account
+SELECT * FROM api.get_account_transactions(4);  -- Replace 4 with your account ID
+```
+
+Result:
+```
+        date        |   category    | description  |   type   | amount 
+--------------------+---------------+--------------+----------+--------
+ 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  15.00
+ 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  75.00
+ 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 1000.00
+```
+
+The account transactions view shows:
+- **date**: When the transaction occurred
+- **category**: The budget category associated with the transaction
+- **description**: The transaction description
+- **type**: Whether money flowed into the account (inflow) or out of it (outflow)
+- **amount**: The transaction amount (positive for inflows, negative for outflows)
+
+You can also use the default view for a quick look at transactions in account ID 4:
+
+```sql
+-- View transactions for the default account
+SELECT * FROM data.account_transactions;
+```
