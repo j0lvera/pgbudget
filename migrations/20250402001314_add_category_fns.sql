@@ -80,12 +80,11 @@ $$ language plpgsql;
 -- +goose StatementEnd
 
 -- +goose StatementBegin
--- function to create a new account with optional initial balance
+-- function to create a new account
 create or replace function api.add_account(
     p_ledger_id int,
     p_name text,
-    p_type text,
-    p_initial_balance decimal default 0
+    p_type text
 ) returns int as
 $$
 declare
@@ -114,5 +113,5 @@ $$ language plpgsql;
 -- drop the functions
 drop function if exists api.assign_to_category(int, timestamptz, text, decimal, int);
 drop function if exists api.add_category(int, text);
-drop function if exists api.add_account(int, text, text, decimal);
+drop function if exists api.add_account(int, text, text);
 -- +goose StatementEnd

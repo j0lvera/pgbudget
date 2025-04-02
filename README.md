@@ -51,12 +51,11 @@ Result:
 ### Create a Checking Account
 
 ```sql
--- Create a checking account (asset type) with an initial balance of $500
+-- Create a checking account (asset type)
 SELECT api.add_account(
     1,                          -- ledger_id
     'Checking',                 -- name
-    'asset',                    -- type
-    500.00                      -- initial_balance (optional)
+    'asset'                     -- type
 ) AS account_id;
 ```
 
@@ -67,11 +66,10 @@ Result:
          4
 ```
 
-The `api.add_account` function simplifies creating accounts by automatically setting the correct internal type and handling initial balances. It takes these parameters:
+The `api.add_account` function simplifies creating accounts by automatically setting the correct internal type. It takes these parameters:
 - `ledger_id`: The ID of your budget ledger
 - `name`: The name of the account to create
 - `type`: The account type ('asset', 'liability', or 'equity')
-- `initial_balance`: Optional starting balance (defaults to 0)
 
 It returns the ID of the newly created account.
 
