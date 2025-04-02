@@ -85,38 +85,56 @@ Result:
               1
 ```
 
+### Create Categories
+
+```sql
+-- Create a new category using the add_category function
+SELECT api.add_category(
+    1,                          -- ledger_id
+    'Groceries'                 -- name
+) AS category_id;
+
+SELECT api.add_category(
+    1,                          -- ledger_id
+    'Internet bill'             -- name
+) AS category_id;
+```
+
+The `api.add_category` function simplifies creating budget categories by automatically setting the correct account type and internal type. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `name`: The name of the category to create
+
+It returns the ID of the newly created category account.
+
 ### Assign Money to Categories
 
 ```sql
--- First create the category accounts
-INSERT INTO data.accounts (ledger_id, name, type, internal_type) 
-VALUES (1, 'Groceries', 'equity', 'liability_like') RETURNING id;
-
-INSERT INTO data.accounts (ledger_id, name, type, internal_type) 
-VALUES (1, 'Internet bill', 'equity', 'liability_like') RETURNING id;
 
 -- Assign $200 to Groceries
-SELECT api.add_transaction(
+SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Groceries',        -- description
-    'outflow',                  -- type
     200.00,                     -- amount
-    api.find_category(1, 'Income'),  -- account_id
     api.find_category(1, 'Groceries')  -- category_id
 );
 
 -- Assign $75 to Internet bill
-SELECT api.add_transaction(
+SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Internet',         -- description
-    'outflow',                  -- type
     75.00,                      -- amount
-    api.find_category(1, 'Income'),  -- account_id
     api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
+
+The `api.assign_to_category` function handles moving money from your Income account to specific budget categories. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `date`: When the assignment occurs
+- `description`: A description for the assignment
+- `amount`: How much money to assign (must be positive)
+- `category_id`: The category to assign money to
 
 ### Spend Money
 
