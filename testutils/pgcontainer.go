@@ -132,7 +132,7 @@ func (o *PgContainerOutput) DSN() string {
 }
 
 func (p *PgContainer) migrate(ctx context.Context, dsn string) error {
-	conn, err := pgx.Connect(ctx, dns)
+	conn, err := pgx.Connect(ctx, dsn)
 	if err != nil {
 		return fmt.Errorf("unable to open database connection: %w", err)
 	}
