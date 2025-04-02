@@ -238,7 +238,6 @@ declare
     v_transaction_id int;
     v_income_id int;
     v_category_ledger_id int;
-    v_income_balance decimal;
 begin
     -- validate amount is positive
     if p_amount <= 0 then
@@ -260,13 +259,6 @@ begin
     
     if v_category_ledger_id != p_ledger_id then
         raise exception 'Category must belong to the specified ledger (ID %)', p_ledger_id;
-    end if;
-
-    -- check if Income account has sufficient funds
-    select balance into v_income_balance from data.accounts where id = v_income_id;
-
-    if v_income_balance < p_amount then
-        raise exception 'Insufficient funds in Income. Available: %, Requested: %', v_income_balance, p_amount;
     end if;
 
     -- create the transaction using the existing add_transaction function
