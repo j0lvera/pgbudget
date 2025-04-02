@@ -16,13 +16,14 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var (
-	image   = "postgres:16-alpine"
-	timeout = 30 * time.Second
-	dbname  = "test"
-	dbuser  = "test"
-	dbpass  = "test"
+const (
+	defaultImage  = "postgres:16-alpine"
+	defaultDbName = "test"
+	defaultDbUser = "test"
+	defaultDbPass = "test"
 )
+
+var defaultTimeout = 30 * time.Second
 
 type PgContainer struct {
 	cfg Config
@@ -37,11 +38,21 @@ type Config struct {
 	host           string
 	image          string
 	log            *zerolog.Logger
+	dbName         string
+	dbUser         string
+	dbPass         string
+	timeout        time.Duration
 }
 
-func (c *Config) WithMigrationsPath(path string) *Config {
-	c.migrationsPath = path
-	return c
+// NewConfig creates a new Config with default values
+func NewConfig() Config {
+	return Config{
+		image:   defaultImage,
+		timeout: defaultTimeout,
+		dbName:  defaultDbName,
+		dbUser:  defaultDbUser,
+		dbPass:  defaultDbPass,
+	}
 }
 
 func (c *Config) WithLogger(log *zerolog.Logger) *Config {
@@ -66,13 +77,13 @@ func (p *PgContainer) setup(ctx context.Context) (*PgContainerOutput, error) {
 	pgc, err := postgres.Run(
 		ctx,
 		p.cfg.image,
-		postgres.WithDatabase(dbname),
-		postgres.WithUsername(dbuser),
-		postgres.WithPassword(dbpass),
+		postgres.WithDatabase(p.cfg.dbName),
+		postgres.WithUsername(p.cfg.dbUser),
+		postgres.WithPassword(p.cfg.dbPass),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("listening on IPv4 address").
 				WithOccurrence(1).
-				WithStartupTimeout(timeout),
+				WithStartupTimeout(p.cfg.timeout),
 		),
 	)
 	if err != nil {
@@ -92,17 +103,17 @@ func (p *PgContainer) setup(ctx context.Context) (*PgContainerOutput, error) {
 
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		dbuser,
-		dbpass,
+		p.cfg.dbUser,
+		p.cfg.dbPass,
 		host,
 		mappedPort.Port(),
-		dbname,
+		p.cfg.dbName,
 	)
 
 	return &PgContainerOutput{dsn: dsn}, nil
 }
 
-func (p *PgContainer) runMigrations(ctx context.Context, dns string) error {
+func (p *PgContainer) migrate(ctx context.Context, dns string) error {
 	conn, err := pgx.Connect(ctx, dns)
 	if err != nil {
 		return fmt.Errorf("unable to open database connection: %w", err)
