@@ -91,7 +91,6 @@ $$
 declare
     v_account_id int;
     v_internal_type text;
-    v_income_id int;
 begin
     -- determine internal type based on account type
     if p_type = 'asset' then
@@ -104,41 +103,6 @@ begin
     insert into data.accounts (ledger_id, name, type, internal_type)
     values (p_ledger_id, p_name, p_type, v_internal_type)
     returning id into v_account_id;
-    
-    -- if initial balance is provided and not zero, create a transaction to set it
-    if p_initial_balance != 0 then
-        -- find the Income account for this ledger
-        v_income_id := api.find_category(p_ledger_id, 'Income');
-        
-        if v_income_id is null then
-            raise exception 'Income account not found for ledger %', p_ledger_id;
-        end if;
-        
-        -- create initial balance transaction
-        if p_type = 'asset' then
-            -- for assets: debit the new account, credit Income
-            perform api.add_transaction(
-                p_ledger_id,
-                now(),
-                'Initial balance',
-                'inflow',
-                p_initial_balance,
-                v_account_id,
-                v_income_id
-            );
-        else
-            -- for liabilities and equity: debit Income, credit the new account
-            perform api.add_transaction(
-                p_ledger_id,
-                now(),
-                'Initial balance',
-                'outflow',
-                p_initial_balance,
-                v_income_id,
-                v_account_id
-            );
-        end if;
-    end if;
     
     return v_account_id;
 end;
