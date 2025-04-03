@@ -336,49 +336,54 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Test the get_budget_status function
+	// Test the get_budget_status function with a fresh ledger
 	t.Run(
 		"GetBudgetStatus", func(t *testing.T) {
 			is := is_.New(t)
 
-			// Skip if ledger creation failed
-			if ledgerID <= 0 {
-				t.Skip("Skipping because ledger creation failed")
-			}
+			// Create a new ledger specifically for this test
+			var budgetLedgerID int
+			err = conn.QueryRow(
+				ctx,
+				"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
+				"Budget Status Test Ledger",
+			).Scan(&budgetLedgerID)
+			is.NoErr(err)         // Should create ledger without error
+			is.True(budgetLedgerID > 0) // Should return a valid ledger ID
 
-			// Find the Income account ID using api.find_category
-			var incomeID int
+			// Create necessary accounts for this test
+			var checkingID, groceriesID, incomeID int
+			
+			// Create checking account
+			err = conn.QueryRow(
+				ctx,
+				"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
+				budgetLedgerID, "Checking", "asset", "asset_like",
+			).Scan(&checkingID)
+			is.NoErr(err) // Should create checking account without error
+			
+			// Create groceries category
+			err = conn.QueryRow(
+				ctx,
+				"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
+				budgetLedgerID, "Groceries", "equity", "liability_like",
+			).Scan(&groceriesID)
+			is.NoErr(err) // Should create groceries category without error
+			
+			// Find the Income account (should be created automatically with the ledger)
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.find_category($1, $2)",
-				ledgerID, "Income",
+				budgetLedgerID, "Income",
 			).Scan(&incomeID)
 			is.NoErr(err) // Should find the Income account
-
-			// Find the Groceries account ID using api.find_category
-			var groceriesID int
-			err = conn.QueryRow(
-				ctx,
-				"SELECT api.find_category($1, $2)",
-				ledgerID, "Groceries",
-			).Scan(&groceriesID)
-			is.NoErr(err) // Should find the Groceries account
-
-			// Find the Checking account ID - use direct query as it's not a category
-			var checkingID int
-			err = conn.QueryRow(
-				ctx,
-				"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Checking'",
-				ledgerID,
-			).Scan(&checkingID)
-			is.NoErr(err) // Should find the Checking account
 
 			// 1. Create a transaction to simulate receiving income using api.add_transaction
 			var incomeTxID int
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				ledgerID, "2023-01-01", "Salary deposit", "inflow", 100000,
+				budgetLedgerID, "2023-01-01", "Salary deposit", "inflow", 100000,
 				checkingID, incomeID, // 1000.00 as bigint
 			).Scan(&incomeTxID)
 			is.NoErr(err) // Should create income transaction without error
@@ -388,7 +393,7 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
-				ledgerID, "2023-01-01", "Budget allocation to Groceries", 20000,
+				budgetLedgerID, "2023-01-01", "Budget allocation to Groceries", 20000,
 				groceriesID, // 200.00 as bigint
 			).Scan(&budgetTxID)
 			is.NoErr(err) // Should create budgeting transaction without error
@@ -398,7 +403,7 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				ledgerID, "2023-01-02", "Grocery shopping", "outflow", 7500,
+				budgetLedgerID, "2023-01-02", "Grocery shopping", "outflow", 7500,
 				checkingID, groceriesID, // 75.00 as bigint
 			).Scan(&spendTxID)
 			is.NoErr(err) // Should create spending transaction without error
@@ -407,7 +412,7 @@ func TestDatabase(t *testing.T) {
 			rows, err := conn.Query(
 				ctx,
 				"SELECT * FROM api.get_budget_status($1)",
-				ledgerID,
+				budgetLedgerID,
 			)
 			is.NoErr(err) // Should query budget status without error
 			defer rows.Close()
@@ -433,7 +438,7 @@ func TestDatabase(t *testing.T) {
 			rows, err = conn.Query(
 				ctx,
 				"SELECT * FROM api.get_budget_status($1) t WHERE t.account_name = 'Groceries'",
-				ledgerID,
+				budgetLedgerID,
 			)
 			is.NoErr(err) // Should query budget status without error
 			defer rows.Close()
