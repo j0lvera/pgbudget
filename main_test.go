@@ -263,8 +263,6 @@ func TestDatabase(t *testing.T) {
 	// Test the find_category function
 	t.Run(
 		"FindCategory", func(t *testing.T) {
-			is := is_.New(t)
-
 			// Skip if ledger creation failed
 			if ledgerID <= 0 {
 				t.Skip("Skipping because ledger creation failed")
