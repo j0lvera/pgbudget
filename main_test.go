@@ -386,8 +386,8 @@ func TestDatabase(t *testing.T) {
 			var budgetTxID int
 			err = conn.QueryRow(
 				ctx,
-				"SELECT api.assign_to_category($1, $2, $3, $4)",
-				ledgerID, incomeID, groceriesID, 20000, // 200.00 as bigint
+				"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerID, "2023-01-01", "Budget allocation to Groceries", 20000, groceriesID, // 200.00 as bigint
 			).Scan(&budgetTxID)
 			is.NoErr(err) // Should create budgeting transaction without error
 
