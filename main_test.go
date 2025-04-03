@@ -412,14 +412,14 @@ func TestDatabase(t *testing.T) {
 			// Collect all account names for debugging
 			var accounts []string
 			for rows.Next() {
-				var id int
+				var accountID int
 				var accountName string
 				var budgeted float64
 				var activity float64
-				var balance float64
+				var available float64
 
 				err = rows.Scan(
-					&id, &accountName, &budgeted, &activity, &balance,
+					&accountID, &accountName, &budgeted, &activity, &available,
 				)
 				is.NoErr(err) // Should scan row without error
 				accounts = append(accounts, accountName)
@@ -443,13 +443,13 @@ func TestDatabase(t *testing.T) {
 			// We should have one row for Groceries
 			is.True(rows.Next()) // Should have at least one row
 
-			var id int
+			var accountID int
 			var accountName string
 			var budgeted float64
 			var activity float64
-			var balance float64
+			var available float64
 
-			err = rows.Scan(&id, &accountName, &budgeted, &activity, &balance)
+			err = rows.Scan(&accountID, &accountName, &budgeted, &activity, &available)
 			is.NoErr(err) // Should scan row without error
 
 			// Verify the budget status values
@@ -460,7 +460,7 @@ func TestDatabase(t *testing.T) {
 			is.Equal(
 				-75.00, activity,
 			)                         // Should show -$75 activity (money spent)
-			is.Equal(125.00, balance) // Should show $125 balance ($200 - $75)
+			is.Equal(125.00, available) // Should show $125 available ($200 - $75)
 
 			// Make sure there are no more rows for Groceries
 			is.True(!rows.Next()) // Should have exactly one row for Groceries
