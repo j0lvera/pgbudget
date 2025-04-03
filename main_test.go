@@ -379,8 +379,35 @@ func TestDatabase(t *testing.T) {
 		).Scan(&spendTxID)
 		is.NoErr(err) // Should create spending transaction without error
 		
-		// Now call the get_budget_status function and verify the results
+		// First, get all budget status rows to debug what's available
 		rows, err := conn.Query(
+			ctx,
+			"SELECT * FROM api.get_budget_status($1)",
+			ledgerID,
+		)
+		is.NoErr(err) // Should query budget status without error
+		defer rows.Close()
+		
+		// Collect all account names for debugging
+		var accounts []string
+		for rows.Next() {
+			var id int
+			var accountName string
+			var budgeted float64
+			var activity float64
+			var balance float64
+			
+			err = rows.Scan(&id, &accountName, &budgeted, &activity, &balance)
+			is.NoErr(err) // Should scan row without error
+			accounts = append(accounts, accountName)
+		}
+		is.NoErr(rows.Err())
+		
+		// Log the accounts to see what's available
+		log.Info().Interface("budget_accounts", accounts).Msg("Budget Status Accounts")
+		
+		// Now query specifically for Groceries
+		rows, err = conn.Query(
 			ctx,
 			"SELECT * FROM api.get_budget_status($1) WHERE account_name = 'Groceries'",
 			ledgerID,
