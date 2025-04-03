@@ -13,7 +13,7 @@ begin
     -- return transactions for the specified account
     return query
     select 
-        t.date,
+        t.date::timestamp,
         -- get the category name (any equity account, including special ones)
         case
             when da.type = 'equity' then da.name
