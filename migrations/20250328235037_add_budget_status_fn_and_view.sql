@@ -3,7 +3,7 @@
 -- create a function to get budget status for a specific ledger
 create or replace function api.get_budget_status(p_ledger_id int)
 returns table (
-    id int,
+    id bigint,
     account_name text,
     budgeted decimal,
     activity decimal,
