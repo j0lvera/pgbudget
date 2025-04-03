@@ -346,26 +346,25 @@ func TestDatabase(t *testing.T) {
 				t.Skip("Skipping because ledger creation failed")
 			}
 
-			// First, create a transaction to budget money from Income to Groceries
-			// Find the Income account ID
+			// Find the Income account ID using api.find_category
 			var incomeID int
 			err = conn.QueryRow(
 				ctx,
-				"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Income'",
-				ledgerID,
+				"SELECT api.find_category($1, $2)",
+				ledgerID, "Income",
 			).Scan(&incomeID)
 			is.NoErr(err) // Should find the Income account
 
-			// Find the Groceries account ID
+			// Find the Groceries account ID using api.find_category
 			var groceriesID int
 			err = conn.QueryRow(
 				ctx,
-				"SELECT id FROM data.accounts WHERE ledger_id = $1 AND name = 'Groceries'",
-				ledgerID,
+				"SELECT api.find_category($1, $2)",
+				ledgerID, "Groceries",
 			).Scan(&groceriesID)
 			is.NoErr(err) // Should find the Groceries account
 
-			// Find the Checking account ID
+			// Find the Checking account ID - keep using direct query as it's not a category
 			var checkingID int
 			err = conn.QueryRow(
 				ctx,
@@ -374,36 +373,30 @@ func TestDatabase(t *testing.T) {
 			).Scan(&checkingID)
 			is.NoErr(err) // Should find the Checking account
 
-			// 1. Create a transaction to simulate receiving income
+			// 1. Create a transaction to simulate receiving income using api.add_transaction
 			var incomeTxID int
 			err = conn.QueryRow(
 				ctx,
-				`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-				ledgerID, "Salary deposit", "2023-01-01", checkingID, incomeID,
-				1000.00,
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6)",
+				ledgerID, "Salary deposit", "2023-01-01", checkingID, incomeID, 100000, // 1000.00 as bigint
 			).Scan(&incomeTxID)
 			is.NoErr(err) // Should create income transaction without error
 
-			// 2. Create a transaction to budget money from Income to Groceries
+			// 2. Create a transaction to budget money from Income to Groceries using api.assign_to_category
 			var budgetTxID int
 			err = conn.QueryRow(
 				ctx,
-				`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-				ledgerID, "Budget for groceries", "2023-01-01", incomeID,
-				groceriesID, 200.00,
+				"SELECT api.assign_to_category($1, $2, $3, $4)",
+				ledgerID, incomeID, groceriesID, 20000, // 200.00 as bigint
 			).Scan(&budgetTxID)
 			is.NoErr(err) // Should create budgeting transaction without error
 
-			// 3. Create a transaction to spend from Groceries
+			// 3. Create a transaction to spend from Groceries using api.add_transaction
 			var spendTxID int
 			err = conn.QueryRow(
 				ctx,
-				`INSERT INTO data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) 
-			VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-				ledgerID, "Grocery shopping", "2023-01-02", groceriesID,
-				checkingID, 75.00,
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6)",
+				ledgerID, "Grocery shopping", "2023-01-02", groceriesID, checkingID, 7500, // 75.00 as bigint
 			).Scan(&spendTxID)
 			is.NoErr(err) // Should create spending transaction without error
 
