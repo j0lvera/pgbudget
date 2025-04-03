@@ -7,7 +7,7 @@ returns table (
     category text,
     description text,
     type text,
-    amount decimal
+    amount bigint
 ) as $$
 begin
     -- return transactions for the specified account
