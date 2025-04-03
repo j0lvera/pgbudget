@@ -84,7 +84,7 @@ $$ language plpgsql;
 -- function to find a category by name in a ledger
 create or replace function api.find_category(
     p_ledger_id int,
-    p_name text
+    p_category_name text
 ) returns int as
 $$
 declare
@@ -94,7 +94,7 @@ begin
     select id into v_category_id
     from data.accounts
     where ledger_id = p_ledger_id
-      and name = p_name
+      and name = p_category_name
       and type = 'equity';
       
     return v_category_id;
