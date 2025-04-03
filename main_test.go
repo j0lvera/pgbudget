@@ -377,8 +377,8 @@ func TestDatabase(t *testing.T) {
 			var incomeTxID int
 			err = conn.QueryRow(
 				ctx,
-				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6)",
-				ledgerID, "Salary deposit", "2023-01-01", checkingID, incomeID, 100000, // 1000.00 as bigint
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+				ledgerID, "2023-01-01", "Salary deposit", "inflow", 100000, checkingID, incomeID, // 1000.00 as bigint
 			).Scan(&incomeTxID)
 			is.NoErr(err) // Should create income transaction without error
 
@@ -395,8 +395,8 @@ func TestDatabase(t *testing.T) {
 			var spendTxID int
 			err = conn.QueryRow(
 				ctx,
-				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6)",
-				ledgerID, "Grocery shopping", "2023-01-02", groceriesID, checkingID, 7500, // 75.00 as bigint
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+				ledgerID, "2023-01-02", "Grocery shopping", "outflow", 7500, checkingID, groceriesID, // 75.00 as bigint
 			).Scan(&spendTxID)
 			is.NoErr(err) // Should create spending transaction without error
 
