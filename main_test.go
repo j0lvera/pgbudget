@@ -382,7 +382,7 @@ func TestDatabase(t *testing.T) {
 		// First, get all budget status rows to debug what's available
 		rows, err := conn.Query(
 			ctx,
-			"SELECT * FROM api.get_budget_status($1)",
+			"SELECT * FROM api.get_budget_status($1) t",
 			ledgerID,
 		)
 		is.NoErr(err) // Should query budget status without error
@@ -409,7 +409,7 @@ func TestDatabase(t *testing.T) {
 		// Now query specifically for Groceries
 		rows, err = conn.Query(
 			ctx,
-			"SELECT * FROM api.get_budget_status($1) WHERE account_name = 'Groceries'",
+			"SELECT * FROM api.get_budget_status($1) t WHERE t.account_name = 'Groceries'",
 			ledgerID,
 		)
 		is.NoErr(err) // Should query budget status without error
