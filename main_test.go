@@ -364,7 +364,7 @@ func TestDatabase(t *testing.T) {
 			).Scan(&groceriesID)
 			is.NoErr(err) // Should find the Groceries account
 
-			// Find the Checking account ID - keep using direct query as it's not a category
+			// Find the Checking account ID - use direct query as it's not a category
 			var checkingID int
 			err = conn.QueryRow(
 				ctx,
@@ -378,7 +378,8 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				ledgerID, "2023-01-01", "Salary deposit", "inflow", 100000, checkingID, incomeID, // 1000.00 as bigint
+				ledgerID, "2023-01-01", "Salary deposit", "inflow", 100000,
+				checkingID, incomeID, // 1000.00 as bigint
 			).Scan(&incomeTxID)
 			is.NoErr(err) // Should create income transaction without error
 
@@ -387,7 +388,8 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
-				ledgerID, "2023-01-01", "Budget allocation to Groceries", 20000, groceriesID, // 200.00 as bigint
+				ledgerID, "2023-01-01", "Budget allocation to Groceries", 20000,
+				groceriesID, // 200.00 as bigint
 			).Scan(&budgetTxID)
 			is.NoErr(err) // Should create budgeting transaction without error
 
@@ -396,14 +398,15 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				ledgerID, "2023-01-02", "Grocery shopping", "outflow", 7500, checkingID, groceriesID, // 75.00 as bigint
+				ledgerID, "2023-01-02", "Grocery shopping", "outflow", 7500,
+				checkingID, groceriesID, // 75.00 as bigint
 			).Scan(&spendTxID)
 			is.NoErr(err) // Should create spending transaction without error
 
 			// First, get all budget status rows to debug what's available
 			rows, err := conn.Query(
 				ctx,
-				"SELECT * FROM api.get_budget_status($1) t",
+				"SELECT * FROM api.get_budget_status($1)",
 				ledgerID,
 			)
 			is.NoErr(err) // Should query budget status without error
@@ -426,11 +429,6 @@ func TestDatabase(t *testing.T) {
 			}
 			is.NoErr(rows.Err())
 
-			// Log the accounts to see what's available
-			log.Info().Interface(
-				"budget_accounts", accounts,
-			).Msg("Budget Status Accounts")
-
 			// Now query specifically for Groceries
 			rows, err = conn.Query(
 				ctx,
@@ -445,22 +443,26 @@ func TestDatabase(t *testing.T) {
 
 			var accountID int
 			var accountName string
-			var budgeted float64
-			var activity float64
-			var available float64
+			var budgeted int
+			var activity int
+			var available int
 
-			err = rows.Scan(&accountID, &accountName, &budgeted, &activity, &available)
+			err = rows.Scan(
+				&accountID, &accountName, &budgeted, &activity, &available,
+			)
 			is.NoErr(err) // Should scan row without error
 
 			// Verify the budget status values
 			is.Equal(
 				"Groceries", accountName,
-			)                          // Should be the Groceries account
-			is.Equal(200.00, budgeted) // Should show $200 budgeted
+			)                         // Should be the Groceries account
+			is.Equal(20000, budgeted) // Should show $200 budgeted
 			is.Equal(
-				-75.00, activity,
-			)                         // Should show -$75 activity (money spent)
-			is.Equal(125.00, available) // Should show $125 available ($200 - $75)
+				-7500, activity,
+			) // Should show -$75 activity (money spent)
+			is.Equal(
+				12500, available,
+			) // Should show $125 available ($200 - $75)
 
 			// Make sure there are no more rows for Groceries
 			is.True(!rows.Next()) // Should have exactly one row for Groceries
