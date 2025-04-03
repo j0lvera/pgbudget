@@ -407,7 +407,7 @@ func TestDatabase(t *testing.T) {
 		is.Equal(125.00, balance)          // Should show $125 balance ($200 - $75)
 		
 		// Make sure there are no more rows for Groceries
-		is.False(rows.Next()) // Should have exactly one row for Groceries
+		is.True(!rows.Next()) // Should have exactly one row for Groceries
 		
 		// Check for any errors from iterating over rows
 		is.NoErr(rows.Err())
