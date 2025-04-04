@@ -32,6 +32,14 @@ goose -dir migrations postgres "user=username password=password dbname=pgbudget 
 
 For more configuration options, refer to the [Goose documentation](https://github.com/pressly/goose).
 
+### Amount Representation
+
+pgbudget stores all monetary amounts as integers (cents) using PostgreSQL's `bigint` type:
+- $10.00 is stored as `1000` (1000 cents)
+- $200.50 is stored as `20050` (20050 cents)
+
+This approach avoids floating-point precision issues when dealing with money. It's the responsibility of the frontend/client application to format these values appropriately for display (e.g., dividing by 100 and adding decimal points, thousand separators, or currency symbols).
+
 ## Usage Examples
 
 ### Create a Budget (Ledger)
@@ -76,13 +84,13 @@ It returns the ID of the newly created account.
 ### Add Income
 
 ```sql
--- Add income of $1000 from "Paycheck"
+-- Add income of $1000 from "Paycheck" (100000 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Paycheck',                 -- description
     'inflow',                   -- type
-    1000.00,                    -- amount
+    100000,                     -- amount (100000 cents = $1000.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Income')  -- category_id
 );
@@ -120,21 +128,21 @@ It returns the ID of the newly created category account.
 
 ```sql
 
--- Assign $200 to Groceries
+-- Assign $200 to Groceries (20000 cents)
 SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Groceries',        -- description
-    200.00,                     -- amount
+    20000,                      -- amount (20000 cents = $200.00)
     api.find_category(1, 'Groceries')  -- category_id
 );
 
--- Assign $75 to Internet bill
+-- Assign $75 to Internet bill (7500 cents)
 SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Internet',         -- description
-    75.00,                      -- amount
+    7500,                       -- amount (7500 cents = $75.00)
     api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
@@ -149,24 +157,24 @@ The `api.assign_to_category` function handles moving money from your Income acco
 ### Spend Money
 
 ```sql
--- Spend $15 on Milk from Groceries category
+-- Spend $15 on Milk from Groceries category (1500 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Milk',                     -- description
     'outflow',                  -- type
-    15.00,                      -- amount
+    1500,                       -- amount (1500 cents = $15.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Groceries')  -- category_id
 );
 
--- Pay the entire Internet bill
+-- Pay the entire Internet bill (7500 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Monthly Internet',         -- description
     'outflow',                  -- type
-    75.00,                      -- amount
+    7500,                       -- amount (7500 cents = $75.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Internet bill')  -- category_id
 );
@@ -187,7 +195,7 @@ Result:
   6 | Internet bill        |    7500  |   -7500  |      0
 ```
 
-Note: Amounts are stored as integers (cents) in the database but displayed as dollars in the examples.
+Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.). The frontend application is responsible for formatting these values with proper decimal places and currency symbols.
 
 For a specific ledger:
 ```sql
@@ -249,7 +257,7 @@ Result:
  2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000
 ```
 
-Note: Amounts are stored as integers (cents) in the database but represent dollars in your budget.
+Note: All amounts are in cents (100000 = $1000.00, -7500 = -$75.00, etc.).
 
 The account transactions view shows:
 - **date**: When the transaction occurred
