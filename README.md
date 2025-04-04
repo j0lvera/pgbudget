@@ -32,6 +32,14 @@ goose -dir migrations postgres "user=username password=password dbname=pgbudget 
 
 For more configuration options, refer to the [Goose documentation](https://github.com/pressly/goose).
 
+### Amount Representation
+
+pgbudget stores all monetary amounts as integers (cents) using PostgreSQL's `bigint` type:
+- $10.00 is stored as `1000` (1000 cents)
+- $200.50 is stored as `20050` (20050 cents)
+
+This approach avoids floating-point precision issues when dealing with money. It's the responsibility of the frontend/client application to format these values appropriately for display (e.g., dividing by 100 and adding decimal points, thousand separators, or currency symbols).
+
 ## Usage Examples
 
 ### Create a Budget (Ledger)
@@ -76,13 +84,13 @@ It returns the ID of the newly created account.
 ### Add Income
 
 ```sql
--- Add income of $1000 from "Paycheck"
+-- Add income of $1000 from "Paycheck" (100000 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Paycheck',                 -- description
     'inflow',                   -- type
-    1000.00,                    -- amount
+    100000,                     -- amount (100000 cents = $1000.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Income')  -- category_id
 );
@@ -120,21 +128,21 @@ It returns the ID of the newly created category account.
 
 ```sql
 
--- Assign $200 to Groceries
+-- Assign $200 to Groceries (20000 cents)
 SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Groceries',        -- description
-    200.00,                     -- amount
+    20000,                      -- amount (20000 cents = $200.00)
     api.find_category(1, 'Groceries')  -- category_id
 );
 
--- Assign $75 to Internet bill
+-- Assign $75 to Internet bill (7500 cents)
 SELECT api.assign_to_category(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Budget: Internet',         -- description
-    75.00,                      -- amount
+    7500,                       -- amount (7500 cents = $75.00)
     api.find_category(1, 'Internet bill')  -- category_id
 );
 ```
@@ -149,24 +157,24 @@ The `api.assign_to_category` function handles moving money from your Income acco
 ### Spend Money
 
 ```sql
--- Spend $15 on Milk from Groceries category
+-- Spend $15 on Milk from Groceries category (1500 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Milk',                     -- description
     'outflow',                  -- type
-    15.00,                      -- amount
+    1500,                       -- amount (1500 cents = $15.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Groceries')  -- category_id
 );
 
--- Pay the entire Internet bill
+-- Pay the entire Internet bill (7500 cents)
 SELECT api.add_transaction(
     1,                          -- ledger_id
     NOW(),                      -- date
     'Monthly Internet',         -- description
     'outflow',                  -- type
-    75.00,                      -- amount
+    7500,                       -- amount (7500 cents = $75.00)
     4,                          -- account_id (Checking account)
     api.find_category(1, 'Internet bill')  -- category_id
 );
@@ -183,9 +191,11 @@ Result:
 ```
  id |     account_name     | budgeted | activity | balance 
 ----+----------------------+----------+----------+---------
-  5 | Groceries            |   200.00 |   -15.00 |  185.00
-  6 | Internet bill        |    75.00 |   -75.00 |    0.00
+  5 | Groceries            |   20000  |   -1500  |  18500
+  6 | Internet bill        |    7500  |   -7500  |      0
 ```
+
+Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.). The frontend application is responsible for formatting these values with proper decimal places and currency symbols.
 
 For a specific ledger:
 ```sql
@@ -205,7 +215,14 @@ You can also view all accounts and their balances:
 SELECT 
     a.name, 
     a.type, 
-    a.balance
+    (SELECT SUM(
+        CASE 
+            WHEN t.credit_account_id = a.id THEN t.amount 
+            WHEN t.debit_account_id = a.id THEN -t.amount 
+            ELSE 0 
+        END
+    ) FROM data.transactions t 
+    WHERE t.credit_account_id = a.id OR t.debit_account_id = a.id) as balance
 FROM data.accounts a
 WHERE a.ledger_id = 1
 ORDER BY a.type, a.name;
@@ -215,27 +232,14 @@ Result:
 ```
       name       |   type    | balance 
 -----------------+-----------+---------
- Checking        | asset     |  910.00
- Income          | equity    |  725.00
- Groceries       | equity    |  185.00
- Internet bill   | equity    |    0.00
- Unassigned      | equity    |    0.00
+ Checking        | asset     |  91000
+ Income          | equity    |  72500
+ Groceries       | equity    |  18500
+ Internet bill   | equity    |      0
+ Unassigned      | equity    |      0
 ```
 
-```sql
--- View all transactions
-SELECT 
-    t.description, 
-    t.amount, 
-    da.name as debit_account, 
-    ca.name as credit_account,
-    t.date
-FROM data.transactions t
-JOIN data.accounts da ON t.debit_account_id = da.id
-JOIN data.accounts ca ON t.credit_account_id = ca.id
-WHERE da.ledger_id = 1
-ORDER BY t.date;
-```
+Note: Balance amounts are in cents (91000 = $910.00).
 
 ### View Account Transactions
 
@@ -248,10 +252,12 @@ Result:
 ```
         date        |   category    | description  |   type   | amount 
 --------------------+---------------+--------------+----------+--------
- 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  15.00
- 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  75.00
- 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 1000.00
+ 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  -1500
+ 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  -7500
+ 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000
 ```
+
+Note: All amounts are in cents (100000 = $1000.00, -7500 = -$75.00, etc.).
 
 The account transactions view shows:
 - **date**: When the transaction occurred
@@ -266,3 +272,19 @@ You can also use the default view for a quick look at transactions in account ID
 -- View transactions for the default account
 SELECT * FROM data.account_transactions;
 ```
+
+## License
+
+pgbudget is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+This means:
+- You are free to use, modify, and distribute this software
+- If you modify the software and provide it as a service over a network, you must make your modified source code available to users of that service
+- All modifications must also be licensed under AGPL-3.0
+
+We chose AGPL-3.0 to:
+- Ensure that all improvements to pgbudget remain open source
+- Prevent corporations from using our code in closed-source proprietary products
+- Prevent corporations from offering pgbudget as a service without contributing back to the open source project
+
+For the full license text, see the [LICENSE](LICENSE) file in this repository or visit [GNU AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html).

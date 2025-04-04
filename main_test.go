@@ -6,11 +6,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/j0lvera/pgbudget/testutils/pgcontainer"
 	"github.com/jackc/pgx/v5"
 	is_ "github.com/matryer/is"
 	"github.com/rs/zerolog"
-
-	"github.com/j0lvera/pgbudget/testutils"
 )
 
 var (
@@ -26,10 +25,10 @@ func TestMain(m *testing.M) {
 	defer cancel()
 
 	// Configure and start the PostgreSQL container
-	cfg := testutils.NewConfig()
-	cfg.WithLogger(&log).WithMigrationsPath("migrations")
+	cfg := pgcontainer.NewConfig()
+	cfg.WithLogger(&log).WithMigrationsPath("../migrations")
 
-	pgContainer := testutils.NewPgContainer(cfg)
+	pgContainer := pgcontainer.NewPgContainer(cfg)
 	output, err := pgContainer.Start(ctx)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to start PostgreSQL container")
@@ -348,12 +347,12 @@ func TestDatabase(t *testing.T) {
 				"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
 				"Budget Status Test Ledger",
 			).Scan(&budgetLedgerID)
-			is.NoErr(err)         // Should create ledger without error
+			is.NoErr(err)               // Should create ledger without error
 			is.True(budgetLedgerID > 0) // Should return a valid ledger ID
 
 			// Create necessary accounts for this test
 			var checkingID, groceriesID, incomeID int
-			
+
 			// Create checking account
 			err = conn.QueryRow(
 				ctx,
@@ -361,7 +360,7 @@ func TestDatabase(t *testing.T) {
 				budgetLedgerID, "Checking", "asset", "asset_like",
 			).Scan(&checkingID)
 			is.NoErr(err) // Should create checking account without error
-			
+
 			// Create groceries category
 			err = conn.QueryRow(
 				ctx,
@@ -369,7 +368,7 @@ func TestDatabase(t *testing.T) {
 				budgetLedgerID, "Groceries", "equity", "liability_like",
 			).Scan(&groceriesID)
 			is.NoErr(err) // Should create groceries category without error
-			
+
 			// Find the Income account (should be created automatically with the ledger)
 			err = conn.QueryRow(
 				ctx,
@@ -383,7 +382,8 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				budgetLedgerID, "2023-01-01", "Salary deposit", "inflow", 100000,
+				budgetLedgerID, "2023-01-01", "Salary deposit", "inflow",
+				100000,
 				checkingID, incomeID, // 1000.00 as bigint
 			).Scan(&incomeTxID)
 			is.NoErr(err) // Should create income transaction without error
@@ -393,7 +393,8 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
-				budgetLedgerID, "2023-01-01", "Budget allocation to Groceries", 20000,
+				budgetLedgerID, "2023-01-01", "Budget allocation to Groceries",
+				20000,
 				groceriesID, // 200.00 as bigint
 			).Scan(&budgetTxID)
 			is.NoErr(err) // Should create budgeting transaction without error
@@ -403,7 +404,8 @@ func TestDatabase(t *testing.T) {
 			err = conn.QueryRow(
 				ctx,
 				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				budgetLedgerID, "2023-01-02", "Grocery shopping", "outflow", 7500,
+				budgetLedgerID, "2023-01-02", "Grocery shopping", "outflow",
+				7500,
 				checkingID, groceriesID, // 75.00 as bigint
 			).Scan(&spendTxID)
 			is.NoErr(err) // Should create spending transaction without error
