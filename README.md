@@ -273,6 +273,12 @@ You can also use the default view for a quick look at transactions in account ID
 SELECT * FROM data.account_transactions;
 ```
 
+## Contributing
+
+We welcome contributions to pgbudget! Before contributing, please read our [Contributing Guidelines](CONTRIBUTING.md) which includes important information about licensing and the contribution process.
+
+All contributions to this project are subject to the terms outlined in the contributing guidelines and will be licensed under the project's AGPL-3.0 license.
+
 ## License
 
 pgbudget is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
