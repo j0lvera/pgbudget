@@ -183,9 +183,11 @@ Result:
 ```
  id |     account_name     | budgeted | activity | balance 
 ----+----------------------+----------+----------+---------
-  5 | Groceries            |   200.00 |   -15.00 |  185.00
-  6 | Internet bill        |    75.00 |   -75.00 |    0.00
+  5 | Groceries            |   20000  |   -1500  |  18500
+  6 | Internet bill        |    7500  |   -7500  |      0
 ```
+
+Note: Amounts are stored as integers (cents) in the database but displayed as dollars in the examples.
 
 For a specific ledger:
 ```sql
@@ -205,7 +207,14 @@ You can also view all accounts and their balances:
 SELECT 
     a.name, 
     a.type, 
-    a.balance
+    (SELECT SUM(
+        CASE 
+            WHEN t.credit_account_id = a.id THEN t.amount 
+            WHEN t.debit_account_id = a.id THEN -t.amount 
+            ELSE 0 
+        END
+    ) FROM data.transactions t 
+    WHERE t.credit_account_id = a.id OR t.debit_account_id = a.id) as balance
 FROM data.accounts a
 WHERE a.ledger_id = 1
 ORDER BY a.type, a.name;
@@ -215,12 +224,14 @@ Result:
 ```
       name       |   type    | balance 
 -----------------+-----------+---------
- Checking        | asset     |  910.00
- Income          | equity    |  725.00
- Groceries       | equity    |  185.00
- Internet bill   | equity    |    0.00
- Unassigned      | equity    |    0.00
+ Checking        | asset     |  91000
+ Income          | equity    |  72500
+ Groceries       | equity    |  18500
+ Internet bill   | equity    |      0
+ Unassigned      | equity    |      0
 ```
+
+Note: Balance amounts are in cents (91000 = $910.00).
 
 ### View Account Transactions
 
@@ -233,10 +244,12 @@ Result:
 ```
         date        |   category    | description  |   type   | amount 
 --------------------+---------------+--------------+----------+--------
- 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  15.00
- 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  75.00
- 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 1000.00
+ 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  -1500
+ 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  -7500
+ 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000
 ```
+
+Note: Amounts are stored as integers (cents) in the database but represent dollars in your budget.
 
 The account transactions view shows:
 - **date**: When the transaction occurred
