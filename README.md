@@ -266,3 +266,19 @@ You can also use the default view for a quick look at transactions in account ID
 -- View transactions for the default account
 SELECT * FROM data.account_transactions;
 ```
+
+## License
+
+pgbudget is licensed under the GNU Affero General Public License v3.0 (AGPL-3.0).
+
+This means:
+- You are free to use, modify, and distribute this software
+- If you modify the software and provide it as a service over a network, you must make your modified source code available to users of that service
+- All modifications must also be licensed under AGPL-3.0
+
+We chose AGPL-3.0 to:
+- Ensure that all improvements to pgbudget remain open source
+- Prevent corporations from using our code in closed-source proprietary products
+- Prevent corporations from offering pgbudget as a service without contributing back to the open source project
+
+For the full license text, see the [LICENSE](LICENSE) file in this repository or visit [GNU AGPL-3.0](https://www.gnu.org/licenses/agpl-3.0.en.html).
