@@ -222,21 +222,6 @@ Result:
  Unassigned      | equity    |    0.00
 ```
 
-```sql
--- View all transactions
-SELECT 
-    t.description, 
-    t.amount, 
-    da.name as debit_account, 
-    ca.name as credit_account,
-    t.date
-FROM data.transactions t
-JOIN data.accounts da ON t.debit_account_id = da.id
-JOIN data.accounts ca ON t.credit_account_id = ca.id
-WHERE da.ledger_id = 1
-ORDER BY t.date;
-```
-
 ### View Account Transactions
 
 ```sql
