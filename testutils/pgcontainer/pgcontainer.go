@@ -1,4 +1,4 @@
-package testutils
+package pgcontainer
 
 import (
 	"context"
@@ -29,7 +29,7 @@ type PgContainer struct {
 	cfg Config
 }
 
-type PgContainerOutput struct {
+type Output struct {
 	dsn string
 }
 
@@ -78,7 +78,7 @@ func (c *Config) WithMigrationsPath(path string) *Config {
 	return c
 }
 
-func (p *PgContainer) Start(ctx context.Context) (*PgContainerOutput, error) {
+func (p *PgContainer) Start(ctx context.Context) (*Output, error) {
 	pgc, err := postgres.Run(
 		ctx,
 		p.cfg.image,
@@ -115,19 +115,19 @@ func (p *PgContainer) Start(ctx context.Context) (*PgContainerOutput, error) {
 		p.cfg.dbName,
 	)
 
-	output := &PgContainerOutput{dsn: dsn}
-	
+	output := &Output{dsn: dsn}
+
 	// Run migrations if a migrations path is specified
 	if p.cfg.migrationsPath != "" {
 		if err := p.migrate(ctx, dsn); err != nil {
 			return nil, fmt.Errorf("failed to run migrations: %w", err)
 		}
 	}
-	
+
 	return output, nil
 }
 
-func (o *PgContainerOutput) DSN() string {
+func (o *Output) DSN() string {
 	return o.dsn
 }
 
