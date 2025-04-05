@@ -270,6 +270,16 @@ This function automatically applies the correct accounting logic based on the ac
 
 This ensures that balances are always calculated correctly regardless of account type.
 
+The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `account_id`: The ID of the account to check
+
+This function automatically applies the correct accounting logic based on the account's internal type:
+- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
+- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
+
+This ensures that balances are always calculated correctly regardless of account type.
+
 ### View Account Transactions
 
 ```sql
