@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
-create table data.account_balances
+create table if not exists data.account_balances
 (
     id               bigint generated always as identity primary key,
     created_at       timestamptz not null default current_timestamp,
@@ -29,12 +29,12 @@ create table data.account_balances
 );
 
 -- Index for fetching latest balance quickly
-create index account_balances_account_latest_idx
+create index if not exists account_balances_account_latest_idx
     on data.account_balances (account_id, created_at desc);
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-drop table data.account_balances;
-drop index account_balances_account_latest_idx;
+drop table if exists data.account_balances;
+drop index if exists data.account_balances_account_latest_idx;
 -- +goose StatementEnd
