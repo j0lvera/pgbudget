@@ -41,18 +41,29 @@ declare
     v_operation_type text;
     v_delta bigint;
     v_ledger_id bigint;
+    v_has_previous boolean;
 begin
     -- Ledger ID is already in the transaction
     v_ledger_id := NEW.ledger_id;
 
     -- Process both debit and credit sides of the transaction
     -- First, handle the debit account
+    -- Check if there's a previous balance record
+    select exists(
+        select 1 from data.balances
+        where account_id = NEW.debit_account_id
+    ) into v_has_previous;
+
     -- Get the previous balance (or 0 if no previous balance exists)
-    select coalesce(balance, 0) into v_previous_balance
-    from data.balances
-    where account_id = NEW.debit_account_id
-    order by created_at desc
-    limit 1;
+    if v_has_previous then
+        select balance into v_previous_balance
+        from data.balances
+        where account_id = NEW.debit_account_id
+        order by created_at desc
+        limit 1;
+    else
+        v_previous_balance := 0;
+    end if;
 
     -- For debit account, it's always a debit operation
     v_operation_type := 'debit';
@@ -79,12 +90,22 @@ begin
     );
 
     -- Now, handle the credit account
+    -- Check if there's a previous balance record
+    select exists(
+        select 1 from data.balances
+        where account_id = NEW.credit_account_id
+    ) into v_has_previous;
+
     -- Get the previous balance (or 0 if no previous balance exists)
-    select coalesce(balance, 0) into v_previous_balance
-    from data.balances
-    where account_id = NEW.credit_account_id
-    order by created_at desc
-    limit 1;
+    if v_has_previous then
+        select balance into v_previous_balance
+        from data.balances
+        where account_id = NEW.credit_account_id
+        order by created_at desc
+        limit 1;
+    else
+        v_previous_balance := 0;
+    end if;
 
     -- For credit account, it's always a credit operation
     v_operation_type := 'credit';
