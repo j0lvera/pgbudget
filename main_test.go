@@ -817,7 +817,7 @@ func TestDatabase(t *testing.T) {
 		is := is_.New(t)
 
 		// Use the helper function to set up a test ledger
-		ledgerID, accounts, transactions, err := setupTestLedger(ctx, conn, "Account Transactions Test Ledger")
+		_, accounts, _, err := setupTestLedger(ctx, conn, "Account Transactions Test Ledger")
 		is.NoErr(err) // Should set up test ledger without error
 
 		// Get the checking account ID
