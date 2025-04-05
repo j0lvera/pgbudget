@@ -241,6 +241,35 @@ Result:
 
 Note: Balance amounts are in cents (91000 = $910.00).
 
+### Check Account Balances
+
+```sql
+-- Get the balance of a specific account
+SELECT api.get_account_balance(
+    1,                          -- ledger_id
+    4                           -- account_id
+) AS balance;
+```
+
+Result:
+```
+ balance 
+---------
+   87500
+```
+
+Note: Balance amount is in cents (87500 = $875.00).
+
+The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `account_id`: The ID of the account to check
+
+This function automatically applies the correct accounting logic based on the account's internal type:
+- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
+- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
+
+This ensures that balances are always calculated correctly regardless of account type.
+
 ### View Account Transactions
 
 ```sql
