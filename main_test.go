@@ -563,9 +563,10 @@ func TestDatabase(t *testing.T) {
 			var paymentTxID int
 			err = conn.QueryRow(
 				ctx,
-				"insert into data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) values ($1, $2, $3, $4, $5, $6) returning id",
-				ledgerID, "Credit card payment", "2023-01-04", creditCardID,
-				accounts["Checking"], 5000,
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+				ledgerID, "2023-01-04", "Credit card payment", "outflow",
+				5000, // $50.00
+				accounts["Checking"], creditCardID,
 			).Scan(&paymentTxID)
 			is.NoErr(err) // Should create payment transaction without error
 
