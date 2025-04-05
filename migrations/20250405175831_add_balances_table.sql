@@ -42,30 +42,24 @@ declare
     v_delta bigint;
     v_ledger_id bigint;
 begin
-    -- Get the ledger_id from the account
-    select ledger_id into v_ledger_id
-    from data.accounts
-    where id = NEW.account_id;
+    -- Ledger ID is already in the transaction
+    v_ledger_id := NEW.ledger_id;
 
+    -- Process both debit and credit sides of the transaction
+    -- First, handle the debit account
     -- Get the previous balance (or 0 if no previous balance exists)
     select coalesce(balance, 0) into v_previous_balance
     from data.balances
-    where account_id = NEW.account_id
+    where account_id = NEW.debit_account_id
     order by created_at desc
     limit 1;
 
-    -- Determine operation type and delta based on debit or credit
-    if NEW.is_debit then
-        v_operation_type := 'debit';
-        v_delta := NEW.amount;
-        v_new_balance := v_previous_balance + NEW.amount;
-    else
-        v_operation_type := 'credit';
-        v_delta := -NEW.amount; -- Store as negative for credits
-        v_new_balance := v_previous_balance - NEW.amount;
-    end if;
+    -- For debit account, it's always a debit operation
+    v_operation_type := 'debit';
+    v_delta := NEW.amount;
+    v_new_balance := v_previous_balance + NEW.amount;
 
-    -- Insert the new balance record
+    -- Insert the new balance record for debit account
     insert into data.balances (
         previous_balance,
         balance,
@@ -79,25 +73,57 @@ begin
         v_new_balance,
         v_delta,
         v_operation_type,
-        NEW.account_id,
+        NEW.debit_account_id,
         v_ledger_id,
-        NEW.transaction_id
+        NEW.id
+    );
+
+    -- Now, handle the credit account
+    -- Get the previous balance (or 0 if no previous balance exists)
+    select coalesce(balance, 0) into v_previous_balance
+    from data.balances
+    where account_id = NEW.credit_account_id
+    order by created_at desc
+    limit 1;
+
+    -- For credit account, it's always a credit operation
+    v_operation_type := 'credit';
+    v_delta := -NEW.amount; -- Store as negative for credits
+    v_new_balance := v_previous_balance - NEW.amount;
+
+    -- Insert the new balance record for credit account
+    insert into data.balances (
+        previous_balance,
+        balance,
+        delta,
+        operation_type,
+        account_id,
+        ledger_id,
+        transaction_id
+    ) values (
+        v_previous_balance,
+        v_new_balance,
+        v_delta,
+        v_operation_type,
+        NEW.credit_account_id,
+        v_ledger_id,
+        NEW.id
     );
 
     return NEW;
 end;
 $$ language plpgsql;
 
--- Create the trigger on transaction_entries
+-- Create the trigger on transactions table
 create trigger update_account_balance_trigger
-after insert on data.transaction_entries
+after insert on data.transactions
 for each row
 execute function data.update_account_balance();
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-drop trigger if exists update_account_balance_trigger on data.transaction_entries;
+drop trigger if exists update_account_balance_trigger on data.transactions;
 drop function if exists data.update_account_balance();
 drop table if exists data.balances;
 drop index if exists balances_account_latest_idx;
