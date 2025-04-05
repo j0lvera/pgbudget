@@ -289,11 +289,11 @@ SELECT * FROM api.get_account_transactions(4);  -- Replace 4 with your account I
 
 Result:
 ```
-        date        |   category    | description  |   type   | amount 
---------------------+---------------+--------------+----------+--------
- 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  -1500
- 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  -7500
- 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000
+        date        |   category    | description  |   type   | amount | balance
+--------------------+---------------+--------------+----------+--------+--------
+ 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  -1500 |  98500
+ 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  -7500 |  91000
+ 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000 | 100000
 ```
 
 Note: All amounts are in cents (100000 = $1000.00, -7500 = -$75.00, etc.).
@@ -304,6 +304,7 @@ The account transactions view shows:
 - **description**: The transaction description
 - **type**: Whether money flowed into the account (inflow) or out of it (outflow)
 - **amount**: The transaction amount (positive for inflows, negative for outflows)
+- **balance**: The account balance after this transaction (running balance)
 
 You can also use the default view for a quick look at transactions in account ID 4:
 
