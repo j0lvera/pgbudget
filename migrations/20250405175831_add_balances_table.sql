@@ -1,6 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
-create table if not exists data.account_balances
+create table if not exists data.balances
 (
     id               bigint generated always as identity primary key,
     created_at       timestamptz not null default current_timestamp,
@@ -19,22 +19,22 @@ create table if not exists data.account_balances
     ledger_id        bigint      not null references data.ledgers (id),
     transaction_id   bigint      not null references data.transactions (id),
 
-    constraint account_balances_operation_type_check check (
+    constraint balances_operation_type_check check (
         operation_type in ('credit', 'debit')
         ),
-    constraint account_balances_delta_valid_check check (
+    constraint balances_delta_valid_check check (
         (operation_type = 'debit' and delta > 0) or
         (operation_type = 'credit' and delta < 0)
         )
 );
 
 -- Index for fetching latest balance quickly
-create index if not exists account_balances_account_latest_idx
-    on data.account_balances (account_id, created_at desc);
+create index if not exists balances_account_latest_idx
+    on data.balances (account_id, created_at desc);
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-drop table if exists data.account_balances;
-drop index if exists data.account_balances_account_latest_idx;
+drop table if exists data.balances;
+drop index if exists balances_account_latest_idx;
 -- +goose StatementEnd
