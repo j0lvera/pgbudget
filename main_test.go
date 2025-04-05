@@ -441,12 +441,8 @@ func TestDatabase(t *testing.T) {
 			is := is_.New(t)
 
 			// Use the helper function to set up a test ledger
-			ledgerID, accounts, transactions, err := setupTestLedger(ctx, conn, "Budget Status Test Ledger")
+			ledgerID, _, _, err := setupTestLedger(ctx, conn, "Budget Status Test Ledger")
 			is.NoErr(err) // Should set up test ledger without error
-
-			// Get the account IDs
-			checkingID := accounts["Checking"]
-			groceriesID := accounts["Groceries"]
 
 			// First, get all budget status rows to debug what's available
 			rows, err := conn.Query(
@@ -458,7 +454,7 @@ func TestDatabase(t *testing.T) {
 			defer rows.Close()
 
 			// Collect all account names for debugging
-			var accounts []string
+			var accountNamesList []string
 			for rows.Next() {
 				var accountID int
 				var accountName string
@@ -470,7 +466,7 @@ func TestDatabase(t *testing.T) {
 					&accountID, &accountName, &budgeted, &activity, &available,
 				)
 				is.NoErr(err) // Should scan row without error
-				accounts = append(accounts, accountName)
+				accountNamesList = append(accountNamesList, accountName)
 			}
 			is.NoErr(rows.Err())
 
@@ -523,7 +519,7 @@ func TestDatabase(t *testing.T) {
 			is := is_.New(t)
 
 			// Use the helper function to set up a test ledger
-			ledgerID, accounts, transactions, err := setupTestLedger(ctx, conn, "Balance Test Ledger")
+			ledgerID, accounts, _, err := setupTestLedger(ctx, conn, "Balance Test Ledger")
 			is.NoErr(err) // Should set up test ledger without error
 
 			// Create credit card account (liability_like) - this is not created by setupTestLedger
