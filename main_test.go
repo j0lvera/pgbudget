@@ -826,7 +826,7 @@ func TestDatabase(t *testing.T) {
 		// Query transactions for the checking account
 		rows, err := conn.Query(
 			ctx,
-			"SELECT date, category, description, type, amount, balance FROM api.get_account_transactions($1)",
+			"SELECT * FROM api.get_account_transactions($1)",
 			checkingID,
 		)
 		is.NoErr(err) // Should query account transactions without error
