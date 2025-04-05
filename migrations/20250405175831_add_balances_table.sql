@@ -42,12 +42,18 @@ declare
     v_delta bigint;
     v_ledger_id bigint;
     v_has_previous boolean;
+    v_internal_type text;
 begin
     -- Ledger ID is already in the transaction
     v_ledger_id := NEW.ledger_id;
 
     -- Process both debit and credit sides of the transaction
     -- First, handle the debit account
+    -- Get the account's internal type
+    select internal_type into v_internal_type
+    from data.accounts
+    where id = NEW.debit_account_id;
+
     -- Check if there's a previous balance record
     select exists(
         select 1 from data.balances
@@ -68,7 +74,15 @@ begin
     -- For debit account, it's always a debit operation
     v_operation_type := 'debit';
     v_delta := NEW.amount;
-    v_new_balance := v_previous_balance + NEW.amount;
+    
+    -- Calculate new balance based on account type
+    if v_internal_type = 'asset_like' then
+        -- For asset-like accounts, debits increase the balance
+        v_new_balance := v_previous_balance + NEW.amount;
+    else
+        -- For liability-like accounts, debits decrease the balance
+        v_new_balance := v_previous_balance - NEW.amount;
+    end if;
 
     -- Insert the new balance record for debit account
     insert into data.balances (
@@ -90,6 +104,11 @@ begin
     );
 
     -- Now, handle the credit account
+    -- Get the account's internal type
+    select internal_type into v_internal_type
+    from data.accounts
+    where id = NEW.credit_account_id;
+
     -- Check if there's a previous balance record
     select exists(
         select 1 from data.balances
@@ -110,7 +129,15 @@ begin
     -- For credit account, it's always a credit operation
     v_operation_type := 'credit';
     v_delta := -NEW.amount; -- Store as negative for credits
-    v_new_balance := v_previous_balance - NEW.amount;
+    
+    -- Calculate new balance based on account type
+    if v_internal_type = 'asset_like' then
+        -- For asset-like accounts, credits decrease the balance
+        v_new_balance := v_previous_balance - NEW.amount;
+    else
+        -- For liability-like accounts, credits increase the balance
+        v_new_balance := v_previous_balance + NEW.amount;
+    end if;
 
     -- Insert the new balance record for credit account
     insert into data.balances (
