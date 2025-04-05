@@ -76,12 +76,12 @@ func setupTestLedger(
 	accounts := make(map[string]int)
 	transactions := make(map[string]int)
 
-	// Create checking account (asset_like)
+	// Create checking account using api.add_account
 	var checkingID int
 	err = conn.QueryRow(
 		ctx,
-		"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
-		ledgerID, "Checking", "asset", "asset_like",
+		"SELECT api.add_account($1, $2, $3)",
+		ledgerID, "Checking", "asset",
 	).Scan(&checkingID)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf(
@@ -90,12 +90,12 @@ func setupTestLedger(
 	}
 	accounts["Checking"] = checkingID
 
-	// Create groceries category (liability_like)
+	// Create groceries category using api.add_category
 	var groceriesID int
 	err = conn.QueryRow(
 		ctx,
-		"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
-		ledgerID, "Groceries", "equity", "liability_like",
+		"SELECT api.add_category($1, $2)",
+		ledgerID, "Groceries",
 	).Scan(&groceriesID)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf(
@@ -538,12 +538,12 @@ func TestDatabase(t *testing.T) {
 			)
 			is.NoErr(err) // Should set up test ledger without error
 
-			// Create credit card account (liability_like) - this is not created by setupTestLedger
+			// Create credit card account - this is not created by setupTestLedger
 			var creditCardID int
 			err = conn.QueryRow(
 				ctx,
-				"insert into data.accounts (ledger_id, name, type, internal_type) values ($1, $2, $3, $4) returning id",
-				ledgerID, "Credit Card", "liability", "liability_like",
+				"SELECT api.add_account($1, $2, $3)",
+				ledgerID, "Credit Card", "liability",
 			).Scan(&creditCardID)
 			is.NoErr(err) // Should create credit card account without error
 
