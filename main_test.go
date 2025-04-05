@@ -607,7 +607,7 @@ func TestDatabase(t *testing.T) {
 		// Verify balances table entries for checking account
 		t.Run("CheckingBalances", func(t *testing.T) {
 			is := is_.New(t)
-			
+				
 			// Query all balance entries for checking account
 			rows, err := conn.Query(
 				ctx,
@@ -623,26 +623,26 @@ func TestDatabase(t *testing.T) {
 			// We should have at least two entries for checking
 			// First entry: income transaction (debit/increase)
 			is.True(rows.Next()) // Should have first row
-			
+				
 			var txID int
 			var prevBalance, delta, balance int
 			var opType string
-			
+				
 			err = rows.Scan(&txID, &prevBalance, &delta, &balance, &opType)
 			is.NoErr(err) // Should scan row without error
-			
+				
 			is.Equal(incomeTxID, txID)     // Should be the income transaction
 			is.Equal(0, prevBalance)       // First transaction starts at 0
 			is.Equal(100000, delta)        // +$1000.00 delta
 			is.Equal(100000, balance)      // New balance should be $1000.00
 			is.Equal("debit", opType)      // Should be a debit operation (asset increase)
-			
+				
 			// Second entry: spending transaction (credit/decrease)
 			is.True(rows.Next()) // Should have second row
-			
+				
 			err = rows.Scan(&txID, &prevBalance, &delta, &balance, &opType)
 			is.NoErr(err) // Should scan row without error
-			
+				
 			is.Equal(spendTxID, txID)      // Should be the spending transaction
 			is.Equal(100000, prevBalance)  // Previous balance should be $1000.00
 			is.Equal(-7500, delta)         // -$75.00 delta
@@ -653,7 +653,7 @@ func TestDatabase(t *testing.T) {
 		// Verify balances table entries for groceries category
 		t.Run("GroceriesBalances", func(t *testing.T) {
 			is := is_.New(t)
-			
+				
 			// Query all balance entries for groceries account
 			rows, err := conn.Query(
 				ctx,
@@ -669,26 +669,26 @@ func TestDatabase(t *testing.T) {
 			// We should have at least two entries for groceries
 			// First entry: budget allocation (credit/increase for liability-like)
 			is.True(rows.Next()) // Should have first row
-			
+				
 			var txID int
 			var prevBalance, delta, balance int
 			var opType string
-			
+				
 			err = rows.Scan(&txID, &prevBalance, &delta, &balance, &opType)
 			is.NoErr(err) // Should scan row without error
-			
+				
 			is.Equal(budgetTxID, txID)     // Should be the budget transaction
 			is.Equal(0, prevBalance)       // First transaction starts at 0
 			is.Equal(-30000, delta)        // -$300.00 delta (negative for credit)
 			is.Equal(30000, balance)       // New balance should be $300.00
 			is.Equal("credit", opType)     // Should be a credit operation (liability increase)
-			
+				
 			// Second entry: spending transaction (debit/decrease for liability-like)
 			is.True(rows.Next()) // Should have second row
-			
+				
 			err = rows.Scan(&txID, &prevBalance, &delta, &balance, &opType)
 			is.NoErr(err) // Should scan row without error
-			
+				
 			is.Equal(spendTxID, txID)      // Should be the spending transaction
 			is.Equal(30000, prevBalance)   // Previous balance should be $300.00
 			is.Equal(7500, delta)          // +$75.00 delta (positive for debit)
@@ -714,7 +714,7 @@ func TestDatabase(t *testing.T) {
 					is := is_.New(t) // Create a new instance for each subtest
 
 					var balance int
-					err = conn.QueryRow(
+					err := conn.QueryRow(
 						ctx,
 						`select balance from data.balances 
 						 where account_id = $1 
