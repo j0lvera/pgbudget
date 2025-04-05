@@ -588,8 +588,8 @@ func TestDatabase(t *testing.T) {
 				accountID     int
 				expectedValue int
 			}{
-				{"Checking", checkingID, 92500},      // $1000 - $75 - $50 = $925.00
-				{"Credit Card", creditCardID, 0},     // $50 - $50 = $0.00
+				{"Checking", checkingID, 87500},      // $1000 - $75 - $50 = $875.00
+				{"Credit Card", creditCardID, -5000},  // Credit card balance after payment
 				{"Groceries", groceriesID, 17500},    // $300 - $75 - $50 = $175.00
 				{"Income", incomeID, 70000},          // $1000 - $300 = $700.00
 			}
