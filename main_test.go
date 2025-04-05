@@ -823,10 +823,10 @@ func TestDatabase(t *testing.T) {
 		// Get the checking account ID
 		checkingID := accounts["Checking"]
 
-		// Query transactions for the checking account
+		// Query transactions for the checking account - explicitly list columns
 		rows, err := conn.Query(
 			ctx,
-			"SELECT * FROM api.get_account_transactions($1)",
+			"SELECT date, category, description, type, amount, balance FROM api.get_account_transactions($1)",
 			checkingID,
 		)
 		is.NoErr(err) // Should query account transactions without error
