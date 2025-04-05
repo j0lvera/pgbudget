@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -52,6 +53,105 @@ func contains(slice []string, str string) bool {
 		}
 	}
 	return false
+}
+
+// setupTestLedger creates a new ledger with standard accounts and sample transactions
+// Returns the ledger ID and a map of account IDs by name for easy reference
+func setupTestLedger(ctx context.Context, conn *pgx.Conn, ledgerName string) (int, map[string]int, map[string]int, error) {
+    // Create a new ledger
+    var ledgerID int
+    err := conn.QueryRow(
+        ctx,
+        "INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
+        ledgerName,
+    ).Scan(&ledgerID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create ledger: %w", err)
+    }
+
+    // Map to store account IDs by name
+    accounts := make(map[string]int)
+    transactions := make(map[string]int)
+
+    // Create checking account (asset_like)
+    var checkingID int
+    err = conn.QueryRow(
+        ctx,
+        "INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
+        ledgerID, "Checking", "asset", "asset_like",
+    ).Scan(&checkingID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create checking account: %w", err)
+    }
+    accounts["Checking"] = checkingID
+
+    // Create groceries category (liability_like)
+    var groceriesID int
+    err = conn.QueryRow(
+        ctx,
+        "INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
+        ledgerID, "Groceries", "equity", "liability_like",
+    ).Scan(&groceriesID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create groceries category: %w", err)
+    }
+    accounts["Groceries"] = groceriesID
+
+    // Find the Income account (should be created automatically with the ledger)
+    var incomeID int
+    err = conn.QueryRow(
+        ctx,
+        "SELECT api.find_category($1, $2)",
+        ledgerID, "Income",
+    ).Scan(&incomeID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to find income category: %w", err)
+    }
+    accounts["Income"] = incomeID
+
+    // 1. Create a transaction to simulate receiving income
+    var incomeTxID int
+    err = conn.QueryRow(
+        ctx,
+        "SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+        ledgerID, "2023-01-01", "Salary deposit", "inflow",
+        100000, // $1000.00
+        checkingID, incomeID,
+    ).Scan(&incomeTxID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create income transaction: %w", err)
+    }
+    transactions["Income"] = incomeTxID
+
+    // 2. Create a transaction to budget money from Income to Groceries
+    var budgetTxID int
+    err = conn.QueryRow(
+        ctx,
+        "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+        ledgerID, "2023-01-01", "Budget allocation to Groceries",
+        30000, // $300.00
+        groceriesID,
+    ).Scan(&budgetTxID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create budget transaction: %w", err)
+    }
+    transactions["Budget"] = budgetTxID
+
+    // 3. Create a transaction to spend from Groceries
+    var spendTxID int
+    err = conn.QueryRow(
+        ctx,
+        "SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+        ledgerID, "2023-01-02", "Grocery shopping", "outflow",
+        7500, // $75.00
+        checkingID, groceriesID,
+    ).Scan(&spendTxID)
+    if err != nil {
+        return 0, nil, nil, fmt.Errorf("failed to create spending transaction: %w", err)
+    }
+    transactions["Spend"] = spendTxID
+
+    return ledgerID, accounts, transactions, nil
 }
 
 // TestDatabase uses nested subtests to share context between tests
