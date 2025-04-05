@@ -29,7 +29,8 @@ begin
             end
         ), 0) into v_balance
         from data.transactions
-        where ledger_id = p_ledger_id;
+        where ledger_id = p_ledger_id
+        and (debit_account_id = p_account_id or credit_account_id = p_account_id);
     else -- liability_like
         select coalesce(sum(
             case
@@ -39,7 +40,8 @@ begin
             end
         ), 0) into v_balance
         from data.transactions
-        where ledger_id = p_ledger_id;
+        where ledger_id = p_ledger_id
+        and (debit_account_id = p_account_id or credit_account_id = p_account_id);
     end if;
 
     return v_balance;
