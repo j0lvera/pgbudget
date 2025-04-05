@@ -782,8 +782,6 @@ func TestDatabase(t *testing.T) {
 
 		// Verify the latest balance for each account matches what we expect
 		t.Run("LatestBalances", func(t *testing.T) {
-			is := is_.New(t)
-			
 			// Test cases for different account latest balances
 			testCases := []struct {
 				name          string
