@@ -697,12 +697,12 @@ func TestDatabase(t *testing.T) {
 				},
 			)
 
-			// Verify balances table entries for groceries category
+			// Verify balances table entries for a budget category
 			t.Run(
-				"GroceriesBalances", func(t *testing.T) {
+				"CategoryBalances", func(t *testing.T) {
 					is := is_.New(t)
 
-					// Query all balance entries for groceries account
+					// Query all balance entries for the category account
 					rows, err := conn.Query(
 						ctx,
 						`select transaction_id, previous_balance, delta, balance, operation_type 
@@ -714,7 +714,7 @@ func TestDatabase(t *testing.T) {
 					is.NoErr(err) // Should query balances without error
 					defer rows.Close()
 
-					// We should have at least two entries for groceries
+					// We should have at least two entries for the category
 					// First entry: budget allocation (credit/increase for liability-like)
 					is.True(rows.Next()) // Should have first row
 
