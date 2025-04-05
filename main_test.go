@@ -823,10 +823,10 @@ func TestDatabase(t *testing.T) {
 		// Get the checking account ID
 		checkingID := accounts["Checking"]
 
-		// Query transactions for the checking account - explicitly list columns
+		// Query transactions for the checking account - use SELECT * to match function's return structure
 		rows, err := conn.Query(
 			ctx,
-			"SELECT date, category, description, type, amount, balance FROM api.get_account_transactions($1)",
+			"SELECT * FROM api.get_account_transactions($1)",
 			checkingID,
 		)
 		is.NoErr(err) // Should query account transactions without error
@@ -846,10 +846,8 @@ func TestDatabase(t *testing.T) {
 		var transactions_list []transaction
 		for rows.Next() {
 			var tx transaction
-			var txDate time.Time
-			err = rows.Scan(&txDate, &tx.category, &tx.description, &tx.txType, &tx.amount, &tx.balance)
+			err = rows.Scan(&tx.date, &tx.category, &tx.description, &tx.txType, &tx.amount, &tx.balance)
 			is.NoErr(err) // Should scan row without error
-			tx.date = txDate
 			transactions_list = append(transactions_list, tx)
 		}
 		is.NoErr(rows.Err()) // Should not have errors iterating rows
