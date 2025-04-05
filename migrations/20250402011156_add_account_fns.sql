@@ -30,6 +30,10 @@ $$ language plpgsql;
 -- Refactor the get_account_transactions function to include balance information
 -- This enhances the function to show running balances for each transaction,
 -- which provides better visibility into account history and makes reconciliation easier
+-- First drop the existing function to avoid return type change error
+drop function if exists api.get_account_transactions(int);
+
+-- Then create the new function with the balance column
 create or replace function api.get_account_transactions(p_account_id int)
 returns table (
     date timestamptz,
@@ -84,6 +88,11 @@ begin
     order by at.date desc, at.row_num;
 end;
 $$ language plpgsql;
+
+-- Create or replace the view to match the new function
+drop view if exists data.account_transactions;
+create view data.account_transactions as
+select * from api.get_account_transactions(4);  -- Default account ID
 -- +goose StatementEnd
 
 -- +goose Down
@@ -91,4 +100,7 @@ $$ language plpgsql;
 -- drop the functions
 drop function if exists api.get_account_transactions(int);
 drop function if exists api.add_account(int, text, text);
+
+-- Also drop the view if it exists
+drop view if exists data.account_transactions;
 -- +goose StatementEnd
