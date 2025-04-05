@@ -576,7 +576,7 @@ func TestDatabase(t *testing.T) {
 						err = conn.QueryRow(
 							ctx,
 							"select api.get_account_balance($1, $2)",
-							balanceLedgerID, tc.accountID,
+							ledgerID, tc.accountID,
 						).Scan(&balance)
 						is.NoErr(err) // Should get balance without error
 
