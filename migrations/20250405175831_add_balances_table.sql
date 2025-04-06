@@ -177,16 +177,31 @@ create or replace function api.get_account_transactions(p_account_id int)
                       amount bigint,
                       balance bigint  -- New column for transaction balance
                   ) as $$
+declare
+    v_internal_type text;
 begin
+    -- Get the account's internal type to determine how to display transactions
+    select internal_type into v_internal_type
+    from data.accounts
+    where id = p_account_id;
+
     return query
           with account_transactions as (
-              -- Transactions where this account is debited (money going out for asset accounts)
+              -- For asset-like accounts:
+              -- - Debits (money coming in) should be shown as "inflow"
+              -- - Credits (money going out) should be shown as "outflow"
+              -- For liability-like accounts, it's the opposite:
+              -- - Debits (paying down debt) should be shown as "outflow"
+              -- - Credits (increasing debt) should be shown as "inflow"
+              
+              -- Transactions where this account is debited
               select
                   t.date,
                   a.name as category,
                   t.description,
-                  'outflow' as type,
-                  -t.amount as amount,
+                  case when v_internal_type = 'asset_like' then 'inflow'
+                       else 'outflow' end as type,
+                  t.amount, -- Always positive
                   t.id as transaction_id,
                   t.created_at
                 from data.transactions t
@@ -195,13 +210,14 @@ begin
 
                union all
 
-              -- Transactions where this account is credited (money coming in for asset accounts)
+              -- Transactions where this account is credited
               select
                   t.date,
                   a.name as category,
                   t.description,
-                  'inflow' as type,
-                  t.amount as amount,
+                  case when v_internal_type = 'asset_like' then 'outflow'
+                       else 'inflow' end as type,
+                  t.amount, -- Always positive
                   t.id as transaction_id,
                   t.created_at
                 from data.transactions t
