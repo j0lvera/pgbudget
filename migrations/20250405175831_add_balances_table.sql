@@ -167,6 +167,61 @@ create trigger update_account_balance_trigger
 after insert on data.transactions
 for each row
 execute function data.update_account_balance();
+
+create or replace function api.get_account_transactions(p_account_id int)
+    returns table (
+                      date timestamptz,
+                      category text,
+                      description text,
+                      type text,
+                      amount bigint,
+                      balance bigint  -- New column for transaction balance
+                  ) as $$
+begin
+    return query
+          with account_transactions as (
+              -- Transactions where this account is debited (money going out for asset accounts)
+              select
+                  t.date,
+                  a.name as category,
+                  t.description,
+                  'outflow' as type,
+                  -t.amount as amount,
+                  t.id as transaction_id,
+                  row_number() over (order by t.date desc, t.id desc) as row_num
+                from data.transactions t
+                     join data.accounts a on t.credit_account_id = a.id
+               where t.debit_account_id = p_account_id
+
+               union all
+
+-- Transactions where this account is credited (money coming in for asset accounts)
+              select
+                  t.date,
+                  a.name as category,
+                  t.description,
+                  'inflow' as type,
+                  t.amount as amount,
+                  t.id as transaction_id,
+                  row_number() over (order by t.date desc, t.id desc) as row_num
+                from data.transactions t
+                     join data.accounts a on t.debit_account_id = a.id
+               where t.credit_account_id = p_account_id
+          )
+        select
+            at.date,
+            at.category,
+            at.description,
+            at.type,
+            at.amount,
+            b.balance  -- Get the balance from the balances table
+          from account_transactions at
+               left join data.balances b on
+              b.transaction_id = at.transaction_id and
+              b.account_id = p_account_id
+         order by at.date desc, at.row_num;
+end;
+$$ language plpgsql;
 -- +goose StatementEnd
 
 -- +goose Down
@@ -175,4 +230,5 @@ drop trigger if exists update_account_balance_trigger on data.transactions;
 drop function if exists data.update_account_balance();
 drop table if exists data.balances;
 drop index if exists balances_account_latest_idx;
+drop function if exists api.get_account_transactions(int);
 -- +goose StatementEnd
