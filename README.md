@@ -270,6 +270,16 @@ This function automatically applies the correct accounting logic based on the ac
 
 This ensures that balances are always calculated correctly regardless of account type.
 
+The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
+- `ledger_id`: The ID of your budget ledger
+- `account_id`: The ID of the account to check
+
+This function automatically applies the correct accounting logic based on the account's internal type:
+- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
+- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
+
+This ensures that balances are always calculated correctly regardless of account type.
+
 ### View Account Transactions
 
 ```sql
@@ -279,21 +289,37 @@ SELECT * FROM api.get_account_transactions(4);  -- Replace 4 with your account I
 
 Result:
 ```
-        date        |   category    | description  |   type   | amount 
---------------------+---------------+--------------+----------+--------
- 2025-04-01 20:00:00 | Groceries     | Milk         | outflow  |  -1500
- 2025-04-01 19:30:00 | Internet bill | Monthly Internet | outflow  |  -7500
- 2025-04-01 18:00:00 | Income        | Paycheck     | inflow   | 100000
+    date    |   category    |   description    |   type   | amount | balance
+------------+---------------+------------------+----------+--------+--------
+ 2025-04-06 | Groceries     | Buy Groceries    | outflow  |   5000 | 492000
+ 2025-04-06 | Income        | Commission Income| inflow   |  10000 | 497000
+ 2025-04-05 | Internet      | Pay Internet Bill| outflow  |   9000 | 487000
+ 2025-04-05 | Groceries     | Buy Milk         | outflow  |   4000 | 496000
+ 2025-04-05 | Income        | Paycheck         | inflow   | 500000 | 500000
 ```
 
-Note: All amounts are in cents (100000 = $1000.00, -7500 = -$75.00, etc.).
+Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.).
 
-The account transactions view shows:
-- **date**: When the transaction occurred
-- **category**: The budget category associated with the transaction
+The `api.get_account_transactions` function provides a comprehensive view of all transactions affecting a specific account, with the following information:
+
+- **date**: The date when the transaction occurred
+- **category**: The budget category or account associated with the transaction
 - **description**: The transaction description
 - **type**: Whether money flowed into the account (inflow) or out of it (outflow)
-- **amount**: The transaction amount (positive for inflows, negative for outflows)
+- **amount**: The transaction amount (always positive, with the direction indicated by the type)
+- **balance**: The account balance after this transaction (running balance)
+
+The function automatically handles the display logic based on the account type:
+- For asset-like accounts (e.g., checking accounts):
+  - Debits (money coming in) are shown as "inflow"
+  - Credits (money going out) are shown as "outflow"
+- For liability-like accounts (e.g., credit cards, budget categories):
+  - Credits (increasing debt/budget) are shown as "inflow"
+  - Debits (decreasing debt/budget) are shown as "outflow"
+
+This makes the transaction history intuitive regardless of the underlying accounting mechanics.
+
+Transactions are sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
 
 You can also use the default view for a quick look at transactions in account ID 4:
 

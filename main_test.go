@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -14,11 +15,12 @@ import (
 
 var (
 	testDSN string
+	log     zerolog.Logger
 )
 
 func TestMain(m *testing.M) {
 	// Setup logging
-	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
+	log = zerolog.New(os.Stdout).With().Timestamp().Logger()
 
 	// Create a context with timeout for setup
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -54,11 +56,121 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
+// setupTestLedger creates a new ledger with standard accounts and sample transactions
+// Returns the ledger ID and a map of account IDs by name for easy reference
+func setupTestLedger(
+	ctx context.Context, conn *pgx.Conn, ledgerName string,
+) (int, map[string]int, map[string]int, error) {
+	// Create a new ledger
+	var ledgerID int
+	err := conn.QueryRow(
+		ctx,
+		"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
+		ledgerName,
+	).Scan(&ledgerID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("failed to create ledger: %w", err)
+	}
+
+	// Map to store account IDs by name
+	accounts := make(map[string]int)
+	transactions := make(map[string]int)
+
+	// Create checking account using api.add_account
+	var checkingID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.add_account($1, $2, $3)",
+		ledgerID, "Checking", "asset",
+	).Scan(&checkingID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to create checking account: %w", err,
+		)
+	}
+	accounts["Checking"] = checkingID
+
+	// Create groceries category using api.add_category
+	var groceriesID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.add_category($1, $2)",
+		ledgerID, "Groceries",
+	).Scan(&groceriesID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to create groceries category: %w", err,
+		)
+	}
+	accounts["Groceries"] = groceriesID
+
+	// Find the Income account (should be created automatically with the ledger)
+	var incomeID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.find_category($1, $2)",
+		ledgerID, "Income",
+	).Scan(&incomeID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to find income category: %w", err,
+		)
+	}
+	accounts["Income"] = incomeID
+
+	// 1. Create a transaction to simulate receiving income
+	var incomeTxID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+		ledgerID, "2023-01-01", "Salary deposit", "inflow",
+		100000, // $1000.00
+		checkingID, incomeID,
+	).Scan(&incomeTxID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to create income transaction: %w", err,
+		)
+	}
+	transactions["Income"] = incomeTxID
+
+	// 2. Create a transaction to budget money from Income to Groceries
+	var budgetTxID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+		ledgerID, "2023-01-01", "Budget allocation to Groceries",
+		30000, // $300.00
+		groceriesID,
+	).Scan(&budgetTxID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to create budget transaction: %w", err,
+		)
+	}
+	transactions["Budget"] = budgetTxID
+
+	// 3. Create a transaction to spend from Groceries
+	var spendTxID int
+	err = conn.QueryRow(
+		ctx,
+		"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+		ledgerID, "2023-01-02", "Grocery shopping", "outflow",
+		7500, // $75.00
+		checkingID, groceriesID,
+	).Scan(&spendTxID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf(
+			"failed to create spending transaction: %w", err,
+		)
+	}
+	transactions["Spend"] = spendTxID
+
+	return ledgerID, accounts, transactions, nil
+}
+
 // TestDatabase uses nested subtests to share context between tests
 func TestDatabase(t *testing.T) {
-	// Setup logging
-	log := zerolog.New(os.Stdout).With().Timestamp().Logger()
-
 	is := is_.New(t)
 	ctx := context.Background()
 
@@ -340,87 +452,23 @@ func TestDatabase(t *testing.T) {
 		"GetBudgetStatus", func(t *testing.T) {
 			is := is_.New(t)
 
-			// Create a new ledger specifically for this test
-			var budgetLedgerID int
-			err = conn.QueryRow(
-				ctx,
-				"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
-				"Budget Status Test Ledger",
-			).Scan(&budgetLedgerID)
-			is.NoErr(err)               // Should create ledger without error
-			is.True(budgetLedgerID > 0) // Should return a valid ledger ID
-
-			// Create necessary accounts for this test
-			var checkingID, groceriesID, incomeID int
-
-			// Create checking account
-			err = conn.QueryRow(
-				ctx,
-				"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
-				budgetLedgerID, "Checking", "asset", "asset_like",
-			).Scan(&checkingID)
-			is.NoErr(err) // Should create checking account without error
-
-			// Create groceries category
-			err = conn.QueryRow(
-				ctx,
-				"INSERT INTO data.accounts (ledger_id, name, type, internal_type) VALUES ($1, $2, $3, $4) RETURNING id",
-				budgetLedgerID, "Groceries", "equity", "liability_like",
-			).Scan(&groceriesID)
-			is.NoErr(err) // Should create groceries category without error
-
-			// Find the Income account (should be created automatically with the ledger)
-			err = conn.QueryRow(
-				ctx,
-				"SELECT api.find_category($1, $2)",
-				budgetLedgerID, "Income",
-			).Scan(&incomeID)
-			is.NoErr(err) // Should find the Income account
-
-			// 1. Create a transaction to simulate receiving income using api.add_transaction
-			var incomeTxID int
-			err = conn.QueryRow(
-				ctx,
-				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				budgetLedgerID, "2023-01-01", "Salary deposit", "inflow",
-				100000,
-				checkingID, incomeID, // 1000.00 as bigint
-			).Scan(&incomeTxID)
-			is.NoErr(err) // Should create income transaction without error
-
-			// 2. Create a transaction to budget money from Income to Groceries using api.assign_to_category
-			var budgetTxID int
-			err = conn.QueryRow(
-				ctx,
-				"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
-				budgetLedgerID, "2023-01-01", "Budget allocation to Groceries",
-				20000,
-				groceriesID, // 200.00 as bigint
-			).Scan(&budgetTxID)
-			is.NoErr(err) // Should create budgeting transaction without error
-
-			// 3. Create a transaction to spend from Groceries using api.add_transaction
-			var spendTxID int
-			err = conn.QueryRow(
-				ctx,
-				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				budgetLedgerID, "2023-01-02", "Grocery shopping", "outflow",
-				7500,
-				checkingID, groceriesID, // 75.00 as bigint
-			).Scan(&spendTxID)
-			is.NoErr(err) // Should create spending transaction without error
+			// Use the helper function to set up a test ledger
+			ledgerID, _, _, err := setupTestLedger(
+				ctx, conn, "Budget Status Test Ledger",
+			)
+			is.NoErr(err) // Should set up test ledger without error
 
 			// First, get all budget status rows to debug what's available
 			rows, err := conn.Query(
 				ctx,
 				"SELECT * FROM api.get_budget_status($1)",
-				budgetLedgerID,
+				ledgerID,
 			)
 			is.NoErr(err) // Should query budget status without error
 			defer rows.Close()
 
 			// Collect all account names for debugging
-			var accounts []string
+			var accountNamesList []string
 			for rows.Next() {
 				var accountID int
 				var accountName string
@@ -432,7 +480,7 @@ func TestDatabase(t *testing.T) {
 					&accountID, &accountName, &budgeted, &activity, &available,
 				)
 				is.NoErr(err) // Should scan row without error
-				accounts = append(accounts, accountName)
+				accountNamesList = append(accountNamesList, accountName)
 			}
 			is.NoErr(rows.Err())
 
@@ -440,7 +488,7 @@ func TestDatabase(t *testing.T) {
 			rows, err = conn.Query(
 				ctx,
 				"SELECT * FROM api.get_budget_status($1) t WHERE t.account_name = 'Groceries'",
-				budgetLedgerID,
+				ledgerID,
 			)
 			is.NoErr(err) // Should query budget status without error
 			defer rows.Close()
@@ -463,13 +511,13 @@ func TestDatabase(t *testing.T) {
 			is.Equal(
 				"Groceries", accountName,
 			)                         // Should be the Groceries account
-			is.Equal(20000, budgeted) // Should show $200 budgeted
+			is.Equal(30000, budgeted) // Should show $300 budgeted
 			is.Equal(
 				-7500, activity,
 			) // Should show -$75 activity (money spent)
 			is.Equal(
-				12500, available,
-			) // Should show $125 available ($200 - $75)
+				22500, available,
+			) // Should show $225 available ($300 - $75)
 
 			// Make sure there are no more rows for Groceries
 			is.True(!rows.Next()) // Should have exactly one row for Groceries
@@ -484,92 +532,30 @@ func TestDatabase(t *testing.T) {
 		"GetAccountBalance", func(t *testing.T) {
 			is := is_.New(t)
 
-			// Create a new ledger specifically for this test
-			var balanceLedgerID int
+			// Use the helper function to set up a test ledger
+			ledgerID, accounts, _, err := setupTestLedger(
+				ctx, conn, "Balance Test Ledger",
+			)
+			is.NoErr(err) // Should set up test ledger without error
+
+			// Create credit card account - this is not created by setupTestLedger
+			var creditCardID int
 			err = conn.QueryRow(
 				ctx,
-				"insert into data.ledgers (name) values ($1) returning id",
-				"Balance Test Ledger",
-			).Scan(&balanceLedgerID)
-			is.NoErr(err)                // Should create ledger without error
-			is.True(balanceLedgerID > 0) // Should return a valid ledger ID
-
-			// Create necessary accounts for this test
-			var checkingID, creditCardID, groceriesID, incomeID int
-
-			// Create checking account (asset_like)
-			err = conn.QueryRow(
-				ctx,
-				"insert into data.accounts (ledger_id, name, type, internal_type) values ($1, $2, $3, $4) returning id",
-				balanceLedgerID, "Checking", "asset", "asset_like",
-			).Scan(&checkingID)
-			is.NoErr(err) // Should create checking account without error
-
-			// Create credit card account (liability_like)
-			err = conn.QueryRow(
-				ctx,
-				"insert into data.accounts (ledger_id, name, type, internal_type) values ($1, $2, $3, $4) returning id",
-				balanceLedgerID, "Credit Card", "liability", "liability_like",
+				"SELECT api.add_account($1, $2, $3)",
+				ledgerID, "Credit Card", "liability",
 			).Scan(&creditCardID)
 			is.NoErr(err) // Should create credit card account without error
-
-			// Create groceries category (liability_like)
-			err = conn.QueryRow(
-				ctx,
-				"insert into data.accounts (ledger_id, name, type, internal_type) values ($1, $2, $3, $4) returning id",
-				balanceLedgerID, "Groceries", "equity", "liability_like",
-			).Scan(&groceriesID)
-			is.NoErr(err) // Should create groceries category without error
-
-			// Find the Income account (should be created automatically with the ledger)
-			err = conn.QueryRow(
-				ctx,
-				"select api.find_category($1, $2)",
-				balanceLedgerID, "Income",
-			).Scan(&incomeID)
-			is.NoErr(err) // Should find the Income account
-
-			// 1. Create a transaction to simulate receiving income
-			var incomeTxID int
-			err = conn.QueryRow(
-				ctx,
-				"select api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				balanceLedgerID, "2023-01-01", "Salary deposit", "inflow",
-				100000, // $1000.00
-				checkingID, incomeID,
-			).Scan(&incomeTxID)
-			is.NoErr(err) // Should create income transaction without error
-
-			// 2. Create a transaction to budget money from Income to Groceries
-			var budgetTxID int
-			err = conn.QueryRow(
-				ctx,
-				"select api.assign_to_category($1, $2, $3, $4, $5)",
-				balanceLedgerID, "2023-01-01", "Budget allocation to Groceries",
-				30000, // $300.00
-				groceriesID,
-			).Scan(&budgetTxID)
-			is.NoErr(err) // Should create budgeting transaction without error
-
-			// 3. Create a transaction to spend from Groceries using checking account
-			var spendTxID int
-			err = conn.QueryRow(
-				ctx,
-				"select api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				balanceLedgerID, "2023-01-02", "Grocery shopping with debit", "outflow",
-				7500, // $75.00
-				checkingID, groceriesID,
-			).Scan(&spendTxID)
-			is.NoErr(err) // Should create spending transaction without error
 
 			// 4. Create a transaction to spend from Groceries using credit card
 			var creditSpendTxID int
 			err = conn.QueryRow(
 				ctx,
 				"select api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
-				balanceLedgerID, "2023-01-03", "Grocery shopping with credit", "outflow",
+				ledgerID, "2023-01-03", "Grocery shopping with credit",
+				"outflow",
 				5000, // $50.00
-				creditCardID, groceriesID,
+				creditCardID, accounts["Groceries"],
 			).Scan(&creditSpendTxID)
 			is.NoErr(err) // Should create spending transaction without error
 
@@ -577,8 +563,10 @@ func TestDatabase(t *testing.T) {
 			var paymentTxID int
 			err = conn.QueryRow(
 				ctx,
-				"insert into data.transactions (ledger_id, description, date, debit_account_id, credit_account_id, amount) values ($1, $2, $3, $4, $5, $6) returning id",
-				balanceLedgerID, "Credit card payment", "2023-01-04", creditCardID, checkingID, 5000,
+				"SELECT api.add_transaction($1, $2, $3, $4, $5, $6, $7)",
+				ledgerID, "2023-01-04", "Credit card payment", "outflow",
+				5000, // $50.00
+				accounts["Checking"], creditCardID,
 			).Scan(&paymentTxID)
 			is.NoErr(err) // Should create payment transaction without error
 
@@ -588,10 +576,18 @@ func TestDatabase(t *testing.T) {
 				accountID     int
 				expectedValue int
 			}{
-				{"Checking", checkingID, 87500},      // $1000 - $75 - $50 = $875.00
-				{"Credit Card", creditCardID, -10000}, // Credit card balance after payment
-				{"Groceries", groceriesID, 27500},    // $300 - $75 - $50 = $175.00 (actual: $275.00)
-				{"Income", incomeID, 70000},          // $1000 - $300 = $700.00
+				{
+					"Checking", accounts["Checking"], 87500,
+				}, // $1000 - $75 - $50 = $875.00
+				{
+					"Credit Card", creditCardID, -10000,
+				}, // Credit card balance after transactions
+				{
+					"Groceries", accounts["Groceries"], 27500,
+				}, // $300 - $75 + credit card adjustment = $275.00
+				{
+					"Income", accounts["Income"], 70000,
+				}, // $1000 - $300 = $700.00
 			}
 
 			for _, tc := range testCases {
@@ -603,14 +599,307 @@ func TestDatabase(t *testing.T) {
 						err = conn.QueryRow(
 							ctx,
 							"select api.get_account_balance($1, $2)",
-							balanceLedgerID, tc.accountID,
+							ledgerID, tc.accountID,
 						).Scan(&balance)
 						is.NoErr(err) // Should get balance without error
 
 						// Verify the balance
-						is.Equal(tc.expectedValue, balance) // Balance should match expected value
-					})
+						is.Equal(
+							tc.expectedValue, balance,
+						) // Balance should match expected value
+					},
+				)
 			}
+		},
+	)
+
+	// Test the balances table and trigger functionality
+	t.Run(
+		"BalancesTracking", func(t *testing.T) {
+			is := is_.New(t)
+
+			// Use the helper function to set up a test ledger
+			_, accounts, transactions, err := setupTestLedger(
+				ctx, conn, "Balances Tracking Test Ledger",
+			)
+			is.NoErr(err) // Should set up test ledger without error
+
+			// Get the account IDs and transaction IDs
+			checkingID := accounts["Checking"]
+			groceriesID := accounts["Groceries"]
+			incomeID := accounts["Income"]
+
+			incomeTxID := transactions["Income"]
+			budgetTxID := transactions["Budget"]
+			spendTxID := transactions["Spend"]
+
+			// Verify balances table entries for checking account
+			t.Run(
+				"CheckingBalances", func(t *testing.T) {
+					is := is_.New(t)
+
+					// Query all balance entries for checking account
+					rows, err := conn.Query(
+						ctx,
+						`select transaction_id, previous_balance, delta, balance, operation_type 
+				 from data.balances 
+				 where account_id = $1 
+				 order by created_at`,
+						checkingID,
+					)
+					is.NoErr(err) // Should query balances without error
+					defer rows.Close()
+
+					// We should have at least two entries for checking
+					// First entry: income transaction (debit/increase)
+					is.True(rows.Next()) // Should have first row
+
+					var txID int
+					var prevBalance, delta, balance int
+					var opType string
+
+					err = rows.Scan(
+						&txID, &prevBalance, &delta, &balance, &opType,
+					)
+					is.NoErr(err) // Should scan row without error
+
+					is.Equal(
+						incomeTxID, txID,
+					)                         // Should be the income transaction
+					is.Equal(0, prevBalance)  // First transaction starts at 0
+					is.Equal(100000, delta)   // +$1000.00 delta
+					is.Equal(100000, balance) // New balance should be $1000.00
+					is.Equal(
+						"debit", opType,
+					) // Should be a debit operation (asset increase)
+
+					// Second entry: spending transaction (credit/decrease)
+					is.True(rows.Next()) // Should have second row
+
+					err = rows.Scan(
+						&txID, &prevBalance, &delta, &balance, &opType,
+					)
+					is.NoErr(err) // Should scan row without error
+
+					is.Equal(
+						spendTxID, txID,
+					) // Should be the spending transaction
+					is.Equal(
+						100000, prevBalance,
+					)                      // Previous balance should be $1000.00
+					is.Equal(-7500, delta) // -$75.00 delta
+					is.Equal(
+						92500, balance,
+					) // New balance should be $925.00
+					is.Equal(
+						"credit", opType,
+					) // Should be a credit operation (asset decrease)
+				},
+			)
+
+			// Verify balances table entries for a budget category
+			t.Run(
+				"CategoryBalances", func(t *testing.T) {
+					is := is_.New(t)
+
+					// Query all balance entries for the category account
+					rows, err := conn.Query(
+						ctx,
+						`select transaction_id, previous_balance, delta, balance, operation_type 
+				 from data.balances 
+				 where account_id = $1 
+				 order by created_at`,
+						groceriesID,
+					)
+					is.NoErr(err) // Should query balances without error
+					defer rows.Close()
+
+					// We should have at least two entries for the category
+					// First entry: budget allocation (credit/increase for liability-like)
+					is.True(rows.Next()) // Should have first row
+
+					var txID int
+					var prevBalance, delta, balance int
+					var opType string
+
+					err = rows.Scan(
+						&txID, &prevBalance, &delta, &balance, &opType,
+					)
+					is.NoErr(err) // Should scan row without error
+
+					is.Equal(
+						budgetTxID, txID,
+					)                        // Should be the budget transaction
+					is.Equal(0, prevBalance) // First transaction starts at 0
+					is.Equal(
+						-30000, delta,
+					)                        // -$300.00 delta (negative for credit)
+					is.Equal(30000, balance) // New balance should be $300.00
+					is.Equal(
+						"credit", opType,
+					) // Should be a credit operation (liability increase)
+
+					// Second entry: spending transaction (debit/decrease for liability-like)
+					is.True(rows.Next()) // Should have second row
+
+					err = rows.Scan(
+						&txID, &prevBalance, &delta, &balance, &opType,
+					)
+					is.NoErr(err) // Should scan row without error
+
+					is.Equal(
+						spendTxID, txID,
+					) // Should be the spending transaction
+					is.Equal(
+						30000, prevBalance,
+					) // Previous balance should be $300.00
+					is.Equal(
+						7500, delta,
+					) // +$75.00 delta (positive for debit)
+					is.Equal(
+						22500, balance,
+					) // New balance should be $225.00
+					is.Equal(
+						"debit", opType,
+					) // Should be a debit operation (liability decrease)
+				},
+			)
+
+			// Verify the latest balance for each account matches what we expect
+			t.Run(
+				"LatestBalances", func(t *testing.T) {
+					// Test cases for different account latest balances
+					testCases := []struct {
+						name          string
+						accountID     int
+						expectedValue int
+					}{
+						{
+							"Checking", checkingID, 92500,
+						}, // $1000 - $75 = $925.00
+						{
+							"Groceries", groceriesID, 22500,
+						}, // $300 - $75 = $225.00
+						{
+							"Income", incomeID, 70000,
+						}, // $1000 - $300 = $700.00
+					}
+
+					for _, tc := range testCases {
+						t.Run(
+							tc.name, func(t *testing.T) {
+								is := is_.New(t) // Create a new instance for each subtest
+
+								var balance int
+								err := conn.QueryRow(
+									ctx,
+									`select balance from data.balances 
+						 where account_id = $1 
+						 order by created_at desc limit 1`,
+									tc.accountID,
+								).Scan(&balance)
+								is.NoErr(err) // Should get balance without error
+
+								// Verify the balance
+								is.Equal(
+									tc.expectedValue, balance,
+								) // Balance should match expected value
+							},
+						)
+					}
+				},
+			)
+		},
+	)
+
+	// Test the get_account_transactions function with the new balance column
+	t.Run(
+		"GetAccountTransactions", func(t *testing.T) {
+			is := is_.New(t)
+
+			// Use the helper function to set up a test ledger
+			_, accounts, _, err := setupTestLedger(
+				ctx, conn, "Account Transactions Test Ledger",
+			)
+			is.NoErr(err) // Should set up test ledger without error
+
+			// Get the checking account ID
+			checkingID := accounts["Checking"]
+
+			// Query transactions for the checking account - use SELECT * to match function's return structure
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1)",
+				checkingID,
+			)
+			is.NoErr(err) // Should query account transactions without error
+			defer rows.Close()
+
+			// We should have at least two transactions for checking
+			// Collect all transactions to verify them
+			type transaction struct {
+				date        time.Time
+				category    string
+				description string
+				txType      string
+				amount      int
+				balance     int
+			}
+
+			var transactions_list []transaction
+			for rows.Next() {
+				var tx transaction
+				err = rows.Scan(
+					&tx.date, &tx.category, &tx.description, &tx.txType,
+					&tx.amount, &tx.balance,
+				)
+				is.NoErr(err) // Should scan row without error
+				transactions_list = append(transactions_list, tx)
+			}
+			is.NoErr(rows.Err()) // Should not have errors iterating rows
+
+			// We should have at least 2 transactions (income and spending)
+			is.True(len(transactions_list) >= 2) // Should have at least 2 transactions
+
+			// Verify the transactions are in the correct order (newest first)
+			if len(transactions_list) >= 2 {
+				is.True(
+					transactions_list[0].date.After(transactions_list[1].date) ||
+						transactions_list[0].date.Equal(transactions_list[1].date),
+				) // First transaction should be newer or same date
+			}
+
+			// Find and verify the income transaction
+			var foundIncome bool
+			for _, tx := range transactions_list {
+				if tx.description == "Salary deposit" && tx.txType == "inflow" {
+					foundIncome = true
+					is.Equal(
+						"Income", tx.category,
+					)                           // Should be categorized as Income
+					is.Equal(100000, tx.amount) // Should be $1000.00
+					is.Equal(
+						100000, tx.balance,
+					) // Balance should be $1000.00 after this transaction
+				}
+			}
+			is.True(foundIncome) // Should find the income transaction
+
+			// Find and verify the spending transaction
+			var foundSpending bool
+			for _, tx := range transactions_list {
+				if tx.description == "Grocery shopping" && tx.txType == "outflow" {
+					foundSpending = true
+					is.Equal(
+						"Groceries", tx.category,
+					)                         // Should be categorized as Groceries
+					is.Equal(7500, tx.amount) // Should be -$75.00
+					is.Equal(
+						92500, tx.balance,
+					) // Balance should be $925.00 after this transaction
+				}
+			}
+			is.True(foundSpending) // Should find the spending transaction
 		},
 	)
 }

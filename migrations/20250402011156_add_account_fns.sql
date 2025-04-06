@@ -30,6 +30,6 @@ $$ language plpgsql;
 
 -- +goose Down
 -- +goose StatementBegin
--- drop the function
+-- drop the functions
 drop function if exists api.add_account(int, text, text);
 -- +goose StatementEnd
