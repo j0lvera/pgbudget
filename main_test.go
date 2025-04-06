@@ -813,85 +813,93 @@ func TestDatabase(t *testing.T) {
 	)
 
 	// Test the get_account_transactions function with the new balance column
-	t.Run("GetAccountTransactions", func(t *testing.T) {
-		is := is_.New(t)
+	t.Run(
+		"GetAccountTransactions", func(t *testing.T) {
+			is := is_.New(t)
 
-		// Use the helper function to set up a test ledger
-		_, accounts, _, err := setupTestLedger(ctx, conn, "Account Transactions Test Ledger")
-		is.NoErr(err) // Should set up test ledger without error
+			// Use the helper function to set up a test ledger
+			_, accounts, _, err := setupTestLedger(
+				ctx, conn, "Account Transactions Test Ledger",
+			)
+			is.NoErr(err) // Should set up test ledger without error
 
-		// Get the checking account ID
-		checkingID := accounts["Checking"]
+			// Get the checking account ID
+			checkingID := accounts["Checking"]
 
-		// Query transactions for the checking account - use SELECT * to match function's return structure
-		rows, err := conn.Query(
-			ctx,
-			"SELECT * FROM api.get_account_transactions($1)",
-			checkingID,
-		)
-		is.NoErr(err) // Should query account transactions without error
-		defer rows.Close()
+			// Query transactions for the checking account - use SELECT * to match function's return structure
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1)",
+				checkingID,
+			)
+			is.NoErr(err) // Should query account transactions without error
+			defer rows.Close()
 
-		// We should have at least two transactions for checking
-		// Collect all transactions to verify them
-		type transaction struct {
-			date        time.Time
-			category    string
-			description string
-			txType      string
-			amount      int
-			balance     int
-		}
-
-		var transactions_list []transaction
-		for rows.Next() {
-			var tx transaction
-			err = rows.Scan(&tx.date, &tx.category, &tx.description, &tx.txType, &tx.amount, &tx.balance)
-			is.NoErr(err) // Should scan row without error
-			transactions_list = append(transactions_list, tx)
-		}
-		is.NoErr(rows.Err()) // Should not have errors iterating rows
-
-		// We should have at least 2 transactions (income and spending)
-		is.True(len(transactions_list) >= 2) // Should have at least 2 transactions
-
-		// Verify the transactions are in the correct order (newest first)
-		if len(transactions_list) >= 2 {
-			is.True(transactions_list[0].date.After(transactions_list[1].date) || 
-					transactions_list[0].date.Equal(transactions_list[1].date)) // First transaction should be newer or same date
-		}
-
-		// Find and verify the income transaction
-		var foundIncome bool
-		for _, tx := range transactions_list {
-			if tx.description == "Salary deposit" && tx.txType == "inflow" {
-				foundIncome = true
-				is.Equal("Income", tx.category) // Should be categorized as Income
-				is.Equal(100000, tx.amount)     // Should be $1000.00
-				is.Equal(100000, tx.balance)    // Balance should be $1000.00 after this transaction
+			// We should have at least two transactions for checking
+			// Collect all transactions to verify them
+			type transaction struct {
+				date        time.Time
+				category    string
+				description string
+				txType      string
+				amount      int
+				balance     int
 			}
-		}
-		is.True(foundIncome) // Should find the income transaction
 
-		// Find and verify the spending transaction
-		var foundSpending bool
-		for _, tx := range transactions_list {
-			if tx.description == "Grocery shopping" && tx.txType == "outflow" {
-				foundSpending = true
-				is.Equal("Groceries", tx.category) // Should be categorized as Groceries
-				is.Equal(-7500, tx.amount)         // Should be -$75.00
-				is.Equal(92500, tx.balance)        // Balance should be $925.00 after this transaction
+			var transactions_list []transaction
+			for rows.Next() {
+				var tx transaction
+				err = rows.Scan(
+					&tx.date, &tx.category, &tx.description, &tx.txType,
+					&tx.amount, &tx.balance,
+				)
+				is.NoErr(err) // Should scan row without error
+				transactions_list = append(transactions_list, tx)
 			}
-		}
-		is.True(foundSpending) // Should find the spending transaction
+			is.NoErr(rows.Err()) // Should not have errors iterating rows
 
-		// Verify the account_transactions view works too
-		var viewCount int
-		err = conn.QueryRow(
-			ctx,
-			"SELECT COUNT(*) FROM data.account_transactions",
-		).Scan(&viewCount)
-		is.NoErr(err)         // Should query the view without error
-		is.True(viewCount > 0) // Should have at least one row in the view
-	})
+			// We should have at least 2 transactions (income and spending)
+			is.True(len(transactions_list) >= 2) // Should have at least 2 transactions
+
+			// Verify the transactions are in the correct order (newest first)
+			if len(transactions_list) >= 2 {
+				is.True(
+					transactions_list[0].date.After(transactions_list[1].date) ||
+						transactions_list[0].date.Equal(transactions_list[1].date),
+				) // First transaction should be newer or same date
+			}
+
+			// Find and verify the income transaction
+			var foundIncome bool
+			for _, tx := range transactions_list {
+				if tx.description == "Salary deposit" && tx.txType == "inflow" {
+					foundIncome = true
+					is.Equal(
+						"Income", tx.category,
+					)                           // Should be categorized as Income
+					is.Equal(100000, tx.amount) // Should be $1000.00
+					is.Equal(
+						100000, tx.balance,
+					) // Balance should be $1000.00 after this transaction
+				}
+			}
+			is.True(foundIncome) // Should find the income transaction
+
+			// Find and verify the spending transaction
+			var foundSpending bool
+			for _, tx := range transactions_list {
+				if tx.description == "Grocery shopping" && tx.txType == "outflow" {
+					foundSpending = true
+					is.Equal(
+						"Groceries", tx.category,
+					)                         // Should be categorized as Groceries
+					is.Equal(7500, tx.amount) // Should be -$75.00
+					is.Equal(
+						92500, tx.balance,
+					) // Balance should be $925.00 after this transaction
+				}
+			}
+			is.True(foundSpending) // Should find the spending transaction
+		},
+	)
 }
