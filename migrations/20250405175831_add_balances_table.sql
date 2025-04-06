@@ -188,14 +188,14 @@ begin
                   'outflow' as type,
                   -t.amount as amount,
                   t.id as transaction_id,
-                  row_number() over (order by t.date desc, t.id desc) as row_num
+                  t.created_at
                 from data.transactions t
                      join data.accounts a on t.credit_account_id = a.id
                where t.debit_account_id = p_account_id
 
                union all
 
--- Transactions where this account is credited (money coming in for asset accounts)
+              -- Transactions where this account is credited (money coming in for asset accounts)
               select
                   t.date,
                   a.name as category,
@@ -203,7 +203,7 @@ begin
                   'inflow' as type,
                   t.amount as amount,
                   t.id as transaction_id,
-                  row_number() over (order by t.date desc, t.id desc) as row_num
+                  t.created_at
                 from data.transactions t
                      join data.accounts a on t.debit_account_id = a.id
                where t.credit_account_id = p_account_id
@@ -219,7 +219,7 @@ begin
                left join data.balances b on
               b.transaction_id = at.transaction_id and
               b.account_id = p_account_id
-         order by at.date desc, at.row_num;
+         order by at.date desc, at.created_at desc;
 end;
 $$ language plpgsql;
 -- +goose StatementEnd
