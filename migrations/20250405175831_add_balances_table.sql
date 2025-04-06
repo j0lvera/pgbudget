@@ -170,7 +170,7 @@ execute function data.update_account_balance();
 
 create or replace function api.get_account_transactions(p_account_id int)
     returns table (
-                      date timestamptz,
+                      date date,
                       category text,
                       description text,
                       type text,
