@@ -19,21 +19,21 @@ grant pgb_web_anon to pgb_web_authr;
 
 -- the anonymous role has permission to access things in the data schema,
 -- and to read rows in the ledgers table.
-grant usage on schema data to pgb_web_anon;
-grant select on data.ledgers to pgb_web_anon;
+-- grant usage on schema data to pgb_web_anon;
+-- grant select on data.ledgers to pgb_web_anon;
 
 -- the authorized role will have the authority to do anything to the ledgers table.
-grant usage on schema data to pgb_web_user;
-grant all on data.ledgers to pgb_web_user;
+-- grant usage on schema data to pgb_web_user;
+-- grant all on data.ledgers to pgb_web_user;
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-revoke all on data.ledgers from pgb_web_user;
-revoke all on schema data from pgb_web_user;
+-- revoke all on data.ledgers from pgb_web_user;
+-- revoke all on schema data from pgb_web_user;
 
-revoke select on data.ledgers from pgb_web_anon;
-revoke usage on schema data from pgb_web_anon;
+-- revoke select on data.ledgers from pgb_web_anon;
+-- revoke usage on schema data from pgb_web_anon;
 
 drop role if exists pgb_web_user;
 drop role if exists pgb_web_anon;
