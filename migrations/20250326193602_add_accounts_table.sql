@@ -59,6 +59,9 @@ create policy accounts_policy on data.accounts using
 
 -- +goose Down
 -- +goose StatementBegin
+drop policy if exists accounts_policy on data.accounts;
+revoke all on data.accounts from pgb_web_user;
+
 drop trigger if exists accounts_updated_at_tg on data.accounts;
 
 drop table data.accounts;
