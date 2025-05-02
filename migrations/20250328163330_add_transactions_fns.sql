@@ -235,5 +235,5 @@ $$ language plpgsql;
 -- +goose StatementBegin
 -- drop the functions in reverse order
 drop function if exists api.add_bulk_transactions(jsonb);
-drop function if exists api.add_transaction(int, timestamptz, text, text, decimal, int, int);
+drop function if exists api.add_transaction(int, int, timestamptz, text, text, decimal, int, int);
 -- +goose StatementEnd
