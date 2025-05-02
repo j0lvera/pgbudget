@@ -39,6 +39,22 @@ create trigger accounts_updated_at_tg
     on data.accounts
     for each row
 execute procedure utils.set_updated_at_fn();
+
+-- allow authenticated user to access the accounts table.
+grant all on data.accounts to pgb_web_user;
+grant usage, select on sequence data.accounts_id_seq to pgb_web_user;
+
+-- enable RLS
+alter table data.accounts
+    enable row level security;
+
+create policy accounts_policy on data.accounts using
+    (
+        exists(select 1
+                 from auth.users u
+                where u.id = utils.get_user()
+                  and u.id = data.accounts.user_id)
+        ) with check (user_id = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down
