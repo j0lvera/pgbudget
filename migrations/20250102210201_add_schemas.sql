@@ -16,8 +16,8 @@ create schema if not exists utils;
 
 -- +goose Down
 -- +goose StatementBegin
-drop schema if exists auth;
-drop schema if exists data;
-drop schema if exists api;
 drop schema if exists utils;
+drop schema if exists api;
+drop schema if exists data;
+drop schema if exists auth;
 -- +goose StatementEnd

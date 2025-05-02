@@ -8,7 +8,7 @@ create or replace function api.add_transaction(
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
-    p_amount decimal,
+    p_amount bigint,
     p_account_id int, -- the bank account or credit card
     p_category_id int = null -- the category, now optional
 ) returns int as
@@ -117,7 +117,7 @@ declare
     v_date                  timestamptz;
     v_description           text;
     v_type                  text;
-    v_amount                decimal;
+    v_amount                bigint;
     v_account_id            int;
     v_category_id           int;
     v_transaction_id        int;
@@ -151,7 +151,7 @@ begin
                 v_date := (v_transaction ->> 'date')::timestamptz;
                 v_description := v_transaction ->> 'description';
                 v_type := v_transaction ->> 'type';
-                v_amount := (v_transaction ->> 'amount')::decimal;
+                v_amount := (v_transaction ->> 'amount')::bigint;
                 v_account_id := (v_transaction ->> 'account_id')::int;
 
                 -- category_id is optional
@@ -235,5 +235,5 @@ $$ language plpgsql;
 -- +goose StatementBegin
 -- drop the functions in reverse order
 drop function if exists api.add_bulk_transactions(jsonb);
-drop function if exists api.add_transaction(int, int, timestamptz, text, text, decimal, int, int);
+drop function if exists api.add_transaction(int, int, timestamptz, text, text, bigint, int, int);
 -- +goose StatementEnd
