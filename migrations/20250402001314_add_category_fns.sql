@@ -6,7 +6,7 @@ create or replace function api.assign_to_category(
     p_user_id int,
     p_date timestamptz,
     p_description text,
-    p_amount decimal,
+    p_amount bigint,
     p_category_id int
 ) returns int as
 $$
@@ -111,7 +111,7 @@ $$ language plpgsql;
 -- +goose Down
 -- +goose StatementBegin
 -- drop the functions
-drop function if exists api.assign_to_category(int, int, timestamptz, text, decimal, int);
+drop function if exists api.assign_to_category(int, int, timestamptz, text, bigint, int);
 drop function if exists api.add_category(int, int, text);
 drop function if exists api.find_category(int, int, text);
 -- +goose StatementEnd
