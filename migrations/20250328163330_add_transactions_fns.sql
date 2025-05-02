@@ -4,6 +4,7 @@
 -- function to add a transaction
 create or replace function api.add_transaction(
     p_ledger_id int,
+    p_user_id int, -- the user who owns this transaction
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
@@ -76,12 +77,14 @@ begin
 
     -- insert the transaction and return the new id
        insert into data.transactions (ledger_id,
+                                      user_id,
                                       date,
                                       description,
                                       debit_account_id,
                                       credit_account_id,
                                       amount)
        values (p_ledger_id,
+               p_user_id,
                p_date,
                p_description,
                v_debit_account_id,
@@ -110,6 +113,7 @@ $$
 declare
     v_transaction           jsonb;
     v_ledger_id             int;
+    v_user_id               int;
     v_date                  timestamptz;
     v_description           text;
     v_type                  text;
@@ -143,6 +147,7 @@ begin
             begin
                 -- extract values from the JSON object
                 v_ledger_id := (v_transaction ->> 'ledger_id')::int;
+                v_user_id := (v_transaction ->> 'user_id')::int;
                 v_date := (v_transaction ->> 'date')::timestamptz;
                 v_description := v_transaction ->> 'description';
                 v_type := v_transaction ->> 'type';
@@ -159,6 +164,7 @@ begin
                 -- call the existing add_transaction function and store result directly
                 v_transaction_id := api.add_transaction(
                         v_ledger_id,
+                        v_user_id,
                         v_date,
                         v_description,
                         v_type,
