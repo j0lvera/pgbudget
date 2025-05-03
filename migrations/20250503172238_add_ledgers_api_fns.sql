@@ -1,62 +1,23 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- function to create a new ledger
-create or replace function utils.ledgers_insert_single(
-    p_user_data text,
-    p_name text,
-    p_description text default null
-)
-    returns table
-            (
-                uuid        text,
-                name        text,
-                description text,
-                metadata    jsonb
-            )
-as
-$$
-begin
-    -- insert and return the requested fields in one operation
-    return query
-        insert into data.ledgers (user_data, name, description)
-            values (p_user_data, p_name, p_description)
-            returning ledgers.uuid, ledgers.name, ledgers.description, ledgers.metadata;
-end;
-$$ language plpgsql;
+create or replace view api.ledgers as
+select a.uuid,
+       a.name,
+       a.description,
+       a.metadata,
+       a.user_data
+  from data.ledgers a;
 
--- api function to create a new ledger
-create or replace function api.add_ledger(
-    p_name text,
-    p_description text default null
-)
-    returns table
-            (
-                uuid        text,
-                name        text,
-                description text,
-                metadata    jsonb
-            )
-as
-$$
-begin
-    return query
-        select *
-          from utils.ledgers_insert_single(
-                  utils.get_user(),
-                  p_name,
-                  p_description
-               );
-end;
-$$ language plpgsql;
+grant all on api.ledgers to pgb_web_user;
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
--- drop the functions
-drop function if exists api.add_ledger(text, text);
-drop function if exists utils.ledgers_insert_single(text, text, text);
+revoke all on api.ledgers from pgb_web_user;
+
+drop view if exists api.ledgers;
 
 -- +goose StatementEnd
