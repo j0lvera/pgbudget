@@ -2,7 +2,7 @@
 -- +goose StatementBegin
 
 -- create a function in utils schema to get budget status for a specific ledger by internal id
-create or replace function utils.get_budget_status(p_ledger_id int)
+create or replace function utils.get_budget_status(p_ledger_id bigint)
 returns table (
     id bigint,
     account_name text,
@@ -63,7 +63,7 @@ end;
 $$ language plpgsql;
 
 -- create a wrapper function in api schema that uses the utils function with uuid
-create or replace function api.get_budget_status(p_ledger_uuid uuid)
+create or replace function api.get_budget_status(p_ledger_uuid text)
 returns table (
     id bigint,
     account_name text,
@@ -111,7 +111,7 @@ cross join lateral (
 
 -- drop the view and functions when rolling back
 drop view if exists data.budget_status;
-drop function if exists api.get_budget_status(uuid);
-drop function if exists utils.get_budget_status(int);
+drop function if exists api.get_budget_status(text);
+drop function if exists utils.get_budget_status(bigint);
 
 -- +goose StatementEnd
