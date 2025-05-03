@@ -4,10 +4,11 @@
 -- function to add a transaction
 create or replace function api.add_transaction(
     p_ledger_id int,
+    p_user_data text, -- the user who owns this transaction
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
-    p_amount decimal,
+    p_amount bigint,
     p_account_id int, -- the bank account or credit card
     p_category_id int = null -- the category, now optional
 ) returns int as
@@ -76,12 +77,14 @@ begin
 
     -- insert the transaction and return the new id
        insert into data.transactions (ledger_id,
+                                      user_data,
                                       date,
                                       description,
                                       debit_account_id,
                                       credit_account_id,
                                       amount)
        values (p_ledger_id,
+               p_user_data,
                p_date,
                p_description,
                v_debit_account_id,
@@ -110,10 +113,11 @@ $$
 declare
     v_transaction           jsonb;
     v_ledger_id             int;
+    v_user_data             text;
     v_date                  timestamptz;
     v_description           text;
     v_type                  text;
-    v_amount                decimal;
+    v_amount                bigint;
     v_account_id            int;
     v_category_id           int;
     v_transaction_id        int;
@@ -143,10 +147,11 @@ begin
             begin
                 -- extract values from the JSON object
                 v_ledger_id := (v_transaction ->> 'ledger_id')::int;
+                v_user_data := (v_transaction ->> 'user_data')::text;
                 v_date := (v_transaction ->> 'date')::timestamptz;
                 v_description := v_transaction ->> 'description';
                 v_type := v_transaction ->> 'type';
-                v_amount := (v_transaction ->> 'amount')::decimal;
+                v_amount := (v_transaction ->> 'amount')::bigint;
                 v_account_id := (v_transaction ->> 'account_id')::int;
 
                 -- category_id is optional
@@ -159,6 +164,7 @@ begin
                 -- call the existing add_transaction function and store result directly
                 v_transaction_id := api.add_transaction(
                         v_ledger_id,
+                        v_user_data,
                         v_date,
                         v_description,
                         v_type,
@@ -229,5 +235,5 @@ $$ language plpgsql;
 -- +goose StatementBegin
 -- drop the functions in reverse order
 drop function if exists api.add_bulk_transactions(jsonb);
-drop function if exists api.add_transaction(int, timestamptz, text, text, decimal, int, int);
+drop function if exists api.add_transaction(int, text, timestamptz, text, text, bigint, int, int);
 -- +goose StatementEnd

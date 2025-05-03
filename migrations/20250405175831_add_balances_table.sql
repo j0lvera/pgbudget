@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create table if not exists data.balances
 (
     id               bigint generated always as identity primary key,
@@ -8,13 +9,13 @@ create table if not exists data.balances
 
     previous_balance bigint      not null,
     balance          bigint      not null,
-    -- The amount that changed (can be positive or negative)
+    -- the amount that changed (can be positive or negative)
     delta            bigint      not null,
 
-    -- Helpful for auditing/debugging
+    -- helpful for auditing/debugging
     operation_type   text        not null,
 
-    -- Denormalized references for easier querying
+    -- denormalized references for easier querying
     account_id       bigint      not null references data.accounts (id),
     ledger_id        bigint      not null references data.ledgers (id),
     transaction_id   bigint      not null references data.transactions (id),
@@ -28,11 +29,11 @@ create table if not exists data.balances
         )
 );
 
--- Index for fetching latest balance quickly
+-- index for fetching latest balance quickly
 create index if not exists balances_account_latest_idx
     on data.balances (account_id, created_at desc);
 
--- Create a function that will be called by the trigger
+-- create a function that will be called by the trigger
 create or replace function data.update_account_balance()
 returns trigger as $$
 declare
@@ -44,23 +45,23 @@ declare
     v_has_previous boolean;
     v_internal_type text;
 begin
-    -- Ledger ID is already in the transaction
+    -- ledger ID is already in the transaction
     v_ledger_id := NEW.ledger_id;
 
-    -- Process both debit and credit sides of the transaction
-    -- First, handle the debit account
-    -- Get the account's internal type
+    -- process both debit and credit sides of the transaction
+    -- first, handle the debit account
+    -- get the account's internal type
     select internal_type into v_internal_type
     from data.accounts
     where id = NEW.debit_account_id;
 
-    -- Check if there's a previous balance record
+    -- check if there's a previous balance record
     select exists(
         select 1 from data.balances
         where account_id = NEW.debit_account_id
     ) into v_has_previous;
 
-    -- Get the previous balance (or 0 if no previous balance exists)
+    -- get the previous balance (or 0 if no previous balance exists)
     if v_has_previous then
         select balance into v_previous_balance
         from data.balances
@@ -71,20 +72,20 @@ begin
         v_previous_balance := 0;
     end if;
 
-    -- For debit account, it's always a debit operation
+    -- for debit account, it's always a debit operation
     v_operation_type := 'debit';
     v_delta := NEW.amount;
     
-    -- Calculate new balance based on account type
+    -- calculate new balance based on account type
     if v_internal_type = 'asset_like' then
-        -- For asset-like accounts, debits increase the balance
+        -- for asset-like accounts, debits increase the balance
         v_new_balance := v_previous_balance + NEW.amount;
     else
-        -- For liability-like accounts, debits decrease the balance
+        -- for liability-like accounts, debits decrease the balance
         v_new_balance := v_previous_balance - NEW.amount;
     end if;
 
-    -- Insert the new balance record for debit account
+    -- insert the new balance record for debit account
     insert into data.balances (
         previous_balance,
         balance,
@@ -103,19 +104,19 @@ begin
         NEW.id
     );
 
-    -- Now, handle the credit account
-    -- Get the account's internal type
+    -- now, handle the credit account
+    -- get the account's internal type
     select internal_type into v_internal_type
     from data.accounts
     where id = NEW.credit_account_id;
 
-    -- Check if there's a previous balance record
+    -- check if there's a previous balance record
     select exists(
         select 1 from data.balances
         where account_id = NEW.credit_account_id
     ) into v_has_previous;
 
-    -- Get the previous balance (or 0 if no previous balance exists)
+    -- get the previous balance (or 0 if no previous balance exists)
     if v_has_previous then
         select balance into v_previous_balance
         from data.balances
@@ -126,20 +127,20 @@ begin
         v_previous_balance := 0;
     end if;
 
-    -- For credit account, it's always a credit operation
+    -- for credit account, it's always a credit operation
     v_operation_type := 'credit';
     v_delta := -NEW.amount; -- Store as negative for credits
     
-    -- Calculate new balance based on account type
+    -- calculate new balance based on account type
     if v_internal_type = 'asset_like' then
-        -- For asset-like accounts, credits decrease the balance
+        -- for asset-like accounts, credits decrease the balance
         v_new_balance := v_previous_balance - NEW.amount;
     else
-        -- For liability-like accounts, credits increase the balance
+        -- for liability-like accounts, credits increase the balance
         v_new_balance := v_previous_balance + NEW.amount;
     end if;
 
-    -- Insert the new balance record for credit account
+    -- insert the new balance record for credit account
     insert into data.balances (
         previous_balance,
         balance,
@@ -162,7 +163,7 @@ begin
 end;
 $$ language plpgsql;
 
--- Create the trigger on transactions table
+-- create the trigger on transactions table
 create trigger update_account_balance_trigger
 after insert on data.transactions
 for each row
@@ -175,33 +176,33 @@ create or replace function api.get_account_transactions(p_account_id int)
                       description text,
                       type text,
                       amount bigint,
-                      balance bigint  -- New column for transaction balance
+                      balance bigint  -- new column for transaction balance
                   ) as $$
 declare
     v_internal_type text;
 begin
-    -- Get the account's internal type to determine how to display transactions
+    -- cet the account's internal type to determine how to display transactions
     select internal_type into v_internal_type
     from data.accounts
     where id = p_account_id;
 
     return query
           with account_transactions as (
-              -- For asset-like accounts:
-              -- - Debits (money coming in) should be shown as "inflow"
-              -- - Credits (money going out) should be shown as "outflow"
-              -- For liability-like accounts, it's the opposite:
-              -- - Debits (paying down debt) should be shown as "outflow"
-              -- - Credits (increasing debt) should be shown as "inflow"
+              -- for asset-like accounts:
+              -- - debits (money coming in) should be shown as "inflow"
+              -- - credits (money going out) should be shown as "outflow"
+              -- for liability-like accounts, it's the opposite:
+              -- - debits (paying down debt) should be shown as "outflow"
+              -- - credits (increasing debt) should be shown as "inflow"
               
-              -- Transactions where this account is debited
+              -- transactions where this account is debited
               select
                   t.date,
                   a.name as category,
                   t.description,
                   case when v_internal_type = 'asset_like' then 'inflow'
                        else 'outflow' end as type,
-                  t.amount, -- Always positive
+                  t.amount, -- always positive
                   t.id as transaction_id,
                   t.created_at
                 from data.transactions t
@@ -210,14 +211,14 @@ begin
 
                union all
 
-              -- Transactions where this account is credited
+              -- transactions where this account is credited
               select
                   t.date,
                   a.name as category,
                   t.description,
                   case when v_internal_type = 'asset_like' then 'outflow'
                        else 'inflow' end as type,
-                  t.amount, -- Always positive
+                  t.amount, -- always positive
                   t.id as transaction_id,
                   t.created_at
                 from data.transactions t
@@ -230,7 +231,7 @@ begin
             at.description,
             at.type,
             at.amount,
-            b.balance  -- Get the balance from the balances table
+            b.balance  -- get the balance from the balances table
           from account_transactions at
                left join data.balances b on
               b.transaction_id = at.transaction_id and
@@ -238,13 +239,20 @@ begin
          order by at.date desc, at.created_at desc;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop trigger if exists update_account_balance_trigger on data.transactions;
+
 drop function if exists data.update_account_balance();
+
 drop table if exists data.balances;
+
 drop index if exists balances_account_latest_idx;
+
 drop function if exists api.get_account_transactions(int);
+
 -- +goose StatementEnd
