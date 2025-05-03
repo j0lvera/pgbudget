@@ -29,9 +29,12 @@ begin
 
     -- create the account
     return query
-        insert into data.accounts as a (ledger_id, user_id, name, type, internal_type)
+        with inserted as (
+            insert into data.accounts (ledger_id, user_id, name, type, internal_type)
             values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
-            returning a.uuid, a.name, a.type, a.description, a.metadata;
+            returning uuid, name, type, description, metadata
+        )
+        select * from inserted;
 end;
 $$ language plpgsql;
 -- +goose StatementEnd
