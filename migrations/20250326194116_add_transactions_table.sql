@@ -33,10 +33,29 @@ create trigger transactions_updated_at_tg
     on data.transactions
     for each row
 execute procedure utils.set_updated_at_fn();
+
+-- allow authenticated user to access the transactions table.
+grant all on data.transactions to pgb_web_user;
+grant usage, select on sequence data.transactions_id_seq to pgb_web_user;
+
+-- enable RLS
+alter table data.transactions
+    enable row level security;
+
+create policy transactions_policy on data.transactions using
+    (
+        exists(select 1
+                 from auth.users u
+                where u.id = utils.get_user()
+                  and u.id = data.transactions.user_id)
+        ) with check (user_id = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+drop policy if exists transactions_policy on data.transactions;
+revoke all on data.transactions from pgb_web_user;
+
 drop trigger if exists transactions_updated_at_tg on data.transactions;
 
 drop table data.transactions;
