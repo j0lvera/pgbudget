@@ -7,12 +7,17 @@ create or replace function api.add_account(
     p_name text,
     p_type text
 )
-    returns text -- Changed to return just the UUID as text
+    returns table (
+        uuid text,
+        name text,
+        type text,
+        description text,
+        metadata jsonb
+    )
 as
 $$
 declare
     v_internal_type text;
-    v_uuid          text;
 begin
     -- determine internal type based on account type
     if p_type = 'asset' then
@@ -21,23 +26,13 @@ begin
         v_internal_type := 'liability_like';
     end if;
 
-    -- create the account and get the UUID
-       insert into data.accounts (ledger_id, user_id, name, type, internal_type)
-       values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
-    returning uuid into v_uuid;
-
-    -- return just the UUID
-    return v_uuid;
+    -- insert and return the requested fields in one operation
+    return query
+    insert into data.accounts (ledger_id, user_id, name, type, internal_type)
+    values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
+    returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata;
 end;
 $$ language plpgsql;
-
--- create or replace function api.get_accounts() returns setof data.accounts
---     language sql
---     stable as
--- $$
--- select *
---   from data.accounts;
--- $$;
 
 create view api.accounts as
 select uuid, name, description, type, internal_type, metadata
@@ -51,6 +46,5 @@ grant select on api.accounts to pgb_web_user;
 -- drop the functions
 revoke select on api.accounts from pgb_web_user;
 drop view if exists api.accounts;
--- drop function if exists api.get_accounts();
 drop function if exists api.add_account(int, int, text, text);
 -- +goose StatementEnd
