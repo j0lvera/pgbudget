@@ -30,7 +30,7 @@ begin
 end;
 $$ language plpgsql;
 
-create or replace view api.accounts with (security_barrier) as
+create or replace view api.accounts with (security_invoker = true) as
 select a.uuid,
        a.name,
        a.type,
@@ -49,13 +49,6 @@ execute function utils.accounts_insert_single_fn();
 -- allow authenticated user to access the accounts view.
 grant all on api.accounts to pgb_web_user;
 
--- enable row level security on the view
-alter view api.accounts enable row level security;
-
--- create a policy for the view
-create policy accounts_view_policy on api.accounts
-    using (user_data = utils.get_user());
-
 -- +goose StatementEnd
 
 -- +goose Down
@@ -63,8 +56,6 @@ create policy accounts_view_policy on api.accounts
 -- drop the functions
 
 revoke all on api.accounts from pgb_web_user;
-
-drop policy if exists accounts_view_policy on api.accounts;
 
 drop trigger if exists accounts_insert_tg on api.accounts;
 

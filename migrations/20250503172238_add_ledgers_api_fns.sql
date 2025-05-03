@@ -1,7 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 
-create or replace view api.ledgers with (security_barrier) as
+create or replace view api.ledgers with (security_invoker = true) as
 select a.uuid,
        a.name,
        a.description,
@@ -11,21 +11,12 @@ select a.uuid,
 
 grant all on api.ledgers to pgb_web_user;
 
--- enable row level security on the view
-alter view api.ledgers enable row level security;
-
--- create a policy for the view
-create policy ledgers_view_policy on api.ledgers
-    using (user_data = utils.get_user());
-
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
 revoke all on api.ledgers from pgb_web_user;
-
-drop policy if exists ledgers_view_policy on api.ledgers;
 
 drop view if exists api.ledgers;
 
