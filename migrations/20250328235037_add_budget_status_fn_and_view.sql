@@ -100,8 +100,14 @@ select
     bs.balance
 from data.accounts a
 cross join lateral (
-    select * from utils.get_budget_status(a.ledger_id)
-    where id = a.id
+    select 
+        utils_result.id,
+        utils_result.account_name,
+        utils_result.budgeted,
+        utils_result.activity,
+        utils_result.balance
+    from utils.get_budget_status(a.ledger_id) as utils_result
+    where utils_result.id = a.id
 ) bs;
 
 -- +goose StatementEnd
