@@ -3,7 +3,7 @@
 -- function to create a new account
 create or replace function api.add_account(
     p_ledger_id int,
-    p_user_id int,
+    p_user_data text,
     p_name text,
     p_type text
 )
@@ -28,16 +28,18 @@ begin
 
     -- insert and return the requested fields in one operation
     return query
-    insert into data.accounts (ledger_id, user_id, name, type, internal_type)
-    values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
+    insert into data.accounts (ledger_id, user_data, name, type, internal_type)
+    values (p_ledger_id, p_user_data, p_name, p_type, v_internal_type)
     returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata;
 end;
 $$ language plpgsql;
 
+-- add a view to access the accounts table but with limited columns, we don't want to return the id.
 create view api.accounts as
 select uuid, name, description, type, internal_type, metadata
   from data.accounts;
 
+-- allow authenticated user to access the accounts view.
 grant select on api.accounts to pgb_web_user;
 -- +goose StatementEnd
 
@@ -46,5 +48,5 @@ grant select on api.accounts to pgb_web_user;
 -- drop the functions
 revoke select on api.accounts from pgb_web_user;
 drop view if exists api.accounts;
-drop function if exists api.add_account(int, int, text, text);
+drop function if exists api.add_account(int, text, text, text);
 -- +goose StatementEnd

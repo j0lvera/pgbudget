@@ -13,14 +13,16 @@ create table data.accounts
     type          text        not null,
     internal_type text        not null,
     metadata      jsonb,
+    user_data     text        not null,
 
     -- fks
-    user_id       bigint      not null references auth.users (id) on delete cascade,
     ledger_id     bigint      not null references data.ledgers (id) on delete cascade,
+
 
     constraint accounts_uuid_unique unique (uuid),
     constraint accounts_name_unique unique (name, ledger_id),
     constraint accounts_name_length_check check (char_length(name) <= 255),
+    constraint accounts_user_data_length_check check (char_length(user_data) <= 255),
     constraint accounts_description_length_check check (char_length(description) <= 255),
     constraint accounts_type_check check (
         type in ('asset', 'liability', 'equity', 'revenue', 'expense')
@@ -51,10 +53,9 @@ alter table data.accounts
 create policy accounts_policy on data.accounts using
     (
         exists(select 1
-                 from auth.users u
-                where u.id = utils.get_user()
-                  and u.id = data.accounts.user_id)
-        ) with check (user_id = utils.get_user());
+                 from data.accounts a
+                where a.user_data = utils.get_user())
+        ) with check (data.accounts.user_data = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down

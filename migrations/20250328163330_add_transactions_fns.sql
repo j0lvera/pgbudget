@@ -4,7 +4,7 @@
 -- function to add a transaction
 create or replace function api.add_transaction(
     p_ledger_id int,
-    p_user_id int, -- the user who owns this transaction
+    p_user_data text, -- the user who owns this transaction
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
@@ -76,20 +76,20 @@ begin
     end if;
 
     -- insert the transaction and return the new id
-    insert into data.transactions (ledger_id,
-                                   user_id,
-                                   date,
-                                   description,
-                                   debit_account_id,
-                                   credit_account_id,
-                                   amount)
-    values (p_ledger_id,
-            p_user_id,
-            p_date,
-            p_description,
-            v_debit_account_id,
-            v_credit_account_id,
-            p_amount)
+       insert into data.transactions (ledger_id,
+                                      user_data,
+                                      date,
+                                      description,
+                                      debit_account_id,
+                                      credit_account_id,
+                                      amount)
+       values (p_ledger_id,
+               p_user_data,
+               p_date,
+               p_description,
+               v_debit_account_id,
+               v_credit_account_id,
+               p_amount)
     returning id into v_transaction_id;
 
     return v_transaction_id;
@@ -113,7 +113,7 @@ $$
 declare
     v_transaction           jsonb;
     v_ledger_id             int;
-    v_user_id               int;
+    v_user_data             text;
     v_date                  timestamptz;
     v_description           text;
     v_type                  text;
@@ -121,23 +121,23 @@ declare
     v_account_id            int;
     v_category_id           int;
     v_transaction_id        int;
-    v_unassigned_categories jsonb = '{}'::jsonb;
-    v_results jsonb = '[]'::jsonb;
-    v_has_error boolean = false;
-    v_error_message text;
-    v_transaction_index int = 0;
+    v_unassigned_categories jsonb   = '{}'::jsonb;
+    v_results               jsonb   = '[]'::jsonb;
+    v_has_error             boolean = false;
+    v_error_message         text;
+    v_transaction_index     int     = 0;
     v_detailed_error        text;
 begin
     -- pre-fetch unassigned categories for all ledgers in the batch
     -- to avoid repeated lookups
     for v_ledger_id in (select distinct (t ->> 'ledger_id')::int
-                        from jsonb_array_elements(p_transactions) as t)
-    loop
-        v_unassigned_categories = v_unassigned_categories ||
-                                  jsonb_build_object(
-                                      v_ledger_id::text,
-                                      api.find_category(v_ledger_id, 'Unassigned')
-                                  );
+                          from jsonb_array_elements(p_transactions) as t)
+        loop
+            v_unassigned_categories = v_unassigned_categories ||
+                                      jsonb_build_object(
+                                              v_ledger_id::text,
+                                              api.find_category(v_ledger_id, 'Unassigned')
+                                      );
         end loop;
 
     -- process each transaction in the array
@@ -147,7 +147,7 @@ begin
             begin
                 -- extract values from the JSON object
                 v_ledger_id := (v_transaction ->> 'ledger_id')::int;
-                v_user_id := (v_transaction ->> 'user_id')::int;
+                v_user_data := (v_transaction ->> 'user_data')::text;
                 v_date := (v_transaction ->> 'date')::timestamptz;
                 v_description := v_transaction ->> 'description';
                 v_type := v_transaction ->> 'type';
@@ -164,7 +164,7 @@ begin
                 -- call the existing add_transaction function and store result directly
                 v_transaction_id := api.add_transaction(
                         v_ledger_id,
-                        v_user_id,
+                        v_user_data,
                         v_date,
                         v_description,
                         v_type,
@@ -175,10 +175,10 @@ begin
 
                 -- store successful result in our results array
                 v_results := v_results || jsonb_build_object(
-                    'transaction_id', v_transaction_id,
-                    'status', 'success',
-                    'message', 'Transaction created successfully'
-                );
+                        'transaction_id', v_transaction_id,
+                        'status', 'success',
+                        'message', 'Transaction created successfully'
+                                          );
 
             exception
                 when others then
@@ -190,10 +190,10 @@ begin
 
                     -- store detailed error result in our results array
                     v_results := v_results || jsonb_build_object(
-                        'transaction_id', null,
-                        'status', 'error',
-                        'message', v_detailed_error
-                    );
+                            'transaction_id', null,
+                            'status', 'error',
+                            'message', v_detailed_error
+                                              );
 
                     -- exit the loop early since we'll be rolling back anyway
                     exit;
@@ -204,10 +204,10 @@ begin
     if v_has_error then
         -- Add a note that the entire operation was rolled back
         v_results := v_results || jsonb_build_object(
-            'transaction_id', null,
-            'status', 'error',
-            'message', 'All transactions rolled back due to error'
-        );
+                'transaction_id', null,
+                'status', 'error',
+                'message', 'All transactions rolled back due to error'
+                                  );
 
         -- Return the results before raising the exception
         return query
@@ -235,5 +235,5 @@ $$ language plpgsql;
 -- +goose StatementBegin
 -- drop the functions in reverse order
 drop function if exists api.add_bulk_transactions(jsonb);
-drop function if exists api.add_transaction(int, int, timestamptz, text, text, bigint, int, int);
+drop function if exists api.add_transaction(int, text, timestamptz, text, text, bigint, int, int);
 -- +goose StatementEnd

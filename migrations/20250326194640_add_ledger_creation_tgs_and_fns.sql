@@ -6,16 +6,16 @@ CREATE OR REPLACE FUNCTION api.create_default_ledger_accounts()
 $$
 BEGIN
     -- Create Income account (Equity type)
-    INSERT INTO data.accounts (ledger_id, user_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, NEW.user_id, 'Income', 'equity', 'liability_like', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, NEW.user_data, 'Income', 'equity', 'liability_like', NOW(), NOW());
 
     -- Create Off-budget account (Equity type)
-    INSERT INTO data.accounts (ledger_id, user_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, NEW.user_id,'Off-budget', 'equity', 'liability_like', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, NEW.user_data,'Off-budget', 'equity', 'liability_like', NOW(), NOW());
 
     -- Create Unassigned account (Equity type)
-    INSERT INTO data.accounts (ledger_id, user_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, NEW.user_id, 'Unassigned', 'equity', 'liability_like', NOW(), NOW());
+    INSERT INTO data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    VALUES (NEW.id, NEW.user_data, 'Unassigned', 'equity', 'liability_like', NOW(), NOW());
 
     RETURN NEW;
 END;

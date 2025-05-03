@@ -12,11 +12,11 @@ create table data.ledgers
     description text,
     metadata    jsonb,
 
-    -- fks
-    user_id     bigint      not null references auth.users (id) on delete cascade,
+    user_data   text        not null,
 
     constraint ledgers_uuid_unique unique (uuid),
     constraint ledgers_name_length_check check (char_length(name) <= 255),
+    constraint ledgers_user_data_length_check check (char_length(user_data) <= 255),
     constraint ledgers_description_length_check check (char_length(description) <= 255)
 );
 
@@ -37,10 +37,9 @@ alter table data.ledgers
 create policy ledgers_policy on data.ledgers using
     (
         exists(select 1
-                 from auth.users u
-                where u.id = utils.get_user()
-                  and u.id = data.ledgers.user_id)
-        ) with check (user_id = utils.get_user());
+                 from data.ledgers l
+                where l.user_data = utils.get_user())
+        ) with check (data.ledgers.user_data = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down

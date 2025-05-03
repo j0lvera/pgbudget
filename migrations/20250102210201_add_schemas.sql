@@ -1,9 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- schema that holds all user authentication related tables
-create schema if not exists auth;
-
 -- schema that holds all transactions, accounts, ledgers related tables
 create schema if not exists data;
 

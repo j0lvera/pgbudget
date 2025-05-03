@@ -17,14 +17,16 @@ create table data.transactions
     credit_account_id bigint      not null references data.accounts (id),
     debit_account_id  bigint      not null references data.accounts (id),
 
+    user_data         text        not null,
+
     -- fks
-    user_id           bigint      not null references auth.users (id) on delete cascade,
     ledger_id         bigint      not null references data.ledgers (id) on delete cascade,
 
     constraint transactions_uuid_unique unique (uuid),
     constraint transactions_amount_positive check (amount >= 0),
     constraint transactions_different_accounts check (credit_account_id != debit_account_id),
     constraint transactions_description_length_check check (char_length(description) < 255),
+    constraint transactions_user_data_length_check check (char_length(user_data) < 255),
     constraint transactions_status_check check (status in ('pending', 'posted'))
 );
 
@@ -45,10 +47,9 @@ alter table data.transactions
 create policy transactions_policy on data.transactions using
     (
         exists(select 1
-                 from auth.users u
-                where u.id = utils.get_user()
-                  and u.id = data.transactions.user_id)
-        ) with check (user_id = utils.get_user());
+                 from data.transactions t
+                where t.user_data = utils.get_user())
+        ) with check (data.transactions.user_data = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down

@@ -46,3 +46,13 @@ create table data.ledgers
 ```
 
 Use the format as `<table>_<column>_<constraint>_<type>` for the constraint name, e.g. `ledgers_name_length_check`. This is to make it easier to find the constraint in the future.
+
+## API
+
+We use PostgREST to expose an API for our database. The API is defined in the `api` schema. The API is a RESTful API, and we follow the RESTful conventions. The API is versioned, and we use the `v1` prefix for the first version of the API. The API is exposed on the `/api/v1` endpoint.
+
+### Schemas
+
+- `data`: This schema contains the data tables. The tables are defined in this schema. The tables are not exposed to the API.
+- `api`: This schema contains functions to mutate data and views to expose data. The functions and views are exposed to the API.
+- `utils`: This schema contains utility functions that are used in the API. The functions are not exposed to the API.
