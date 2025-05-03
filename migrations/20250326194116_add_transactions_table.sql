@@ -44,12 +44,9 @@ grant usage, select on sequence data.transactions_id_seq to pgb_web_user;
 alter table data.transactions
     enable row level security;
 
-create policy transactions_policy on data.transactions using
-    (
-        exists(select 1
-                 from data.transactions t
-                where t.user_data = utils.get_user())
-        ) with check (data.transactions.user_data = utils.get_user());
+create policy transactions_policy on data.transactions 
+    using (user_data = utils.get_user())
+    with check (user_data = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down
