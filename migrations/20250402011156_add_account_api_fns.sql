@@ -14,12 +14,14 @@ create or replace function utils.accounts_insert_single(
                 name        text,
                 type        text,
                 description text,
-                metadata    jsonb
+                metadata    jsonb,
+                ledger_uuid text
             )
 as
 $$
 declare
     v_internal_type text;
+    v_ledger_uuid   text;
 begin
     -- determine internal type based on account type
     if p_type = 'asset' then
@@ -28,11 +30,16 @@ begin
         v_internal_type := 'liability_like';
     end if;
 
+    select l.uuid
+      from data.ledgers l
+     where l.id = p_ledger_id
+      into v_ledger_uuid;
+
     -- insert and return the requested fields in one operation
     return query
         insert into data.accounts (ledger_id, user_data, name, type, internal_type)
             values (p_ledger_id, p_user_data, p_name, p_type, v_internal_type)
-            returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata;
+            returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata, v_ledger_uuid;
 end;
 $$ language plpgsql;
 
@@ -47,7 +54,8 @@ create or replace function api.add_account(
                 name        text,
                 type        text,
                 description text,
-                metadata    jsonb
+                metadata    jsonb,
+                ledger_uuid text
             )
 as
 $$
@@ -63,11 +71,51 @@ begin
 end;
 $$ language plpgsql;
 
+create or replace function api.get_accounts()
+    returns table
+            (
+                uuid        text,
+                name        text,
+                type        text,
+                description text,
+                metadata    jsonb,
+                ledger_uuid text
+            )
+as
+$$
+begin
+    return query
+        select a.uuid,
+               a.name,
+               a.type,
+               a.description,
+               a.metadata,
+               (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
+          from data.accounts a;
+end;
+$$ language plpgsql;
+
+create or replace view api.accounts as
+select a.uuid,
+       a.name,
+       a.type,
+       a.description,
+       a.metadata,
+       (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
+  from data.accounts a;
+
+-- allow authenticated user to access the accounts view.
+grant all on api.accounts to pgb_web_user;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 -- drop the functions
+
+drop view if exists api.accounts;
+
+drop function if exists api.get_accounts();
 
 drop function if exists api.add_account(text, text, text);
 
