@@ -18,11 +18,20 @@ create table auth.users
     constraint users_password_length_check check (length(password) >= 60)
 );
 
+
 create trigger users_updated_at_tg
     before update
     on auth.users
     for each row
 execute procedure utils.set_updated_at_fn();
+
+-- util function to get the current user id
+create or replace function utils.get_user() returns bigint as
+$$
+select id
+  from auth.users
+ where email = current_setting('request.jwt.claims', true)::json ->> 'email'
+$$ language sql;
 
 -- allow authenticated user to read from the users table
 grant select on auth.users to pgb_web_user;
@@ -32,7 +41,7 @@ grant usage, select on sequence auth.users_id_seq to pgb_web_user;
 alter table auth.users
     enable row level security;
 
-create policy users_policy on auth.users 
+create policy users_policy on auth.users
     for select
     using (id = utils.get_user());
 -- +goose StatementEnd
@@ -42,6 +51,8 @@ create policy users_policy on auth.users
 drop policy if exists users_policy on auth.users;
 revoke select on auth.users from pgb_web_user;
 revoke usage, select on sequence auth.users_id_seq from pgb_web_user;
+
+drop function if exists utils.get_user();
 
 drop table if exists auth.users;
 
