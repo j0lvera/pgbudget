@@ -90,7 +90,8 @@ end;
 $$ language plpgsql;
 
 -- create a view that uses the accounts table for security inheritance
-create or replace view data.budget_status as
+create or replace view data.budget_status
+with (security_invoker = true) as
 select 
     bs.id,
     bs.account_name,
