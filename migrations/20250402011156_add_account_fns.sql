@@ -32,9 +32,12 @@ begin
         with inserted as (
             insert into data.accounts (ledger_id, user_id, name, type, internal_type)
             values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
-            returning uuid, name, type, description, metadata
+            returning data.accounts.uuid, data.accounts.name, data.accounts.type, 
+                     data.accounts.description, data.accounts.metadata
         )
-        select * from inserted;
+        select inserted.uuid, inserted.name, inserted.type, 
+               inserted.description, inserted.metadata 
+        from inserted;
 end;
 $$ language plpgsql;
 -- +goose StatementEnd
