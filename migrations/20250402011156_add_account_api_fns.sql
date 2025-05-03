@@ -23,8 +23,8 @@ begin
                NEW.description,
                NEW.metadata,
                v_ledger_id)
-    returning uuid, name, type, description, metadata into
-        new.uuid, new.name, new.type, new.description, new.metadata;
+    returning uuid, name, type, description, metadata, user_data into
+        new.uuid, new.name, new.type, new.description, new.metadata, new.user_data;
 
     return new;
 end;
@@ -36,6 +36,7 @@ select a.uuid,
        a.type,
        a.description,
        a.metadata,
+       a.user_data,
        (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
   from data.accounts a;
 
