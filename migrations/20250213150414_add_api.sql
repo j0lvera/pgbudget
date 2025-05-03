@@ -23,6 +23,7 @@ grant pgb_web_anon to pgb_web_authr;
 -- grant select on data.ledgers to pgb_web_anon;
 
 -- the authorized role will have the authority to do anything to the ledgers table.
+grant usage on schema api to pgb_web_user;
 grant usage on schema data to pgb_web_user;
 grant usage on schema auth to pgb_web_user;
 grant usage on schema utils to pgb_web_user;
@@ -36,6 +37,7 @@ grant usage on schema utils to pgb_web_user;
 revoke all on schema utils from pgb_web_user;
 revoke all on schema auth from pgb_web_user;
 revoke all on schema data from pgb_web_user;
+revoke all on schema api from pgb_web_user;
 
 -- revoke select on data.ledgers from pgb_web_anon;
 -- revoke usage on schema data from pgb_web_anon;

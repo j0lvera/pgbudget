@@ -6,10 +6,18 @@ create or replace function api.add_account(
     p_user_id int,
     p_name text,
     p_type text
-) returns int as
+)
+    returns table
+            (
+                uuid        text,
+                name        text,
+                type        text,
+                description text,
+                metadata    jsonb
+            )
+as
 $$
 declare
-    v_account_id    int;
     v_internal_type text;
 begin
     -- determine internal type based on account type
@@ -20,11 +28,10 @@ begin
     end if;
 
     -- create the account
-       insert into data.accounts (ledger_id, user_id, name, type, internal_type)
-       values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
-    returning id into v_account_id;
-
-    return v_account_id;
+    return query
+        insert into data.accounts as a (ledger_id, user_id, name, type, internal_type)
+            values (p_ledger_id, p_user_id, p_name, p_type, v_internal_type)
+            returning a.uuid, a.name, a.type, a.description, a.metadata;
 end;
 $$ language plpgsql;
 -- +goose StatementEnd
