@@ -20,25 +20,18 @@ create or replace function utils.accounts_insert_single(
 as
 $$
 declare
-    v_internal_type text;
     v_ledger_uuid   text;
 begin
-    -- determine internal type based on account type
-    if p_type = 'asset' then
-        v_internal_type := 'asset_like';
-    else
-        v_internal_type := 'liability_like';
-    end if;
-
     select l.uuid
       from data.ledgers l
      where l.id = p_ledger_id
       into v_ledger_uuid;
 
     -- insert and return the requested fields in one operation
+    -- internal_type will be set by the trigger
     return query
-        insert into data.accounts (ledger_id, user_data, name, type, internal_type)
-            values (p_ledger_id, p_user_data, p_name, p_type, v_internal_type)
+        insert into data.accounts (ledger_id, user_data, name, type)
+            values (p_ledger_id, p_user_data, p_name, p_type)
             returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata, v_ledger_uuid;
 end;
 $$ language plpgsql;
