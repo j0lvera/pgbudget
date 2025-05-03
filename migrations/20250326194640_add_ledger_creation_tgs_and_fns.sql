@@ -1,65 +1,68 @@
 -- +goose Up
 -- +goose StatementBegin
--- Function to create default accounts for a new ledger (in api schema)
-CREATE OR REPLACE FUNCTION api.create_default_ledger_accounts()
-    RETURNS TRIGGER AS
+
+-- create function that creates default accounts for a new ledger (in api schema)
+create or replace function api.create_default_ledger_accounts()
+    returns trigger as
 $$
-BEGIN
-    -- Create Income account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, 'Income', 'equity', 'liability_like', NOW(), NOW());
+begin
+    -- create income account (Equity type)
+    insert into data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    values (NEW.id, NEW.user_data, 'Income', 'equity', 'liability_like', current_timestamp, current_timestamp);
 
-    -- Create Off-budget account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, 'Off-budget', 'equity', 'liability_like', NOW(), NOW());
+    -- create Off-budget account (Equity type)
+    insert into data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    values (NEW.id, NEW.user_data,'Off-budget', 'equity', 'liability_like', current_timestamp, current_timestamp);
 
-    -- Create Unassigned account (Equity type)
-    INSERT INTO data.accounts (ledger_id, name, type, internal_type, created_at, updated_at)
-    VALUES (NEW.id, 'Unassigned', 'equity', 'liability_like', NOW(), NOW());
+    -- create Unassigned account (Equity type)
+    insert into data.accounts (ledger_id, user_data, name, type, internal_type, created_at, updated_at)
+    values (NEW.id, NEW.user_data, 'Unassigned', 'equity', 'liability_like', current_timestamp, current_timestamp);
 
-    RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
+    return new;
+end;
+$$ language plpgsql;
 
--- Create trigger to run the function when a new ledger is created
-CREATE TRIGGER trigger_create_default_ledger_accounts
-    AFTER INSERT
-    ON data.ledgers
-    FOR EACH ROW
-EXECUTE FUNCTION api.create_default_ledger_accounts();
+-- create trigger to run the function when a new ledger is created
+create trigger trigger_create_default_ledger_accounts
+    after insert
+    on data.ledgers
+    for each row
+execute function api.create_default_ledger_accounts();
 
--- Add constraint to prevent duplicate special accounts per ledger
-CREATE UNIQUE INDEX IF NOT EXISTS unique_special_accounts_per_ledger
-    ON data.accounts (ledger_id, name)
-    WHERE name IN ('Income', 'Off-budget', 'Unassigned') AND type = 'equity';
+-- add constraint to prevent duplicate special accounts per ledger
+create unique index if not exists unique_special_accounts_per_ledger
+    on data.accounts (ledger_id, name)
+    where name in ('Income', 'Off-budget', 'Unassigned') and type = 'equity';
 
--- Add constraint to prevent deletion of special accounts (in api schema)
-CREATE OR REPLACE FUNCTION api.prevent_special_account_deletion()
-    RETURNS TRIGGER AS
+-- add constraint to prevent deletion of special accounts (in api schema)
+create or replace function api.prevent_special_account_deletion()
+    returns trigger as
 $$
-BEGIN
-    RAISE EXCEPTION 'Cannot delete special account: %', OLD.name;
+begin
+    raise exception 'Cannot delete special account: %', OLD.name;
     RETURN NULL;
-END;
-$$ LANGUAGE plpgsql;
+end;
+$$ language plpgsql;
 
-CREATE TRIGGER trigger_prevent_special_account_deletion
-    BEFORE DELETE
-    ON data.accounts
-    FOR EACH ROW
-    WHEN (OLD.name IN ('Income', 'Off-budget', 'Unassigned') AND OLD.type = 'equity')
-EXECUTE FUNCTION api.prevent_special_account_deletion();
+create trigger trigger_prevent_special_account_deletion
+    before delete
+    on data.accounts
+    for each row
+    when (OLD.name in ('Income', 'Off-budget', 'Unassigned') and OLD.type = 'equity')
+execute function api.prevent_special_account_deletion();
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
--- Remove the triggers and functions
-DROP TRIGGER IF EXISTS trigger_prevent_special_account_deletion ON data.accounts;
-DROP FUNCTION IF EXISTS api.prevent_special_account_deletion();
 
-DROP TRIGGER IF EXISTS trigger_create_default_ledger_accounts ON data.ledgers;
-DROP FUNCTION IF EXISTS api.create_default_ledger_accounts();
+-- remove the triggers and functions
+drop trigger if exists trigger_prevent_special_account_deletion on data.accounts;
+drop function if exists api.prevent_special_account_deletion();
 
--- Remove the constraint
-DROP INDEX IF EXISTS data.unique_special_accounts_per_ledger;
+drop trigger if exists trigger_create_default_ledger_accounts on data.ledgers;
+drop function if exists api.create_default_ledger_accounts();
+
+-- remove the constraint
+drop index if exists data.unique_special_accounts_per_ledger;
+
 -- +goose StatementEnd

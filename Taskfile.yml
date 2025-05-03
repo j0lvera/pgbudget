@@ -7,6 +7,16 @@ tasks:
     cmds:
       - goose up
 
+  migrate:up-one:
+    desc: Run one migration
+    cmds:
+      - goose up up-by-one
+
+  migrate:drop:
+    desc: Drop all migrations
+    cmds:
+      - goose down-to 0
+
   migrate:down:
     desc: Rollback last migration
     cmds:
