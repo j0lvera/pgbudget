@@ -14,7 +14,7 @@ create table data.accounts
     type          text        not null,
     internal_type text        not null,
     metadata      jsonb,
-    user_data     text        not null,
+    user_data     text        not null default utils.get_user(),
 
     -- fks
     ledger_id     bigint      not null references data.ledgers (id) on delete cascade,

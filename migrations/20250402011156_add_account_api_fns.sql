@@ -1,90 +1,32 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- function to create a new account
-create or replace function utils.accounts_insert_single(
-    p_ledger_id bigint,
-    p_user_data text,
-    p_name text,
-    p_type text
-)
-    returns table
-            (
-                uuid        text,
-                name        text,
-                type        text,
-                description text,
-                metadata    jsonb,
-                ledger_uuid text
-            )
-as
+create or replace function utils.accounts_insert_single_fn() returns trigger as
 $$
 declare
-    v_ledger_uuid   text;
+    v_ledger_id bigint;
 begin
-    select l.uuid
+    -- get the ledger_id for denormalization
+    select l.id
+      into v_ledger_id
       from data.ledgers l
-     where l.id = p_ledger_id
-      into v_ledger_uuid;
+     where l.uuid = NEW.ledger_uuid;
 
-    -- insert and return the requested fields in one operation
-    -- internal_type will be set by the trigger
-    return query
-        insert into data.accounts (ledger_id, user_data, name, type)
-            values (p_ledger_id, p_user_data, p_name, p_type)
-            returning accounts.uuid, accounts.name, accounts.type, accounts.description, accounts.metadata, v_ledger_uuid;
-end;
-$$ language plpgsql;
+    if v_ledger_id is null then
+        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
+    end if;
 
-create or replace function api.add_account(
-    p_ledger_uuid text,
-    p_name text,
-    p_type text
-)
-    returns table
-            (
-                uuid        text,
-                name        text,
-                type        text,
-                description text,
-                metadata    jsonb,
-                ledger_uuid text
-            )
-as
-$$
-begin
-    return query
-        select *
-          from utils.accounts_insert_single(
-                  (select id from data.ledgers l where l.uuid = p_ledger_uuid),
-                  utils.get_user(),
-                  p_name,
-                  p_type
-               );
-end;
-$$ language plpgsql;
+    -- insert the account into the accounts table
+       insert into data.accounts (name, type, description, metadata, ledger_id)
+       values (NEW.name,
+               NEW.type,
+               NEW.description,
+               NEW.metadata,
+               v_ledger_id)
+    returning uuid, name, type, description, metadata into
+        new.uuid, new.name, new.type, new.description, new.metadata;
 
-create or replace function api.get_accounts()
-    returns table
-            (
-                uuid        text,
-                name        text,
-                type        text,
-                description text,
-                metadata    jsonb,
-                ledger_uuid text
-            )
-as
-$$
-begin
-    return query
-        select a.uuid,
-               a.name,
-               a.type,
-               a.description,
-               a.metadata,
-               (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
-          from data.accounts a;
+    return new;
 end;
 $$ language plpgsql;
 
@@ -97,6 +39,12 @@ select a.uuid,
        (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
   from data.accounts a;
 
+create trigger accounts_insert_tg
+    instead of insert
+    on api.accounts
+    for each row
+execute function utils.accounts_insert_single_fn();
+
 -- allow authenticated user to access the accounts view.
 grant all on api.accounts to pgb_web_user;
 
@@ -106,12 +54,12 @@ grant all on api.accounts to pgb_web_user;
 -- +goose StatementBegin
 -- drop the functions
 
+revoke all on api.accounts from pgb_web_user;
+
+drop trigger if exists accounts_insert_tg on api.accounts;
+
 drop view if exists api.accounts;
 
-drop function if exists api.get_accounts();
-
-drop function if exists api.add_account(text, text, text);
-
-drop function if exists utils.accounts_insert_single(bigint, text, text, text);
+drop function if exists utils.accounts_insert_single_fn();
 
 -- +goose StatementEnd

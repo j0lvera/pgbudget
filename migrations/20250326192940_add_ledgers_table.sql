@@ -13,7 +13,7 @@ create table data.ledgers
     description text,
     metadata    jsonb,
 
-    user_data   text        not null,
+    user_data   text        not null default utils.get_user(),
 
     constraint ledgers_uuid_unique unique (uuid),
     constraint ledgers_name_length_check check (char_length(name) <= 255),
