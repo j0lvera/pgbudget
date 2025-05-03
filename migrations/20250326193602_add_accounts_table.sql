@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create table data.accounts
 (
     id            bigint generated always as identity primary key,
@@ -17,7 +18,6 @@ create table data.accounts
 
     -- fks
     ledger_id     bigint      not null references data.ledgers (id) on delete cascade,
-
 
     constraint accounts_uuid_unique unique (uuid),
     constraint accounts_name_unique unique (name, ledger_id),
@@ -50,17 +50,21 @@ grant usage, select on sequence data.accounts_id_seq to pgb_web_user;
 alter table data.accounts
     enable row level security;
 
-create policy accounts_policy on data.accounts 
+create policy accounts_policy on data.accounts
     using (user_data = utils.get_user())
     with check (user_data = utils.get_user());
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop policy if exists accounts_policy on data.accounts;
+
 revoke all on data.accounts from pgb_web_user;
 
 drop trigger if exists accounts_updated_at_tg on data.accounts;
 
 drop table data.accounts;
+
 -- +goose StatementEnd

@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 -- create a function to get budget status for a specific ledger
 create or replace function api.get_budget_status(p_ledger_id int)
 returns table (
@@ -65,11 +66,14 @@ $$ language plpgsql;
 -- according to conventions, data shape definitions should go in the data schema
 create or replace view data.budget_status as
 select * from api.get_budget_status(1); -- default to ledger_id 1
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 -- drop the view and function when rolling back
 drop view if exists data.budget_status;
 drop function if exists api.get_budget_status(int);
+
 -- +goose StatementEnd

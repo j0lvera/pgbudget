@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 -- it’s a good practice to create a dedicated role for connecting to the database, instead of using the
 -- highly privileged postgres role. the authenticator role is used for connecting to the database and
 -- should be configured to have very limited access. it is a chameleon whose job is to “become” other
@@ -16,17 +17,17 @@ grant pgb_web_user to pgb_web_authr;
 grant usage on schema api to pgb_web_user;
 grant usage on schema data to pgb_web_user;
 grant usage on schema utils to pgb_web_user;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 revoke all on schema utils from pgb_web_user;
 revoke all on schema data from pgb_web_user;
 revoke all on schema api from pgb_web_user;
 
--- revoke select on data.ledgers from pgb_web_anon;
--- revoke usage on schema data from pgb_web_anon;
-
 drop role if exists pgb_web_user;
 drop role if exists pgb_web_authr;
+
 -- +goose StatementEnd

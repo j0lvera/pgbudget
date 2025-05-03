@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create or replace function api.get_account_balance(
     p_ledger_id integer,
     p_account_id integer
@@ -47,9 +48,12 @@ begin
     return v_balance;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop function if exists api.get_account_balance;
+
 -- +goose StatementEnd

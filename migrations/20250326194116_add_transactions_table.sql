@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create table data.transactions
 (
     id                bigint generated always as identity primary key,
@@ -44,17 +45,21 @@ grant usage, select on sequence data.transactions_id_seq to pgb_web_user;
 alter table data.transactions
     enable row level security;
 
-create policy transactions_policy on data.transactions 
+create policy transactions_policy on data.transactions
     using (user_data = utils.get_user())
     with check (user_data = utils.get_user());
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop policy if exists transactions_policy on data.transactions;
+
 revoke all on data.transactions from pgb_web_user;
 
 drop trigger if exists transactions_updated_at_tg on data.transactions;
 
 drop table data.transactions;
+
 -- +goose StatementEnd

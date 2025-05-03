@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 -- function to create a new account
 create or replace function utils.add_account(
     p_ledger_id bigint,
@@ -52,30 +53,24 @@ as
 $$
 begin
     return query
-    select *
-      from utils.add_account(
-              (select id from data.ledgers l where l.uuid = p_ledger_uuid),
-              utils.get_user(),
-              p_name,
-              p_type
-           );
+        select *
+          from utils.add_account(
+                  (select id from data.ledgers l where l.uuid = p_ledger_uuid),
+                  utils.get_user(),
+                  p_name,
+                  p_type
+               );
 end;
 $$ language plpgsql;
 
--- add a view to access the accounts table but with limited columns, we don't want to return the id.
-create view api.accounts as
-select uuid, name, description, type, internal_type, metadata
-  from data.accounts;
-
--- allow authenticated user to access the accounts view.
-grant select on api.accounts to pgb_web_user;
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 -- drop the functions
-revoke select on api.accounts from pgb_web_user;
-drop view if exists api.accounts;
+
 drop function if exists api.add_account(text, text, text);
+
 drop function if exists utils.add_account(bigint, text, text, text);
+
 -- +goose StatementEnd

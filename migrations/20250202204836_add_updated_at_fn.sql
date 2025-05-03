@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create or replace function utils.set_updated_at_fn()
     returns trigger as
 $$
@@ -8,6 +9,7 @@ begin
     return new;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose Down

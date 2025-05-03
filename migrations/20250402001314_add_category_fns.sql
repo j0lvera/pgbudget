@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 -- function to assign money from Income to a category
 create or replace function api.assign_to_category(
     p_ledger_id int,
@@ -53,9 +54,11 @@ begin
     return v_transaction_id;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose StatementBegin
+
 -- function to create a new category account
 create or replace function api.add_category(
     p_ledger_id int,
@@ -80,10 +83,12 @@ begin
     return v_category_id;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 
 -- +goose StatementBegin
+
 -- function to find a category by name in a ledger
 create or replace function api.find_category(
     p_ledger_id int,
@@ -106,12 +111,15 @@ begin
     return v_category_id;
 end;
 $$ language plpgsql;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 -- drop the functions
 drop function if exists api.assign_to_category(int, text, timestamptz, text, bigint, int);
 drop function if exists api.add_category(int, text, text);
 drop function if exists api.find_category(int, text, text);
+
 -- +goose StatementEnd

@@ -1,20 +1,22 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- schema that holds all transactions, accounts, ledgers related tables
+-- holds data tables
 create schema if not exists data;
 
--- schema that holds all data accessing/manipulating functions
+-- holds read/write functions
 create schema if not exists api;
 
+-- holds utility functions unrelated to the data tables
 create schema if not exists utils;
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop schema if exists utils;
 drop schema if exists api;
 drop schema if exists data;
-drop schema if exists auth;
+
 -- +goose StatementEnd

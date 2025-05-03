@@ -1,5 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
+
 create table data.ledgers
 (
     id          bigint generated always as identity primary key,
@@ -34,13 +35,15 @@ grant usage, select on sequence data.ledgers_id_seq to pgb_web_user;
 alter table data.ledgers
     enable row level security;
 
-create policy ledgers_policy on data.ledgers 
+create policy ledgers_policy on data.ledgers
     using (user_data = utils.get_user())
     with check (user_data = utils.get_user());
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
+
 drop policy if exists ledgers_policy on data.ledgers;
 
 revoke all on data.ledgers from pgb_web_user;
@@ -48,4 +51,5 @@ revoke all on data.ledgers from pgb_web_user;
 drop trigger if exists ledgers_updated_at_tg on data.ledgers;
 
 drop table data.ledgers;
+
 -- +goose StatementEnd
