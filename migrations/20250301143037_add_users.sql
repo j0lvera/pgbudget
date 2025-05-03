@@ -18,7 +18,6 @@ create table auth.users
     constraint users_password_length_check check (length(password) >= 60)
 );
 
-
 create trigger users_updated_at_tg
     before update
     on auth.users
@@ -36,19 +35,10 @@ $$ language sql;
 -- allow authenticated user to read from the users table
 grant select on auth.users to pgb_web_user;
 grant usage, select on sequence auth.users_id_seq to pgb_web_user;
-
--- enable RLS
-alter table auth.users
-    enable row level security;
-
-create policy users_policy on auth.users
-    for select
-    using (id = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-drop policy if exists users_policy on auth.users;
 revoke select on auth.users from pgb_web_user;
 revoke usage, select on sequence auth.users_id_seq from pgb_web_user;
 
