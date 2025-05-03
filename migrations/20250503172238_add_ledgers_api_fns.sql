@@ -1,7 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 
-create or replace view api.ledgers as
+create or replace view api.ledgers with (security_barrier) as
 select a.uuid,
        a.name,
        a.description,
