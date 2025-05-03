@@ -51,6 +51,7 @@ create or replace function api.add_account(
 as
 $$
 begin
+    return query
     select *
       from utils.add_account(
               (select id from data.ledgers l where l.uuid = p_ledger_uuid),
@@ -76,5 +77,5 @@ grant select on api.accounts to pgb_web_user;
 revoke select on api.accounts from pgb_web_user;
 drop view if exists api.accounts;
 drop function if exists api.add_account(text, text, text);
-drop function if exists utils.add_account(int, text, text, text);
+drop function if exists utils.add_account(bigint, text, text, text);
 -- +goose StatementEnd
