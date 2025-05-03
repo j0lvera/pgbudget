@@ -1,8 +1,8 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- create a function to get budget status for a specific ledger
-create or replace function api.get_budget_status(p_ledger_id int)
+-- create a function in utils schema to get budget status for a specific ledger by internal id
+create or replace function utils.get_budget_status(p_ledger_id int)
 returns table (
     id bigint,
     account_name text,
@@ -62,18 +62,55 @@ begin
 end;
 $$ language plpgsql;
 
--- create a view that uses the function with a default ledger ID
--- according to conventions, data shape definitions should go in the data schema
+-- create a wrapper function in api schema that uses the utils function with uuid
+create or replace function api.get_budget_status(p_ledger_uuid uuid)
+returns table (
+    id bigint,
+    account_name text,
+    budgeted decimal,
+    activity decimal,
+    balance decimal
+) as $$
+declare
+    v_ledger_id int;
+begin
+    -- find the ledger id from the uuid
+    select id into v_ledger_id
+    from data.ledgers
+    where uuid = p_ledger_uuid;
+    
+    if v_ledger_id is null then
+        raise exception 'ledger with uuid % not found', p_ledger_uuid;
+    end if;
+
+    -- call the utils function with the internal id
+    return query
+    select * from utils.get_budget_status(v_ledger_id);
+end;
+$$ language plpgsql;
+
+-- create a view that uses the accounts table for security inheritance
 create or replace view data.budget_status as
-select * from api.get_budget_status(1); -- default to ledger_id 1
+select 
+    bs.id,
+    bs.account_name,
+    bs.budgeted,
+    bs.activity,
+    bs.balance
+from data.accounts a
+cross join lateral (
+    select * from utils.get_budget_status(a.ledger_id)
+    where id = a.id
+) bs;
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
--- drop the view and function when rolling back
+-- drop the view and functions when rolling back
 drop view if exists data.budget_status;
-drop function if exists api.get_budget_status(int);
+drop function if exists api.get_budget_status(uuid);
+drop function if exists utils.get_budget_status(int);
 
 -- +goose StatementEnd
