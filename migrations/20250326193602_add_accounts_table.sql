@@ -14,7 +14,7 @@ create table data.accounts
     type          text        not null,
     internal_type text        not null,
     metadata      jsonb,
-    user_data     text        not null,
+    user_data     text        not null default utils.get_user(),
 
     -- fks
     ledger_id     bigint      not null references data.ledgers (id) on delete cascade,
@@ -42,6 +42,29 @@ create trigger accounts_updated_at_tg
     for each row
 execute procedure utils.set_updated_at_fn();
 
+-- create a trigger function to set internal_type based on account type
+create or replace function utils.set_account_internal_type_fn()
+    returns trigger as
+$$
+begin
+    -- determine internal type based on account type
+    if new.type = 'asset' or new.type = 'expense' then
+        new.internal_type := 'asset_like';
+    else
+        new.internal_type := 'liability_like';
+    end if;
+
+    return new;
+end;
+$$ language plpgsql;
+
+-- create a trigger to automatically set internal_type before insert
+create trigger accounts_set_internal_type_tg
+    before insert
+    on data.accounts
+    for each row
+execute procedure utils.set_account_internal_type_fn();
+
 -- allow authenticated user to access the accounts table.
 grant all on data.accounts to pgb_web_user;
 grant usage, select on sequence data.accounts_id_seq to pgb_web_user;
@@ -64,6 +87,8 @@ drop policy if exists accounts_policy on data.accounts;
 revoke all on data.accounts from pgb_web_user;
 
 drop trigger if exists accounts_updated_at_tg on data.accounts;
+drop trigger if exists accounts_set_internal_type_tg on data.accounts;
+drop function if exists utils.set_account_internal_type_fn();
 
 drop table data.accounts;
 

@@ -18,7 +18,7 @@ create table data.transactions
     credit_account_id bigint      not null references data.accounts (id),
     debit_account_id  bigint      not null references data.accounts (id),
 
-    user_data         text        not null,
+    user_data         text        not null default utils.get_user(),
 
     -- fks
     ledger_id         bigint      not null references data.ledgers (id) on delete cascade,
