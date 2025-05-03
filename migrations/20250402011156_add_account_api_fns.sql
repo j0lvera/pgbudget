@@ -30,7 +30,7 @@ begin
 end;
 $$ language plpgsql;
 
-create or replace view api.accounts as
+create or replace view api.accounts with (security_barrier) as
 select a.uuid,
        a.name,
        a.type,
