@@ -34,12 +34,9 @@ grant usage, select on sequence data.ledgers_id_seq to pgb_web_user;
 alter table data.ledgers
     enable row level security;
 
-create policy ledgers_policy on data.ledgers using
-    (
-        exists(select 1
-                 from data.ledgers l
-                where l.user_data = utils.get_user())
-        ) with check (data.ledgers.user_data = utils.get_user());
+create policy ledgers_policy on data.ledgers 
+    using (user_data = utils.get_user())
+    with check (user_data = utils.get_user());
 -- +goose StatementEnd
 
 -- +goose Down
