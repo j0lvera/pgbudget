@@ -65,11 +65,12 @@ func setupTestLedger(
 	var ledgerID int
 	err := conn.QueryRow(
 		ctx,
-		"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
+		// Insert into the view, not the base table, to simulate API usage
+		"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING id",
 		ledgerName,
 	).Scan(&ledgerID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to create ledger: %w", err)
+		return 0, nil, nil, fmt.Errorf("failed to create ledger via API view: %w", err)
 	}
 
 	// Map to store account IDs by name
@@ -211,10 +212,11 @@ func TestDatabase(t *testing.T) {
 
 			ledgerName := "Test Budget"
 
-			// Create a new ledger
+			// Create a new ledger by inserting into the API view
 			err = conn.QueryRow(
 				ctx,
-				"INSERT INTO data.ledgers (name) VALUES ($1) RETURNING id",
+				// Insert into the view, not the base table, to simulate API usage
+				"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING id",
 				ledgerName,
 			).Scan(&ledgerID)
 			is.NoErr(err)         // Should create ledger without error
@@ -222,6 +224,7 @@ func TestDatabase(t *testing.T) {
 
 			// Verify the ledger was created correctly
 			var name string
+			// Query the base table directly for verification, as the view might not expose 'id'
 			err = conn.QueryRow(
 				ctx,
 				"SELECT name FROM data.ledgers WHERE id = $1",
@@ -300,3 +303,4 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 }
+
