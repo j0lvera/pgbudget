@@ -187,41 +187,36 @@ $$ language plpgsql volatile security definer; -- Security definer for controlle
 -- function to assign money from Income to a category (public API)
 -- wrapper around the utils function, handles API input/output formatting
 create or replace function api.assign_to_category(
-    ledger_uuid text,
-    date timestamptz,
-    description text, -- Keep user-friendly input parameter name
-    amount bigint,
-    category_uuid text
+    -- Use p_ prefix for input parameters in this definition for clarity
+    p_ledger_uuid text,
+    p_date timestamptz,
+    p_description text,
+    p_amount bigint,
+    p_category_uuid text
 ) returns setof api.transactions as
 $$
-declare
-    v_util_result record; -- To store the result from utils.assign_to_category (transaction_uuid, income_account_uuid, metadata)
 begin
-    -- Call the internal utility function
-    select * into v_util_result from utils.assign_to_category(
-        p_ledger_uuid   => ledger_uuid,
-        p_date          => date,
-        p_description   => description,
-        p_amount        => amount,
-        p_category_uuid => category_uuid
-        -- p_user_data defaults to utils.get_user() in the utils function
-    );
-
-   -- --- MODIFY RETURN QUERY BELOW ---
-   -- Return the newly created transaction by querying the corresponding API view
-   -- Explicitly list columns to avoid ambiguity
+   -- --- MODIFY RETURN LOGIC BELOW ---
+   -- Return the result by selecting directly from the utils function output
+   -- and combining with input parameters. This avoids querying api.transactions view.
    return query
    select
-       t.uuid,
-       t.description,
-       t.amount,
-       t.metadata, -- Qualify with alias 't'
-       t.date,
-       t.ledger_uuid,
-       t.debit_account_uuid,
-       t.credit_account_uuid
-     from api.transactions t -- Query the view with alias 't'
-    where t.uuid = v_util_result.transaction_uuid; -- Filter for the created transaction UUID
+       utils_result.transaction_uuid::text as uuid,
+       p_description::text as description, -- Use input param directly
+       p_amount::bigint as amount,         -- Use input param directly
+       utils_result.metadata::jsonb as metadata, -- From utils result
+       p_date::timestamptz as date,         -- Use input param directly
+       p_ledger_uuid::text as ledger_uuid, -- Use input param directly
+       utils_result.income_account_uuid::text as debit_account_uuid, -- From utils result
+       p_category_uuid::text as credit_account_uuid -- Use input param directly
+   from utils.assign_to_category(
+        p_ledger_uuid   := p_ledger_uuid, -- Pass renamed params to utils function
+        p_date          := p_date,
+        p_description   := p_description,
+        p_amount        := p_amount,
+        p_category_uuid := p_category_uuid
+        -- p_user_data defaults to utils.get_user()
+   ) as utils_result;
    -- --- END MODIFICATION ---
 
 end;
@@ -231,6 +226,7 @@ $$ language plpgsql volatile security invoker; -- Runs as the calling user
 
 -- Grant permissions on new API functions
 GRANT EXECUTE ON FUNCTION api.add_category(text, text) TO pgb_web_user;
+-- The signature identifier still uses types, not names: (text, timestamptz, text, bigint, text)
 GRANT EXECUTE ON FUNCTION api.assign_to_category(text, timestamptz, text, bigint, text) TO pgb_web_user;
 
 
@@ -239,8 +235,10 @@ GRANT EXECUTE ON FUNCTION api.assign_to_category(text, timestamptz, text, bigint
 
 -- drop the functions in reverse order of creation and revoke permissions
 REVOKE EXECUTE ON FUNCTION api.add_category(text, text) FROM pgb_web_user;
+-- The signature identifier still uses types, not names: (text, timestamptz, text, bigint, text)
 REVOKE EXECUTE ON FUNCTION api.assign_to_category(text, timestamptz, text, bigint, text) FROM pgb_web_user;
 
+-- The signature identifier still uses types, not names: (text, timestamptz, text, bigint, text)
 drop function if exists api.assign_to_category(text, timestamptz, text, bigint, text);
 drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text); -- Drop the new util function
 drop function if exists utils.find_category(text, text, text);
