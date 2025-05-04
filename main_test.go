@@ -2,13 +2,17 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/j0lvera/pgbudget/testutils/pgcontainer"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgtype"
 	is_ "github.com/matryer/is"
 	"github.com/rs/zerolog"
 )
@@ -205,7 +209,9 @@ func TestDatabase(t *testing.T) {
 	// Database functions (like utils.get_user()) and RLS policies rely on this setting to identify the user.
 	// Since tests connect directly via pgx, bypassing PostgREST, we must manually set a dummy
 	// 'request.jwt.claims' for the session using set_config() so these functions work correctly.
-	jwtClaims := `{"role": "test_user", "email": "test@example.com", "user_data": "test_user_id_123"}`
+	// IMPORTANT: The 'user_data' field within the JWT claims is used by utils.get_user()
+	testUserID := "test_user_id_123"
+	jwtClaims := fmt.Sprintf(`{"role": "test_user", "email": "test@example.com", "user_data": "%s"}`, testUserID)
 	// Use 'false' for session-local setting
 	_, err = conn.Exec(ctx, `SELECT set_config('request.jwt.claims', $1, false)`, jwtClaims)
 	is.NoErr(err) // Should set config without error
@@ -305,6 +311,129 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
+	// Test api.add_category function
+	t.Run("AddCategory", func(t *testing.T) {
+		is := is_.New(t)
+		categoryName := "Groceries"
+		var categoryUUID string
+
+		// 1. Call api.add_category (Success Case)
+		t.Run("Success", func(t *testing.T) {
+			is := is_.New(t)
+			var (
+				retUUID        string
+				retName        string
+				retType        string // Assuming account_type enum maps to string
+				retDescription pgtype.Text // Use pgtype for nullable text
+				retMetadata    pgtype.JSONB // Use pgtype for nullable jsonb
+				retUserData    string
+				retLedgerUUID  string
+			)
+
+			// Call the function and scan all returned fields
+			err := conn.QueryRow(ctx, "SELECT * FROM api.add_category($1, $2)", ledgerUUID, categoryName).Scan(
+				&retUUID,
+				&retName,
+				&retType,
+				&retDescription,
+				&retMetadata,
+				&retUserData,
+				&retLedgerUUID,
+			)
+			is.NoErr(err) // Should execute function without error
+
+			// Assert Return Values
+			is.True(retUUID != "")             // Should return a non-empty UUID
+			is.Equal(retName, categoryName)    // Returned name should match input
+			is.Equal(retType, "equity")        // Returned type should be 'equity'
+			is.Equal(retLedgerUUID, ledgerUUID) // Returned ledger UUID should match input
+			is.Equal(retUserData, testUserID)  // Returned user_data should match simulated user
+			is.True(!retDescription.Valid)     // Description should be null initially
+			is.True(!retMetadata.Valid)        // Metadata should be null initially
+
+			categoryUUID = retUUID // Store for later verification and tests
+		})
+
+		// 2. Verify Database State
+		t.Run("VerifyDatabase", func(t *testing.T) {
+			is := is_.New(t)
+			is.True(categoryUUID != "") // Ensure categoryUUID was captured from the success test
+
+			var (
+				dbID           int
+				dbLedgerID     int
+				dbName         string
+				dbType         string
+				dbInternalType string
+				dbUserData     string
+				dbDescription  pgtype.Text
+				dbMetadata     pgtype.JSONB
+			)
+
+			// Query the data.accounts table directly
+			err := conn.QueryRow(ctx,
+				`SELECT id, ledger_id, name, type, internal_type, user_data, description, metadata
+                 FROM data.accounts WHERE uuid = $1`, categoryUUID).Scan(
+				&dbID,
+				&dbLedgerID,
+				&dbName,
+				&dbType,
+				&dbInternalType,
+				&dbUserData,
+				&dbDescription,
+				&dbMetadata,
+			)
+			is.NoErr(err) // Should find the account in the database
+
+			// Assert Database Values
+			is.Equal(dbLedgerID, ledgerID)         // Ledger ID should match the one created earlier
+			is.Equal(dbName, categoryName)         // Name should match
+			is.Equal(dbType, "equity")             // Type should be 'equity'
+			is.Equal(dbInternalType, "liability_like") // Internal type should be 'liability_like'
+			is.Equal(dbUserData, testUserID)       // User data should match
+			is.True(!dbDescription.Valid)          // Description should be null
+			is.True(!dbMetadata.Valid)             // Metadata should be null
+		})
+
+		// 3. Test Error Case: Duplicate Name
+		t.Run("DuplicateNameError", func(t *testing.T) {
+			is := is_.New(t)
+
+			// Call add_category again with the same name
+			_, err := conn.Exec(ctx, "SELECT api.add_category($1, $2)", ledgerUUID, categoryName)
+			is.True(err != nil) // Should return an error
+
+			// Check for PostgreSQL unique violation error (code 23505)
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr)) // Error should be a PgError
+			is.Equal(pgErr.Code, "23505")   // Error code should be unique_violation
+		})
+
+		// 4. Test Error Case: Invalid Ledger
+		t.Run("InvalidLedgerError", func(t *testing.T) {
+			is := is_.New(t)
+			invalidLedgerUUID := "00000000-0000-0000-0000-000000000000" // Or any non-existent UUID
+
+			_, err := conn.Exec(ctx, "SELECT api.add_category($1, $2)", invalidLedgerUUID, "Another Category")
+			is.True(err != nil) // Should return an error
+
+			// Check for the specific error message from utils.add_category
+			is.True(strings.Contains(err.Error(), "Ledger not found"))
+		})
+
+		// 5. Test Error Case: Empty Name
+		t.Run("EmptyNameError", func(t *testing.T) {
+			is := is_.New(t)
+
+			_, err := conn.Exec(ctx, "SELECT api.add_category($1, $2)", ledgerUUID, "")
+			is.True(err != nil) // Should return an error
+
+			// Check for the specific error message from utils.add_category
+			is.True(strings.Contains(err.Error(), "Category name cannot be empty"))
+		})
+	})
+
+
 	// // Test account creation using the ledger created above
 	// t.Run(
 	// 	"CreateAccounts", func(t *testing.T) {
@@ -347,4 +476,3 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 }
-
