@@ -63,15 +63,27 @@ func setupTestLedger(
 ) (int, map[string]int, map[string]int, error) {
 	// Create a new ledger
 	var ledgerID int
+	var ledgerUUID string // Need UUID to get ID
 	err := conn.QueryRow(
 		ctx,
 		// Insert into the view, not the base table, to simulate API usage
-		"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING id",
+		"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
 		ledgerName,
-	).Scan(&ledgerID)
+	).Scan(&ledgerUUID)
 	if err != nil {
 		return 0, nil, nil, fmt.Errorf("failed to create ledger via API view: %w", err)
 	}
+
+	// Fetch the internal ID using the returned UUID
+	err = conn.QueryRow(
+		ctx,
+		"SELECT id FROM data.ledgers WHERE uuid = $1",
+		ledgerUUID,
+	).Scan(&ledgerID)
+	if err != nil {
+		return 0, nil, nil, fmt.Errorf("failed to get ledger ID from UUID: %w", err)
+	}
+
 
 	// Map to store account IDs by name
 	accounts := make(map[string]int)
@@ -204,40 +216,51 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Create a ledger and store its ID for subsequent tests
+	// Create a ledger and store its ID and UUID for subsequent tests
 	var ledgerID int
+	var ledgerUUID string // Add variable for UUID
+
 	t.Run(
 		"CreateLedger", func(t *testing.T) {
 			is := is_.New(t)
 
 			ledgerName := "Test Budget"
 
-			// Create a new ledger by inserting into the API view
+			// Create a new ledger by inserting into the API view, returning the UUID
 			err = conn.QueryRow(
 				ctx,
-				// Insert into the view, not the base table, to simulate API usage
-				"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING id",
+				// Insert into the view, return the UUID exposed by the view
+				"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
 				ledgerName,
-			).Scan(&ledgerID)
-			is.NoErr(err)         // Should create ledger without error
-			is.True(ledgerID > 0) // Should return a valid ledger ID
+			).Scan(&ledgerUUID) // Scan into ledgerUUID
+			is.NoErr(err)             // Should create ledger without error
+			is.True(ledgerUUID != "") // Should return a valid ledger UUID
 
-			// Verify the ledger was created correctly
-			var name string
-			// Query the base table directly for verification, as the view might not expose 'id'
+			// Fetch the internal ID using the returned UUID
 			err = conn.QueryRow(
 				ctx,
-				"SELECT name FROM data.ledgers WHERE id = $1",
+				"SELECT id FROM data.ledgers WHERE uuid = $1",
+				ledgerUUID,
+			).Scan(&ledgerID)
+			is.NoErr(err)         // Should find the ledger by UUID
+			is.True(ledgerID > 0) // Should have a valid internal ID
+
+			// Verify the ledger was created correctly using the internal ID
+			var name string
+			// Query the base table directly for verification
+			err = conn.QueryRow(
+				ctx,
+				"SELECT name FROM data.ledgers WHERE id = $1", // Use ledgerID here
 				ledgerID,
 			).Scan(&name)
 			is.NoErr(err)              // Should find the created ledger
 			is.Equal(ledgerName, name) // Ledger should have the correct name
 
-			// Verify that the internal accounts were created
+			// Verify that the internal accounts were created using the internal ID
 			var accountNames []string
 			rows, err := conn.Query(
 				ctx,
-				"SELECT name FROM data.accounts WHERE ledger_id = $1 ORDER BY name",
+				"SELECT name FROM data.accounts WHERE ledger_id = $1 ORDER BY name", // Use ledgerID here
 				ledgerID,
 			)
 			is.NoErr(err) // Should query accounts without error
@@ -303,4 +326,3 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 }
-
