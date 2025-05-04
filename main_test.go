@@ -446,7 +446,7 @@ func TestDatabase(t *testing.T) {
 			is.Equal(retLedgerUUID, ledgerUUID) // Returned ledger UUID should match input
 			is.Equal(retUserData, testUserID)  // Returned user_data should match simulated user
 			is.True(!retDescription.Valid)     // Description should be null initially
-			is.True(!retMetadata.Valid)        // Metadata should be null initially
+			is.True(retMetadata == nil)        // Metadata should be null initially (check for nil map)
 
 			categoryUUID = retUUID // Store for later verification and tests
 		})
@@ -492,7 +492,7 @@ func TestDatabase(t *testing.T) {
 			is.Equal(dbInternalType, "liability_like") // Internal type should be 'liability_like'
 			is.Equal(dbUserData, testUserID)       // User data should match
 			is.True(!dbDescription.Valid)          // Description should be null
-			is.True(!dbMetadata.Valid)             // Metadata should be null
+			is.True(dbMetadata == nil)             // Metadata should be null (check for nil map)
 		})
 
 		// 3. Test Error Case: Duplicate Name
