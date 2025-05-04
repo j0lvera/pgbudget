@@ -532,9 +532,10 @@ func TestDatabase(t *testing.T) {
 			// Check for the specific error message from utils.add_category
 			var pgErr *pgconn.PgError
 			is.True(errors.As(err, &pgErr)) // Error should be a PgError
-			// Check the Detail or Message field for the specific exception text
-			// Note: The exact field (Message vs Detail) might depend on PostgreSQL version and error context
-			is.True(strings.Contains(pgErr.Message, "Ledger not found") || strings.Contains(pgErr.Detail, "Ledger not found"))
+			// --- MODIFY ASSERTION BELOW ---
+			// Check the Message field for the specific exception text raised by the function
+			is.True(strings.Contains(pgErr.Message, "not found for current user"))
+			// --- END MODIFICATION ---
 		})
 
 		// 5. Test Error Case: Empty Name
@@ -547,8 +548,10 @@ func TestDatabase(t *testing.T) {
 			// Check for the specific error message from utils.add_category
 			var pgErr *pgconn.PgError
 			is.True(errors.As(err, &pgErr)) // Error should be a PgError
-			// Check the Detail or Message field for the specific exception text
-			is.True(strings.Contains(pgErr.Message, "Category name cannot be empty") || strings.Contains(pgErr.Detail, "Category name cannot be empty"))
+			// --- MODIFY ASSERTION BELOW ---
+			// Check the Message field for the specific exception text raised by the function
+			is.True(strings.Contains(pgErr.Message, "Category name cannot be empty"))
+			// --- END MODIFICATION ---
 		})
 	})
 
