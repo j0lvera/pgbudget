@@ -123,5 +123,4 @@ $$ language plpgsql;
 -- +goose StatementBegin
 -- drop the functions in reverse order
 drop function if exists api.add_transaction(text, timestamptz, text, text, bigint, text, text);
-drop function if exists api.find_category(int, text, text);
 -- +goose StatementEnd
