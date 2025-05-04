@@ -274,28 +274,44 @@ This ensures that balances are always calculated correctly regardless of account
 
 pgbudget provides two methods for entering transactions, catering to different user preferences and knowledge levels:
 
-### 1. Convenience Function (Recommended for Most Users)
+### 1. Simple Transactions View (Recommended for Most Users)
 
 ```sql
--- Add a transaction using the simplified function
-SELECT api.add_transaction(
-    'ledger-uuid',              -- ledger_uuid
-    NOW(),                      -- date
-    'Grocery shopping',         -- description
-    'outflow',                  -- type (inflow or outflow)
-    5000,                       -- amount (5000 cents = $50.00)
-    'checking-account-uuid',    -- account_uuid
-    'groceries-category-uuid'   -- category_uuid
+-- Add a transaction using the simplified view
+INSERT INTO api.simple_transactions (
+    ledger_uuid,
+    date,
+    description,
+    type,                      -- 'inflow' or 'outflow'
+    amount,                    -- in cents (5000 = $50.00)
+    account_uuid,              -- the bank account or credit card
+    category_uuid              -- the budget category
+) VALUES (
+    'ledger-uuid',
+    NOW(),
+    'Grocery shopping',
+    'outflow',
+    5000,                      -- 5000 cents = $50.00
+    'checking-account-uuid',   -- bank account
+    'groceries-category-uuid'  -- category
 );
+
+-- Update a transaction
+UPDATE api.simple_transactions
+   SET amount = 6000,          -- 6000 cents = $60.00
+       type = 'outflow',
+       description = 'Updated grocery shopping'
+ WHERE uuid = 'transaction-uuid';
 ```
 
 This approach:
 - Uses intuitive concepts like "inflow" and "outflow"
 - Automatically determines which accounts to debit and credit
 - Shields users from needing to understand double-entry accounting details
-- Is exposed via PostgREST as `/rpc/add_transaction`
+- Supports full CRUD operations (insert, update, delete) with the same simplified interface
+- Is exposed via PostgREST as a standard RESTful resource
 
-### 2. Direct Table Access (For Accounting Professionals)
+### 2. Direct Transactions View (For Accounting Professionals)
 
 ```sql
 -- Add a transaction by directly specifying debit and credit accounts
@@ -322,7 +338,7 @@ This approach:
 - Is useful for complex transactions or for users familiar with accounting principles
 - Follows standard PostgreSQL table operations
 
-Both methods maintain the integrity of your double-entry accounting system while offering flexibility based on your comfort level with accounting concepts.
+Both methods maintain the integrity of your double-entry accounting system while offering flexibility based on your comfort level with accounting concepts. The `simple_transactions` view is particularly useful for applications where users shouldn't need to understand accounting principles to manage their budget effectively.
 
 ### View Account Transactions
 

@@ -90,7 +90,7 @@ declare
     v_debit_account_id      bigint;
     v_credit_account_id     bigint;
     v_account_internal_type text;
-    v_transaction_uuid      uuid;
+    v_transaction_uuid      text;
 begin
     -- get the ledger_id for denormalization
     select l.id
