@@ -422,7 +422,9 @@ func TestDatabase(t *testing.T) {
 				retName        string
 				retType        string
 				retDescription pgtype.Text
-				retMetadata    pgtype.Map // Use pgtype.Map for jsonb
+				// --- MODIFY TYPE BELOW ---
+				retMetadata    *[]byte // Use pointer to byte slice for jsonb
+				// --- END MODIFICATION ---
 				retUserData    string
 				retLedgerUUID  string
 			)
@@ -433,7 +435,7 @@ func TestDatabase(t *testing.T) {
 				&retName,
 				&retType,
 				&retDescription,
-				&retMetadata,
+				&retMetadata, // Pass address of pointer
 				&retUserData,
 				&retLedgerUUID,
 			)
@@ -446,7 +448,9 @@ func TestDatabase(t *testing.T) {
 			is.Equal(retLedgerUUID, ledgerUUID) // Returned ledger UUID should match input
 			is.Equal(retUserData, testUserID)  // Returned user_data should match simulated user
 			is.True(!retDescription.Valid)     // Description should be null initially
-			is.Equal(retMetadata.Status, pgtype.Null) // Metadata should be null initially (check Status)
+			// --- MODIFY ASSERTION BELOW ---
+			is.True(retMetadata == nil)        // Metadata should be null initially (check if pointer is nil)
+			// --- END MODIFICATION ---
 
 			categoryUUID = retUUID // Store for later verification and tests
 		})
@@ -467,7 +471,9 @@ func TestDatabase(t *testing.T) {
 				dbInternalType string
 				dbUserData     string
 				dbDescription  pgtype.Text
-				dbMetadata     pgtype.Map // Use pgtype.Map for jsonb
+				// --- MODIFY TYPE BELOW ---
+				dbMetadata     *[]byte // Use pointer to byte slice for jsonb
+				// --- END MODIFICATION ---
 			)
 
 			// Query the data.accounts table directly
@@ -481,7 +487,7 @@ func TestDatabase(t *testing.T) {
 				&dbInternalType,
 				&dbUserData,
 				&dbDescription,
-				&dbMetadata,
+				&dbMetadata, // Pass address of pointer
 			)
 			is.NoErr(err) // Should find the account in the database
 
@@ -492,7 +498,9 @@ func TestDatabase(t *testing.T) {
 			is.Equal(dbInternalType, "liability_like") // Internal type should be 'liability_like'
 			is.Equal(dbUserData, testUserID)       // User data should match
 			is.True(!dbDescription.Valid)          // Description should be null
-			is.Equal(dbMetadata.Status, pgtype.Null) // Metadata should be null (check Status)
+			// --- MODIFY ASSERTION BELOW ---
+			is.True(dbMetadata == nil)             // Metadata should be null (check if pointer is nil)
+			// --- END MODIFICATION ---
 		})
 
 		// 3. Test Error Case: Duplicate Name
