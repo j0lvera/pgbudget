@@ -5,8 +5,8 @@
 create or replace function utils.transactions_insert_single_fn() returns trigger as
 $$
 declare
-    v_ledger_id bigint;
-    v_debit_account_id bigint;
+    v_ledger_id         bigint;
+    v_debit_account_id  bigint;
     v_credit_account_id bigint;
 begin
     -- get the ledger_id for denormalization
@@ -42,15 +42,17 @@ begin
     end if;
 
     -- insert the transaction into the transactions table
-    insert into data.transactions (description, amount, debit_account_id, credit_account_id, ledger_id, metadata)
-    values (NEW.description,
-            NEW.amount,
-            v_debit_account_id,
-            v_credit_account_id,
-            v_ledger_id,
-            NEW.metadata)
-    returning uuid, description, amount, metadata, user_data into
-        new.uuid, new.description, new.amount, new.metadata, new.user_data;
+       insert into data.transactions (description, date, amount, debit_account_id, credit_account_id, ledger_id,
+                                      metadata)
+       values (NEW.description,
+               NEW.date,
+               NEW.amount,
+               v_debit_account_id,
+               v_credit_account_id,
+               v_ledger_id,
+               NEW.metadata)
+    returning uuid, description, amount, metadata, date into
+        new.uuid, new.description, new.amount, new.metadata, new.date;
 
     return new;
 end;
@@ -62,10 +64,9 @@ select t.uuid,
        t.description,
        t.amount,
        t.metadata,
-       t.user_data,
-       t.created_at,
-       (select l.uuid from data.ledgers l where l.id = t.ledger_id)::text as ledger_uuid,
-       (select a.uuid from data.accounts a where a.id = t.debit_account_id)::text as debit_account_uuid,
+       t.date,
+       (select l.uuid from data.ledgers l where l.id = t.ledger_id)::text          as ledger_uuid,
+       (select a.uuid from data.accounts a where a.id = t.debit_account_id)::text  as debit_account_uuid,
        (select a.uuid from data.accounts a where a.id = t.credit_account_id)::text as credit_account_uuid
   from data.transactions t;
 

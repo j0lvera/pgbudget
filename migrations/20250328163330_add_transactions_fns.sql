@@ -2,6 +2,7 @@
 -- +goose StatementBegin
 
 -- function to add a transaction
+-- this function abstract the underlying logic of adding a transaction into a more user-friendly API
 create or replace function api.add_transaction(
     p_ledger_id int,
     p_user_data text, -- the user who owns this transaction
