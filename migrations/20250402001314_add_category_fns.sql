@@ -141,7 +141,6 @@ $$ language plpgsql;
 -- drop the functions
 drop function if exists api.assign_to_category(text, timestamptz, text, bigint, int);
 drop function if exists api.add_category(text, text);
-drop function if exists api.find_category(int, text, text);
 drop function if exists utils.find_category(text, text, text);
 
 -- +goose StatementEnd

@@ -52,9 +52,9 @@ begin
 
     -- handle null category by finding the "unassigned" category
     if p_category_uuid is null then
-        v_category_id := api.find_category(v_ledger_id, 'Unassigned');
+        v_category_id := utils.find_category(p_ledger_uuid, 'Unassigned');
         if v_category_id is null then
-            raise exception 'Could not find "unassigned" category in ledger %', v_ledger_id;
+            raise exception 'Could not find "unassigned" category in ledger %', p_ledger_uuid;
         end if;
     else
         -- find the category_id from uuid
@@ -257,4 +257,5 @@ $$ language plpgsql;
 -- drop the functions in reverse order
 drop function if exists api.add_bulk_transactions(jsonb);
 drop function if exists api.add_transaction(text, timestamptz, text, text, bigint, text, text);
+drop function if exists api.find_category(int, text, text);
 -- +goose StatementEnd
