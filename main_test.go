@@ -28,7 +28,9 @@ func TestMain(m *testing.M) {
 
 	// Configure and start the PostgreSQL container
 	cfg := pgcontainer.NewConfig()
-	cfg.WithLogger(&log).WithMigrationsPath("../migrations")
+	// --- MODIFY THE PATH BELOW ---
+	cfg.WithLogger(&log).WithMigrationsPath("migrations") // Path relative to project root (src)
+	// --- END OF MODIFICATION ---
 
 	pgContainer := pgcontainer.NewPgContainer(cfg)
 	output, err := pgContainer.Start(ctx)
