@@ -200,8 +200,22 @@ func TestDatabase(t *testing.T) {
 
 	// Set a dummy JWT claim for the test session to simulate PostgREST authentication
 	// This is necessary because some functions/triggers might rely on request.jwt.claims
-	_, err = conn.Exec(ctx, `SELECT set_config('request.jwt.claims', '{"role": "test_user", "email": "test@example.com", "user_data": "test_user_id_123"}', true)`)
+	jwtClaims := `{"role": "test_user", "email": "test@example.com", "user_data": "test_user_id_123"}`
+	_, err = conn.Exec(ctx, `SELECT set_config('request.jwt.claims', $1, true)`, jwtClaims)
 	is.NoErr(err) // Should set config without error
+
+	// --- ADD VERIFICATION STEPS ---
+	// 1. Verify the setting was applied and is readable
+	var readClaims string
+	err = conn.QueryRow(ctx, `SELECT current_setting('request.jwt.claims', true)`).Scan(&readClaims)
+	is.NoErr(err) // Should be able to read the setting back
+	is.Equal(readClaims, jwtClaims) // Setting read back should match what was set
+
+	// 2. Verify the literal string can be cast to JSON directly
+	_, err = conn.Exec(ctx, `SELECT $1::json`, jwtClaims)
+	is.NoErr(err) // Should be able to cast the literal string to JSON without error
+	// --- END OF VERIFICATION STEPS ---
+
 
 	// Basic connection test
 	t.Run(
