@@ -185,6 +185,11 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
+	// Set a dummy JWT claim for the test session to simulate PostgREST authentication
+	// This is necessary because some functions/triggers might rely on request.jwt.claims
+	_, err = conn.Exec(ctx, `SELECT set_config('request.jwt.claims', '{"role": "test_user", "email": "test@example.com"}', true)`)
+	is.NoErr(err) // Should set config without error
+
 	// Basic connection test
 	t.Run(
 		"Connection", func(t *testing.T) {
