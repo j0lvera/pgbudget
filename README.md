@@ -270,15 +270,59 @@ This function automatically applies the correct accounting logic based on the ac
 
 This ensures that balances are always calculated correctly regardless of account type.
 
-The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `account_id`: The ID of the account to check
+## Transaction Entry Options
 
-This function automatically applies the correct accounting logic based on the account's internal type:
-- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
-- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
+pgbudget provides two methods for entering transactions, catering to different user preferences and knowledge levels:
 
-This ensures that balances are always calculated correctly regardless of account type.
+### 1. Convenience Function (Recommended for Most Users)
+
+```sql
+-- Add a transaction using the simplified function
+SELECT api.add_transaction(
+    'ledger-uuid',              -- ledger_uuid
+    NOW(),                      -- date
+    'Grocery shopping',         -- description
+    'outflow',                  -- type (inflow or outflow)
+    5000,                       -- amount (5000 cents = $50.00)
+    'checking-account-uuid',    -- account_uuid
+    'groceries-category-uuid'   -- category_uuid
+);
+```
+
+This approach:
+- Uses intuitive concepts like "inflow" and "outflow"
+- Automatically determines which accounts to debit and credit
+- Shields users from needing to understand double-entry accounting details
+- Is exposed via PostgREST as `/rpc/add_transaction`
+
+### 2. Direct Table Access (For Accounting Professionals)
+
+```sql
+-- Add a transaction by directly specifying debit and credit accounts
+INSERT INTO api.transactions (
+    ledger_uuid,
+    description,
+    date,
+    amount,
+    debit_account_uuid,
+    credit_account_uuid
+) VALUES (
+    'ledger-uuid',
+    'Grocery shopping',
+    NOW(),
+    5000,                       -- 5000 cents = $50.00
+    'groceries-category-uuid',  -- account to debit
+    'checking-account-uuid'     -- account to credit
+);
+```
+
+This approach:
+- Gives complete control over the double-entry accounting process
+- Requires understanding which account to debit and which to credit
+- Is useful for complex transactions or for users familiar with accounting principles
+- Follows standard PostgreSQL table operations
+
+Both methods maintain the integrity of your double-entry accounting system while offering flexibility based on your comfort level with accounting concepts.
 
 ### View Account Transactions
 
