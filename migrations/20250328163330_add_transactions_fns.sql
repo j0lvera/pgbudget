@@ -2,24 +2,44 @@
 -- +goose StatementBegin
 
 -- function to add a transaction
+-- this function abstract the underlying logic of adding a transaction into a more user-friendly API
 create or replace function api.add_transaction(
-    p_ledger_id int,
-    p_user_data text, -- the user who owns this transaction
+    p_ledger_uuid text,
     p_date timestamptz,
     p_description text,
     p_type text, -- 'inflow' or 'outflow'
     p_amount bigint,
-    p_account_id int, -- the bank account or credit card
-    p_category_id int = null -- the category, now optional
+    p_account_uuid text, -- the bank account or credit card
+    p_category_uuid text = null -- the category, now optional
 ) returns int as
 $$
 declare
+    v_ledger_id             int;
+    v_account_id            int;
+    v_category_id           int;
     v_transaction_id        int;
     v_debit_account_id      int;
     v_credit_account_id     int;
-    v_category_id           int;
     v_account_internal_type text;
 begin
+    -- find the ledger_id from uuid
+    select l.id into v_ledger_id
+    from data.ledgers l
+    where l.uuid = p_ledger_uuid;
+    
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found', p_ledger_uuid;
+    end if;
+    
+    -- find the account_id from uuid
+    select a.id into v_account_id
+    from data.accounts a
+    where a.uuid = p_account_uuid and a.ledger_id = v_ledger_id;
+    
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found in ledger %', p_account_uuid, p_ledger_uuid;
+    end if;
+    
     -- validate transaction type
     if p_type not in ('inflow', 'outflow') then
         raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', p_type;
@@ -31,44 +51,47 @@ begin
     end if;
 
     -- handle null category by finding the "unassigned" category
-    if p_category_id is null then
-        v_category_id := api.find_category(p_ledger_id, 'Unassigned');
+    if p_category_uuid is null then
+        v_category_id := utils.find_category(p_ledger_uuid, 'Unassigned');
         if v_category_id is null then
-            raise exception 'Could not find "unassigned" category in ledger %', p_ledger_id;
+            raise exception 'Could not find "unassigned" category in ledger %', p_ledger_uuid;
         end if;
     else
-        v_category_id := p_category_id;
+        -- find the category_id from uuid
+        select c.id into v_category_id
+        from data.accounts c
+        where c.uuid = p_category_uuid and c.ledger_id = v_ledger_id;
+        
+        if v_category_id is null then
+            raise exception 'Category with UUID % not found in ledger %', p_category_uuid, p_ledger_uuid;
+        end if;
     end if;
 
     -- get the account internal_type (asset_like or liability_like)
-    select internal_type
+    select a.internal_type
       into v_account_internal_type
-      from data.accounts
-     where id = p_account_id;
-
-    if v_account_internal_type is null then
-        raise exception 'Account with ID % not found', p_account_id;
-    end if;
+      from data.accounts a
+     where a.id = v_account_id;
 
     -- determine debit and credit accounts based on account internal_type and transaction type
     if v_account_internal_type = 'asset_like' then
         if p_type = 'inflow' then
             -- for inflow to asset_like: debit asset_like (increase), credit category (increase)
-            v_debit_account_id := p_account_id;
+            v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
         else
             -- for outflow from asset_like: debit category (decrease), credit asset_like (decrease)
             v_debit_account_id := v_category_id;
-            v_credit_account_id := p_account_id;
+            v_credit_account_id := v_account_id;
         end if;
     elsif v_account_internal_type = 'liability_like' then
         if p_type = 'inflow' then
             -- for inflow to liability_like: debit category (decrease), credit liability_like (increase)
             v_debit_account_id := v_category_id;
-            v_credit_account_id := p_account_id;
+            v_credit_account_id := v_account_id;
         else
             -- for outflow from liability_like: debit liability_like (decrease), credit category (increase)
-            v_debit_account_id := p_account_id;
+            v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
         end if;
     else
@@ -77,14 +100,12 @@ begin
 
     -- insert the transaction and return the new id
        insert into data.transactions (ledger_id,
-                                      user_data,
                                       date,
                                       description,
                                       debit_account_id,
                                       credit_account_id,
                                       amount)
-       values (p_ledger_id,
-               p_user_data,
+       values (v_ledger_id,
                p_date,
                p_description,
                v_debit_account_id,
@@ -97,143 +118,9 @@ end;
 $$ language plpgsql;
 -- +goose StatementEnd
 
--- +goose StatementBegin
--- function to add multiple transactions in a single operation
-create or replace function api.add_bulk_transactions(
-    p_transactions jsonb
-)
-    returns table
-            (
-                transaction_id int,
-                status         text,
-                message        text
-            )
-as
-$$
-declare
-    v_transaction           jsonb;
-    v_ledger_id             int;
-    v_user_data             text;
-    v_date                  timestamptz;
-    v_description           text;
-    v_type                  text;
-    v_amount                bigint;
-    v_account_id            int;
-    v_category_id           int;
-    v_transaction_id        int;
-    v_unassigned_categories jsonb   = '{}'::jsonb;
-    v_results               jsonb   = '[]'::jsonb;
-    v_has_error             boolean = false;
-    v_error_message         text;
-    v_transaction_index     int     = 0;
-    v_detailed_error        text;
-begin
-    -- pre-fetch unassigned categories for all ledgers in the batch
-    -- to avoid repeated lookups
-    for v_ledger_id in (select distinct (t ->> 'ledger_id')::int
-                          from jsonb_array_elements(p_transactions) as t)
-        loop
-            v_unassigned_categories = v_unassigned_categories ||
-                                      jsonb_build_object(
-                                              v_ledger_id::text,
-                                              api.find_category(v_ledger_id, 'Unassigned')
-                                      );
-        end loop;
-
-    -- process each transaction in the array
-    for v_transaction in select * from jsonb_array_elements(p_transactions)
-        loop
-            v_transaction_index := v_transaction_index + 1;
-            begin
-                -- extract values from the JSON object
-                v_ledger_id := (v_transaction ->> 'ledger_id')::int;
-                v_user_data := (v_transaction ->> 'user_data')::text;
-                v_date := (v_transaction ->> 'date')::timestamptz;
-                v_description := v_transaction ->> 'description';
-                v_type := v_transaction ->> 'type';
-                v_amount := (v_transaction ->> 'amount')::bigint;
-                v_account_id := (v_transaction ->> 'account_id')::int;
-
-                -- category_id is optional
-                if v_transaction ? 'category_id' then
-                    v_category_id := (v_transaction ->> 'category_id')::int;
-                else
-                    v_category_id := null;
-                end if;
-
-                -- call the existing add_transaction function and store result directly
-                v_transaction_id := api.add_transaction(
-                        v_ledger_id,
-                        v_user_data,
-                        v_date,
-                        v_description,
-                        v_type,
-                        v_amount,
-                        v_account_id,
-                        v_category_id
-                                    );
-
-                -- store successful result in our results array
-                v_results := v_results || jsonb_build_object(
-                        'transaction_id', v_transaction_id,
-                        'status', 'success',
-                        'message', 'Transaction created successfully'
-                                          );
-
-            exception
-                when others then
-                    -- capture error and set error flag
-                    v_has_error := true;
-                    v_error_message := SQLERRM;
-                    v_detailed_error := format('Error in transaction %s (index %s): %s. Transaction data: %s',
-                                               v_description, v_transaction_index, v_error_message, v_transaction);
-
-                    -- store detailed error result in our results array
-                    v_results := v_results || jsonb_build_object(
-                            'transaction_id', null,
-                            'status', 'error',
-                            'message', v_detailed_error
-                                              );
-
-                    -- exit the loop early since we'll be rolling back anyway
-                    exit;
-            end;
-        end loop;
-
-    -- if there was an error, raise an exception to trigger rollback
-    if v_has_error then
-        -- Add a note that the entire operation was rolled back
-        v_results := v_results || jsonb_build_object(
-                'transaction_id', null,
-                'status', 'error',
-                'message', 'All transactions rolled back due to error'
-                                  );
-
-        -- Return the results before raising the exception
-        return query
-            select (r ->> 'transaction_id')::int as transaction_id,
-                   r ->> 'status'                as status,
-                   r ->> 'message'               as message
-              from jsonb_array_elements(v_results) as r;
-
-        -- Raise exception with detailed error to trigger rollback
-        raise exception 'Transaction batch failed: %', v_detailed_error;
-    end if;
-
-    -- return the results from our JSON array
-    return query
-        select (r ->> 'transaction_id')::int as transaction_id,
-               r ->> 'status'                as status,
-               r ->> 'message'               as message
-          from jsonb_array_elements(v_results) as r;
-end;
-$$ language plpgsql;
--- +goose StatementEnd
-
 
 -- +goose Down
 -- +goose StatementBegin
 -- drop the functions in reverse order
-drop function if exists api.add_bulk_transactions(jsonb);
-drop function if exists api.add_transaction(int, text, timestamptz, text, text, bigint, int, int);
+drop function if exists api.add_transaction(text, timestamptz, text, text, bigint, text, text);
 -- +goose StatementEnd

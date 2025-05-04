@@ -270,15 +270,75 @@ This function automatically applies the correct accounting logic based on the ac
 
 This ensures that balances are always calculated correctly regardless of account type.
 
-The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `account_id`: The ID of the account to check
+## Transaction Entry Options
 
-This function automatically applies the correct accounting logic based on the account's internal type:
-- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
-- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
+pgbudget provides two methods for entering transactions, catering to different user preferences and knowledge levels:
 
-This ensures that balances are always calculated correctly regardless of account type.
+### 1. Simple Transactions View (Recommended for Most Users)
+
+```sql
+-- Add a transaction using the simplified view
+INSERT INTO api.simple_transactions (
+    ledger_uuid,
+    date,
+    description,
+    type,                      -- 'inflow' or 'outflow'
+    amount,                    -- in cents (5000 = $50.00)
+    account_uuid,              -- the bank account or credit card
+    category_uuid              -- the budget category
+) VALUES (
+    'ledger-uuid',
+    NOW(),
+    'Grocery shopping',
+    'outflow',
+    5000,                      -- 5000 cents = $50.00
+    'checking-account-uuid',   -- bank account
+    'groceries-category-uuid'  -- category
+);
+
+-- Update a transaction
+UPDATE api.simple_transactions
+   SET amount = 6000,          -- 6000 cents = $60.00
+       type = 'outflow',
+       description = 'Updated grocery shopping'
+ WHERE uuid = 'transaction-uuid';
+```
+
+This approach:
+- Uses intuitive concepts like "inflow" and "outflow"
+- Automatically determines which accounts to debit and credit
+- Shields users from needing to understand double-entry accounting details
+- Supports full CRUD operations (insert, update, delete) with the same simplified interface
+- Is exposed via PostgREST as a standard RESTful resource
+
+### 2. Direct Transactions View (For Accounting Professionals)
+
+```sql
+-- Add a transaction by directly specifying debit and credit accounts
+INSERT INTO api.transactions (
+    ledger_uuid,
+    description,
+    date,
+    amount,
+    debit_account_uuid,
+    credit_account_uuid
+) VALUES (
+    'ledger-uuid',
+    'Grocery shopping',
+    NOW(),
+    5000,                       -- 5000 cents = $50.00
+    'groceries-category-uuid',  -- account to debit
+    'checking-account-uuid'     -- account to credit
+);
+```
+
+This approach:
+- Gives complete control over the double-entry accounting process
+- Requires understanding which account to debit and which to credit
+- Is useful for complex transactions or for users familiar with accounting principles
+- Follows standard PostgreSQL table operations
+
+Both methods maintain the integrity of your double-entry accounting system while offering flexibility based on your comfort level with accounting concepts. The `simple_transactions` view is particularly useful for applications where users shouldn't need to understand accounting principles to manage their budget effectively.
 
 ### View Account Transactions
 
