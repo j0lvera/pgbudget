@@ -187,37 +187,43 @@ $$ language plpgsql volatile security definer; -- Security definer for controlle
 -- function to assign money from Income to a category (public API)
 -- wrapper around the utils function, handles API input/output formatting
 create or replace function api.assign_to_category(
-    -- Use p_ prefix for input parameters in this definition for clarity
-    p_ledger_uuid text,
-    p_date timestamptz,
-    p_description text,
-    p_amount bigint,
-    p_category_uuid text
+    -- Keep original user-friendly names for the API function definition
+    ledger_uuid text,
+    date timestamptz,
+    description text,
+    amount bigint,
+    category_uuid text
 ) returns setof api.transactions as
 $$
+declare
+    v_util_result record; -- To store the result from utils.assign_to_category (transaction_uuid, income_account_uuid, metadata)
 begin
-   -- --- MODIFY RETURN LOGIC BELOW ---
-   -- Return the result by selecting directly from the utils function output
-   -- and combining with input parameters. This avoids querying api.transactions view.
+    -- Call the internal utility function
+    select * into v_util_result from utils.assign_to_category(
+        p_ledger_uuid   := ledger_uuid, -- Pass params to utils function
+        p_date          := date,
+        p_description   := description,
+        p_amount        := amount,
+        p_category_uuid := category_uuid
+        -- p_user_data defaults to utils.get_user()
+    );
+
+   -- --- REVERT RETURN LOGIC TO QUERYING THE VIEW ---
+   -- Return the newly created transaction by querying the corresponding API view
+   -- Explicitly list columns to avoid ambiguity errors.
    return query
    select
-       utils_result.transaction_uuid::text as uuid,
-       p_description::text as description, -- Use input param directly
-       p_amount::bigint as amount,         -- Use input param directly
-       utils_result.metadata::jsonb as metadata, -- From utils result
-       p_date::timestamptz as date,         -- Use input param directly
-       p_ledger_uuid::text as ledger_uuid, -- Use input param directly
-       utils_result.income_account_uuid::text as debit_account_uuid, -- From utils result
-       p_category_uuid::text as credit_account_uuid -- Use input param directly
-   from utils.assign_to_category(
-        p_ledger_uuid   := p_ledger_uuid, -- Pass renamed params to utils function
-        p_date          := p_date,
-        p_description   := p_description,
-        p_amount        := p_amount,
-        p_category_uuid := p_category_uuid
-        -- p_user_data defaults to utils.get_user()
-   ) as utils_result;
-   -- --- END MODIFICATION ---
+       t.uuid,
+       t.description,
+       t.amount,
+       t.metadata, -- Qualify with alias 't'
+       t.date,
+       t.ledger_uuid,
+       t.debit_account_uuid,
+       t.credit_account_uuid
+     from api.transactions t -- Query the view with alias 't'
+    where t.uuid = v_util_result.transaction_uuid; -- Filter for the created transaction UUID
+   -- --- END REVERT ---
 
 end;
 $$ language plpgsql volatile security invoker; -- Runs as the calling user

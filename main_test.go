@@ -610,10 +610,17 @@ func TestDatabase(t *testing.T) {
 			invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
 			_, err := conn.Exec(ctx, "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
 				invalidLedgerUUID, time.Now(), "Fail Assign", 1000, groceriesCategoryUUID)
-			is.True(err != nil)
+			is.True(err != nil) // Should return an error
+
 			var pgErr *pgconn.PgError
-			is.True(errors.As(err, &pgErr))
-			is.True(strings.Contains(pgErr.Message, "not found for current user")) // Check message from utils function
+			is.True(errors.As(err, &pgErr)) // Error should be a PgError
+
+			// --- ADD LOGGING ---
+			log.Error().Err(err).Str("Code", pgErr.Code).Str("Message", pgErr.Message).Str("Detail", pgErr.Detail).Str("Hint", pgErr.Hint).Msg("InvalidLedgerError details")
+			// --- END LOGGING ---
+
+			// Check message from utils function (keep existing check for now, will adjust after seeing log)
+			is.True(strings.Contains(pgErr.Message, "not found for current user"))
 		})
 
 		t.Run("InvalidCategoryError", func(t *testing.T) {
