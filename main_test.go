@@ -61,161 +61,86 @@ func contains(slice []string, str string) bool {
 }
 
 // setupTestLedger creates a new ledger with standard accounts and sample transactions
-// Returns the ledger ID and a map of account IDs by name for easy reference
-// NOTE: This function uses older API calls (returning int IDs) and needs updating
-// if those functions are removed or changed to return UUIDs/records.
+// using the public API layer (views and functions).
+// Returns the ledger UUID, a map of account UUIDs by name, and a map of transaction UUIDs by name.
 func setupTestLedger(
 	ctx context.Context, conn *pgx.Conn, ledgerName string,
-) (int, map[string]int, map[string]int, error) {
-	// Create a new ledger
-	var ledgerID int
-	var ledgerUUID string // Need UUID to get ID
-	err := conn.QueryRow(
+) (ledgerUUID string, accountUUIDs map[string]string, transactionUUIDs map[string]string, err error) { // Modified return types
+
+	// Initialize maps
+	accountUUIDs = make(map[string]string)
+	transactionUUIDs = make(map[string]string)
+
+	// 1. Create a new ledger via API view
+	err = conn.QueryRow(
 		ctx,
-		// Insert into the view, not the base table, to simulate API usage
 		"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
 		ledgerName,
 	).Scan(&ledgerUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to create ledger via API view: %w", err)
+		err = fmt.Errorf("failed to create ledger via API view: %w", err)
+		return // Return immediately on error
 	}
 
-	// Fetch the internal ID using the returned UUID
-	err = conn.QueryRow(
-		ctx,
-		"SELECT id FROM data.ledgers WHERE uuid = $1",
-		ledgerUUID,
-	).Scan(&ledgerID)
+	// 2. Create checking account via API view
+	var checkingUUID string
+	err = conn.QueryRow(ctx,
+		`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, $3) RETURNING uuid`,
+		ledgerUUID, "Checking", "asset",
+	).Scan(&checkingUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to get ledger ID from UUID: %w", err)
+		err = fmt.Errorf("failed to create checking account via view insert: %w", err)
+		return // Return immediately on error
 	}
+	accountUUIDs["Checking"] = checkingUUID
 
-
-	// Map to store account IDs by name
-	accounts := make(map[string]int)
-	transactions := make(map[string]int)
-
-	// Create checking account using api.add_account
-	// TODO: Update if api.add_account changes signature (it likely will need to use UUIDs)
-	// For now, assume it still returns an int ID for setup purposes
-	var checkingID int
-	var checkingUUID string // Assume we'll need UUID later
-	// Hypothetical future call using UUIDs:
-	// err = conn.QueryRow(ctx, "SELECT uuid FROM api.add_account($1, $2, $3)", ledgerUUID, "Checking", "asset").Scan(&checkingUUID)
-	// For now, stick to the old signature if it exists, otherwise this setup needs a rewrite
-	err = conn.QueryRow(
-		ctx,
-		"SELECT id FROM api.add_account($1, $2, $3)", // Assuming old signature still exists for setup
-		ledgerID, "Checking", "asset",
-	).Scan(&checkingID)
-	if err != nil {
-		// If the old signature is gone, this will fail.
-		// We might need to insert directly into data.accounts or use the new view/trigger
-		// For now, let's try inserting via the view if the function fails
-		log.Warn().Err(err).Msg("api.add_account(int) failed, trying insert into api.accounts view")
-		errInsert := conn.QueryRow(ctx,
-			`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, $3) RETURNING uuid`,
-			ledgerUUID, "Checking", "asset",
-		).Scan(&checkingUUID)
-		if errInsert != nil {
-			return 0, nil, nil, fmt.Errorf("failed to create checking account via function or view insert: %w / %w", err, errInsert)
-		}
-		// Get the internal ID from the UUID
-		errId := conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", checkingUUID).Scan(&checkingID)
-		if errId != nil {
-			return 0, nil, nil, fmt.Errorf("failed to get checking account ID from UUID after view insert: %w", errId)
-		}
-	}
-	accounts["Checking"] = checkingID
-
-
-	// Create groceries category using api.add_category
-	var groceriesID int
-	var groceriesUUID string // We need the UUID now
+	// 3. Create groceries category via API function
+	var groceriesUUID string
+	// Since api.add_category returns SETOF, we need to select the specific column
 	err = conn.QueryRow(
 		ctx,
 		"SELECT uuid FROM api.add_category($1, $2)", // Call new function
-		ledgerUUID, "Groceries", // Use ledger UUID
+		ledgerUUID, "Groceries",
 	).Scan(&groceriesUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf(
-			"failed to create groceries category: %w", err,
-		)
+		err = fmt.Errorf("failed to create groceries category: %w", err)
+		return // Return immediately on error
 	}
-	// Fetch the ID from the UUID for internal use in this setup function
-	err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", groceriesUUID).Scan(&groceriesID)
-	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to get groceries ID from UUID: %w", err)
-	}
-	accounts["Groceries"] = groceriesID
+	accountUUIDs["Groceries"] = groceriesUUID
 
-
-	// Find the Income account (should be created automatically with the ledger)
+	// 4. Find the Income category UUID (created automatically with ledger)
 	var incomeUUID string
 	err = conn.QueryRow(
 		ctx,
-		"SELECT utils.find_category($1, $2)", // Use utils function
-		ledgerUUID, "Income", // Use ledger UUID
+		"SELECT utils.find_category($1, $2)", // Use utils function for lookup
+		ledgerUUID, "Income",
 	).Scan(&incomeUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf(
-			"failed to find income category UUID: %w", err,
-		)
+		err = fmt.Errorf("failed to find income category UUID: %w", err)
+		return // Return immediately on error
 	}
-	// Fetch the ID from the UUID for internal use in this setup function
-	var incomeID int
-	err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", incomeUUID).Scan(&incomeID)
+	if incomeUUID == "" { // Should not happen if ledger trigger works
+		err = fmt.Errorf("income category UUID not found unexpectedly")
+		return // Return immediately on error
+	}
+	accountUUIDs["Income"] = incomeUUID
+
+	// 5. Add Income Transaction via simple_transactions view
+	var incomeTxUUID string
+	err = conn.QueryRow(ctx,
+		`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
+		ledgerUUID, "2023-01-01", "Salary deposit", "inflow", 100000, checkingUUID, incomeUUID,
+	).Scan(&incomeTxUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to get income ID from UUID: %w", err)
+		err = fmt.Errorf("failed to create income transaction via simple_transactions view: %w", err)
+		return // Return immediately on error
 	}
-	accounts["Income"] = incomeID
+	transactionUUIDs["Income"] = incomeTxUUID
 
-
-	// 1. Create a transaction to simulate receiving income
-	// TODO: Update if api.add_transaction changes signature (it likely will need to use UUIDs)
-	// For now, assume it still returns an int ID for setup purposes
-	var incomeTxID int
-	var incomeTxUUID string // Assume we'll need UUID later
-	// Hypothetical future call using UUIDs:
-	// err = conn.QueryRow(ctx, "INSERT INTO api.simple_transactions (...) VALUES (...) RETURNING uuid").Scan(&incomeTxUUID)
-	// For now, stick to the old signature if it exists, otherwise this setup needs a rewrite
-	err = conn.QueryRow(
-		ctx,
-		"SELECT id FROM api.add_transaction($1, $2, $3, $4, $5, $6, $7)", // Assuming old signature
-		ledgerID, "2023-01-01", "Salary deposit", "inflow",
-		100000, // $1000.00
-		checkingID, incomeID,
-	).Scan(&incomeTxID)
-	if err != nil {
-		// If the old signature is gone, this will fail.
-		// We might need to insert directly into api.simple_transactions
-		log.Warn().Err(err).Msg("api.add_transaction(int) failed, trying insert into api.simple_transactions view")
-		// Need checking account UUID and income category UUID
-		var checkingAccUUID, incomeCatUUID string
-		errCA := conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE id = $1", checkingID).Scan(&checkingAccUUID)
-		if errCA != nil { return 0, nil, nil, fmt.Errorf("failed to get checking UUID for simple_tx: %w", errCA) }
-		errIC := conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE id = $1", incomeID).Scan(&incomeCatUUID)
-		if errIC != nil { return 0, nil, nil, fmt.Errorf("failed to get income UUID for simple_tx: %w", errIC) }
-
-		errInsert := conn.QueryRow(ctx,
-			`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
-			ledgerUUID, "2023-01-01", "Salary deposit", "inflow", 100000, checkingAccUUID, incomeCatUUID,
-		).Scan(&incomeTxUUID)
-		if errInsert != nil {
-			return 0, nil, nil, fmt.Errorf("failed to create income transaction via function or simple_transactions view: %w / %w", err, errInsert)
-		}
-		// Get the internal ID from the UUID
-		errId := conn.QueryRow(ctx, "SELECT id FROM data.transactions WHERE uuid = $1", incomeTxUUID).Scan(&incomeTxID)
-		if errId != nil {
-			return 0, nil, nil, fmt.Errorf("failed to get income tx ID from UUID after view insert: %w", errId)
-		}
-	}
-	transactions["Income"] = incomeTxID
-
-
-	// 2. Create a transaction to budget money from Income to Groceries
+	// 6. Assign Money to Groceries via API function
 	var budgetTxUUID string
+	// Since api.assign_to_category returns SETOF, we need to select the specific column
 	err = conn.QueryRow(
 		ctx,
 		"SELECT uuid FROM api.assign_to_category($1, $2, $3, $4, $5)", // Call new function
@@ -224,62 +149,28 @@ func setupTestLedger(
 		groceriesUUID, // Use category UUID
 	).Scan(&budgetTxUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf(
-			"failed to create budget transaction: %w", err,
-		)
+		err = fmt.Errorf("failed to create budget transaction: %w", err)
+		return // Return immediately on error
 	}
-	// Fetch the ID from the UUID for internal use in this setup function
-	var budgetTxID int
-	err = conn.QueryRow(ctx, "SELECT id FROM data.transactions WHERE uuid = $1", budgetTxUUID).Scan(&budgetTxID)
+	transactionUUIDs["Budget"] = budgetTxUUID
+
+	// 7. Spend Money from Groceries via simple_transactions view
+	var spendTxUUID string
+	err = conn.QueryRow(ctx,
+		`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
+		ledgerUUID, "2023-01-02", "Grocery shopping", "outflow", 7500, checkingUUID, groceriesUUID,
+	).Scan(&spendTxUUID)
 	if err != nil {
-		return 0, nil, nil, fmt.Errorf("failed to get budget tx ID from UUID: %w", err)
+		err = fmt.Errorf("failed to create spending transaction via simple_transactions view: %w", err)
+		return // Return immediately on error
 	}
-	transactions["Budget"] = budgetTxID
+	transactionUUIDs["Spend"] = spendTxUUID
 
-
-	// 3. Create a transaction to spend from Groceries
-	// TODO: Update if api.add_transaction changes signature (it likely will need to use UUIDs)
-	var spendTxID int
-	var spendTxUUID string // Assume we'll need UUID later
-	// Hypothetical future call using UUIDs:
-	// err = conn.QueryRow(ctx, "INSERT INTO api.simple_transactions (...) VALUES (...) RETURNING uuid").Scan(&spendTxUUID)
-	// For now, stick to the old signature if it exists, otherwise this setup needs a rewrite
-	err = conn.QueryRow(
-		ctx,
-		"SELECT id FROM api.add_transaction($1, $2, $3, $4, $5, $6, $7)", // Assuming old signature
-		ledgerID, "2023-01-02", "Grocery shopping", "outflow",
-		7500, // $75.00
-		checkingID, groceriesID,
-	).Scan(&spendTxID)
-	if err != nil {
-		// If the old signature is gone, this will fail.
-		// We might need to insert directly into api.simple_transactions
-		log.Warn().Err(err).Msg("api.add_transaction(int) failed, trying insert into api.simple_transactions view")
-		// Need checking account UUID and groceries category UUID
-		var checkingAccUUID, groceriesCatUUID string
-		errCA := conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE id = $1", checkingID).Scan(&checkingAccUUID)
-		if errCA != nil { return 0, nil, nil, fmt.Errorf("failed to get checking UUID for simple_tx: %w", errCA) }
-		errGC := conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE id = $1", groceriesID).Scan(&groceriesCatUUID)
-		if errGC != nil { return 0, nil, nil, fmt.Errorf("failed to get groceries UUID for simple_tx: %w", errGC) }
-
-		errInsert := conn.QueryRow(ctx,
-			`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
-             VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
-			ledgerUUID, "2023-01-02", "Grocery shopping", "outflow", 7500, checkingAccUUID, groceriesCatUUID,
-		).Scan(&spendTxUUID)
-		if errInsert != nil {
-			return 0, nil, nil, fmt.Errorf("failed to create spending transaction via function or simple_transactions view: %w / %w", err, errInsert)
-		}
-		// Get the internal ID from the UUID
-		errId := conn.QueryRow(ctx, "SELECT id FROM data.transactions WHERE uuid = $1", spendTxUUID).Scan(&spendTxID)
-		if errId != nil {
-			return 0, nil, nil, fmt.Errorf("failed to get spending tx ID from UUID after view insert: %w", errId)
-		}
-	}
-	transactions["Spend"] = spendTxID
-
-	return ledgerID, accounts, transactions, nil
+	// Return UUIDs and nil error on success
+	return ledgerUUID, accountUUIDs, transactionUUIDs, nil
 }
+
 
 // TestDatabase uses nested subtests to share context between tests
 func TestDatabase(t *testing.T) {
@@ -337,13 +228,12 @@ func TestDatabase(t *testing.T) {
 	)
 
 	// Create a ledger and store its ID and UUID for subsequent tests
-	var ledgerID int
-	var ledgerUUID string // Add variable for UUID
+	var ledgerID int // Keep internal ID for verification steps if needed
+	var ledgerUUID string // Primary identifier for API calls
 
 	t.Run(
 		"CreateLedger", func(t *testing.T) {
 			is := is_.New(t) // is instance for this subtest
-
 			ledgerName := "Test Budget"
 
 			// Create a new ledger by inserting into the API view, returning the UUID
@@ -356,7 +246,7 @@ func TestDatabase(t *testing.T) {
 			is.NoErr(err)             // Should create ledger without error
 			is.True(ledgerUUID != "") // Should return a valid ledger UUID
 
-			// Fetch the internal ID using the returned UUID
+			// Fetch the internal ID using the returned UUID (needed for direct data verification)
 			err = conn.QueryRow(
 				ctx,
 				"SELECT id FROM data.ledgers WHERE uuid = $1",
@@ -422,14 +312,13 @@ func TestDatabase(t *testing.T) {
 				retName        string
 				retType        string
 				retDescription pgtype.Text
-				// --- MODIFY TYPE BELOW ---
 				retMetadata    *[]byte // Use pointer to byte slice for jsonb
-				// --- END MODIFICATION ---
 				retUserData    string
 				retLedgerUUID  string
 			)
 
 			// Call the function and scan all returned fields
+			// Since it returns SETOF, QueryRow works if exactly one row is expected
 			err := conn.QueryRow(ctx, "SELECT * FROM api.add_category($1, $2)", ledgerUUID, categoryName).Scan(
 				&retUUID,
 				&retName,
@@ -448,9 +337,7 @@ func TestDatabase(t *testing.T) {
 			is.Equal(retLedgerUUID, ledgerUUID) // Returned ledger UUID should match input
 			is.Equal(retUserData, testUserID)  // Returned user_data should match simulated user
 			is.True(!retDescription.Valid)     // Description should be null initially
-			// --- MODIFY ASSERTION BELOW ---
 			is.True(retMetadata == nil)        // Metadata should be null initially (check if pointer is nil)
-			// --- END MODIFICATION ---
 
 			categoryUUID = retUUID // Store for later verification and tests
 		})
@@ -471,9 +358,7 @@ func TestDatabase(t *testing.T) {
 				dbInternalType string
 				dbUserData     string
 				dbDescription  pgtype.Text
-				// --- MODIFY TYPE BELOW ---
 				dbMetadata     *[]byte // Use pointer to byte slice for jsonb
-				// --- END MODIFICATION ---
 			)
 
 			// Query the data.accounts table directly
@@ -498,9 +383,7 @@ func TestDatabase(t *testing.T) {
 			is.Equal(dbInternalType, "liability_like") // Internal type should be 'liability_like'
 			is.Equal(dbUserData, testUserID)       // User data should match
 			is.True(!dbDescription.Valid)          // Description should be null
-			// --- MODIFY ASSERTION BELOW ---
 			is.True(dbMetadata == nil)             // Metadata should be null (check if pointer is nil)
-			// --- END MODIFICATION ---
 		})
 
 		// 3. Test Error Case: Duplicate Name
@@ -532,10 +415,8 @@ func TestDatabase(t *testing.T) {
 			// Check for the specific error message from utils.add_category
 			var pgErr *pgconn.PgError
 			is.True(errors.As(err, &pgErr)) // Error should be a PgError
-			// --- MODIFY ASSERTION BELOW ---
 			// Check the Message field for the specific exception text raised by the function
 			is.True(strings.Contains(pgErr.Message, "not found for current user"))
-			// --- END MODIFICATION ---
 		})
 
 		// 5. Test Error Case: Empty Name
@@ -548,13 +429,16 @@ func TestDatabase(t *testing.T) {
 			// Check for the specific error message from utils.add_category
 			var pgErr *pgconn.PgError
 			is.True(errors.As(err, &pgErr)) // Error should be a PgError
-			// --- MODIFY ASSERTION BELOW ---
 			// Check the Message field for the specific exception text raised by the function
 			is.True(strings.Contains(pgErr.Message, "Category name cannot be empty"))
-			// --- END MODIFICATION ---
 		})
 	})
 
+
+	// --- Placeholder for AssignToCategory tests ---
+	// t.Run("AssignToCategory", func(t *testing.T) {
+	//     // ... tests will go here ...
+	// })
 
 	// // Test account creation using the ledger created above
 	// t.Run(
