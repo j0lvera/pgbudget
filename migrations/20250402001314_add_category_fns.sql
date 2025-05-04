@@ -192,9 +192,7 @@ create or replace function api.assign_to_category(
     description text, -- Keep user-friendly input parameter name
     amount bigint,
     category_uuid text
-    -- --- MODIFY RETURN TYPE BELOW ---
 ) returns setof api.transactions as
-    -- --- END MODIFICATION ---
 $$
 declare
     v_util_result record; -- To store the result from utils.assign_to_category (transaction_uuid, income_account_uuid, metadata)
@@ -209,12 +207,20 @@ begin
         -- p_user_data defaults to utils.get_user() in the utils function
     );
 
-   -- --- MODIFY RETURN LOGIC BELOW ---
+   -- --- MODIFY RETURN QUERY BELOW ---
    -- Return the newly created transaction by querying the corresponding API view
-   -- This ensures the output structure matches the view exactly.
+   -- Explicitly list columns to avoid ambiguity
    return query
-   select *
-     from api.transactions t -- Query the view
+   select
+       t.uuid,
+       t.description,
+       t.amount,
+       t.metadata, -- Qualify with alias 't'
+       t.date,
+       t.ledger_uuid,
+       t.debit_account_uuid,
+       t.credit_account_uuid
+     from api.transactions t -- Query the view with alias 't'
     where t.uuid = v_util_result.transaction_uuid; -- Filter for the created transaction UUID
    -- --- END MODIFICATION ---
 
