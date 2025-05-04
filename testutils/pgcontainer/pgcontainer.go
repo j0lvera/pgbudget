@@ -19,7 +19,7 @@ import (
 const (
 	defaultImage  = "postgres:16-alpine"
 	defaultDbName = "test"
-	defaultDbUser = "test"
+	DefaultDbUser = "test" // Make public
 	defaultDbPass = "test"
 )
 
@@ -39,7 +39,7 @@ type Config struct {
 	image          string
 	log            *zerolog.Logger
 	dbName         string
-	dbUser         string
+	dbUser         string // Keep this private field
 	dbPass         string
 	timeout        time.Duration
 }
@@ -50,7 +50,7 @@ func NewConfig() Config {
 		image:   defaultImage,
 		timeout: defaultTimeout,
 		dbName:  defaultDbName,
-		dbUser:  defaultDbUser,
+		dbUser:  DefaultDbUser, // Use public constant
 		dbPass:  defaultDbPass,
 	}
 }
@@ -83,7 +83,7 @@ func (p *PgContainer) Start(ctx context.Context) (*Output, error) {
 		ctx,
 		p.cfg.image,
 		postgres.WithDatabase(p.cfg.dbName),
-		postgres.WithUsername(p.cfg.dbUser),
+		postgres.WithUsername(p.cfg.dbUser), // Uses the value set in NewConfig
 		postgres.WithPassword(p.cfg.dbPass),
 		testcontainers.WithWaitStrategy(
 			wait.ForLog("listening on IPv4 address").
@@ -108,7 +108,7 @@ func (p *PgContainer) Start(ctx context.Context) (*Output, error) {
 
 	dsn := fmt.Sprintf(
 		"postgres://%s:%s@%s:%s/%s?sslmode=disable",
-		p.cfg.dbUser,
+		p.cfg.dbUser, // Uses the value set in NewConfig
 		p.cfg.dbPass,
 		host,
 		mappedPort.Port(),
@@ -161,5 +161,6 @@ func (p *PgContainer) migrate(ctx context.Context, dsn string) error {
 
 func getProjectRoot() string {
 	_, b, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(b), "..")
+	// Go up two levels: from pgcontainer -> testutils -> project root
+	return filepath.Join(filepath.Dir(b), "..", "..")
 }
