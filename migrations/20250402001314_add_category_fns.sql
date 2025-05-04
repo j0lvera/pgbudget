@@ -189,13 +189,15 @@ $$ language plpgsql volatile security definer; -- Security definer for controlle
 create or replace function api.assign_to_category(
     ledger_uuid text,
     date timestamptz,
-    description text,
+    description text, -- Keep user-friendly input parameter name
     amount bigint,
     category_uuid text
-) returns table(uuid text, description text, amount bigint, metadata jsonb, date timestamptz, ledger_uuid text, debit_account_uuid text, credit_account_uuid text) as
+    -- --- MODIFY RETURN TYPE BELOW ---
+) returns setof api.transactions as
+    -- --- END MODIFICATION ---
 $$
 declare
-    v_util_result record; -- To store the result from utils.assign_to_category
+    v_util_result record; -- To store the result from utils.assign_to_category (transaction_uuid, income_account_uuid, metadata)
 begin
     -- Call the internal utility function
     select * into v_util_result from utils.assign_to_category(
@@ -207,18 +209,14 @@ begin
         -- p_user_data defaults to utils.get_user() in the utils function
     );
 
-   -- Manually construct the return record matching api.transactions structure
-   -- using data from input parameters and the result of the utils function
+   -- --- MODIFY RETURN LOGIC BELOW ---
+   -- Return the newly created transaction by querying the corresponding API view
+   -- This ensures the output structure matches the view exactly.
    return query
-   select
-       v_util_result.transaction_uuid::text,
-       description::text,
-       amount::bigint,
-       v_util_result.metadata::jsonb,
-       date::timestamptz,
-       ledger_uuid::text,
-       v_util_result.income_account_uuid::text, -- Debit is Income (from utils result)
-       category_uuid::text;                     -- Credit is Category (from input)
+   select *
+     from api.transactions t -- Query the view
+    where t.uuid = v_util_result.transaction_uuid; -- Filter for the created transaction UUID
+   -- --- END MODIFICATION ---
 
 end;
 $$ language plpgsql volatile security invoker; -- Runs as the calling user
