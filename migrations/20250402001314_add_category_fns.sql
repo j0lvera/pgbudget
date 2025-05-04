@@ -61,7 +61,7 @@ $$ language plpgsql security definer; -- runs with definer privileges for contro
 create or replace function api.add_category(
     ledger_uuid text,
     name text
-) returns table(uuid text, name text, type data.account_type, description text, metadata jsonb, user_data text, ledger_uuid text) as
+) returns table(uuid text, name text, type text, description text, metadata jsonb, user_data text, ledger_uuid text) as
 $$
 declare
     v_util_result data.accounts; -- holds the result from the utility function
@@ -76,7 +76,7 @@ begin
     select
         v_util_result.uuid::text,        -- account uuid
         v_util_result.name::text,        -- account name
-        v_util_result.type::data.account_type, -- account type
+        v_util_result.type::text,        -- account type
         v_util_result.description::text, -- account description
         v_util_result.metadata::jsonb,   -- account metadata
         v_util_result.user_data::text,   -- user associated with the account
