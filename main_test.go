@@ -200,17 +200,20 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Set a dummy JWT claim for the test session to simulate PostgREST authentication
-	// This is necessary because some functions/triggers might rely on request.jwt.claims
+	// Simulate PostgREST Authentication Context:
+	// The application uses PostgREST, which sets 'request.jwt.claims' based on the user's JWT.
+	// Database functions (like utils.get_user()) and RLS policies rely on this setting to identify the user.
+	// Since tests connect directly via pgx, bypassing PostgREST, we must manually set a dummy
+	// 'request.jwt.claims' for the session using set_config() so these functions work correctly.
 	jwtClaims := `{"role": "test_user", "email": "test@example.com", "user_data": "test_user_id_123"}`
-	// --- MODIFY THIRD ARGUMENT TO false ---
+	// Use 'false' for session-local setting
 	_, err = conn.Exec(ctx, `SELECT set_config('request.jwt.claims', $1, false)`, jwtClaims)
 	is.NoErr(err) // Should set config without error
 
-	// --- ADD VERIFICATION STEPS ---
+	// --- VERIFICATION STEPS ---
 	// 1. Verify the setting was applied and is readable (session-local)
 	var readClaims string
-	// --- MODIFY THIRD ARGUMENT TO false ---
+	// Use 'false' for session-local setting
 	err = conn.QueryRow(ctx, `SELECT current_setting('request.jwt.claims', false)`).Scan(&readClaims)
 	is.NoErr(err) // Should be able to read the setting back
 	is.Equal(readClaims, jwtClaims) // Setting read back should match what was set
@@ -344,3 +347,4 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 }
+
