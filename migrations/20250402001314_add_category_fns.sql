@@ -1,9 +1,12 @@
 -- +goose Up
 
 -- Remove existing functions first to avoid conflicts during rename/recreate
-DROP FUNCTION IF EXISTS api.assign_to_category(text, timestamptz, text, bigint, int);
+DROP FUNCTION IF EXISTS api.assign_to_category(text, timestamptz, text, bigint, text); -- Drop new if exists from previous step
+DROP FUNCTION IF EXISTS api.assign_to_category(text, timestamptz, text, bigint, int); -- Drop old if exists
 DROP FUNCTION IF EXISTS api.add_category(text, text);
-DROP FUNCTION IF EXISTS utils.find_category(text, text, text); -- Drop old version if exists
+DROP FUNCTION IF EXISTS utils.find_category(text, text, text);
+DROP FUNCTION IF EXISTS utils.add_category(text, text, text); -- Drop new if exists from previous step
+DROP FUNCTION IF EXISTS utils.assign_to_category(text, timestamptz, text, bigint, text, text); -- Drop potential new util function if exists
 
 -- +goose StatementBegin
 
@@ -133,9 +136,61 @@ $$ language plpgsql stable security definer; -- runs with definer privileges, re
 
 -- +goose StatementBegin
 
+-- function to assign money from Income to a category (internal utility)
+-- performs the core logic: finds accounts, validates, inserts transaction
+-- returns necessary info for the API layer
+create or replace function utils.assign_to_category(
+    p_ledger_uuid text,
+    p_date timestamptz,
+    p_description text,
+    p_amount bigint,
+    p_category_uuid text,
+    p_user_data text = utils.get_user()
+) returns table(transaction_uuid text, income_account_uuid text, metadata jsonb) as
+$$
+declare
+    v_ledger_id          int;
+    v_income_account_id  int;
+    v_income_account_uuid_local text; -- Renamed to avoid conflict with return column name
+    v_category_account_id int;
+    v_transaction_uuid_local text; -- Renamed
+    v_metadata_local jsonb; -- Renamed
+begin
+    -- find the ledger ID for the specified UUID and user
+    select l.id into v_ledger_id from data.ledgers l where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
+    if v_ledger_id is null then raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; end if;
+
+    -- validate amount is positive
+    if p_amount <= 0 then raise exception 'Assignment amount must be positive: %', p_amount; end if;
+
+    -- find the Income account ID and UUID
+    select a.id, a.uuid into v_income_account_id, v_income_account_uuid_local from data.accounts a
+     where a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.name = 'Income' and a.type = 'equity';
+    if v_income_account_id is null then raise exception 'Income account not found for ledger %', v_ledger_id; end if;
+
+    -- find the target category account ID
+    select a.id into v_category_account_id from data.accounts a
+     where a.uuid = p_category_uuid and a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.type = 'equity';
+    if v_category_account_id is null then raise exception 'Category with UUID % not found or does not belong to ledger % for current user', p_category_uuid, v_ledger_id; end if;
+
+    -- create the transaction (debit Income, credit Category)
+    insert into data.transactions (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
+    values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
+    returning uuid, metadata into v_transaction_uuid_local, v_metadata_local;
+
+   -- Return the essential details
+   return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
+
+end;
+$$ language plpgsql volatile security definer; -- Security definer for controlled execution
+
+-- +goose StatementEnd
+
+
+-- +goose StatementBegin
+
 -- function to assign money from Income to a category (public API)
--- takes ledger uuid, date, description, amount, and target category uuid
--- returns a record matching the structure of api.transactions view
+-- wrapper around the utils function, handles API input/output formatting
 create or replace function api.assign_to_category(
     ledger_uuid text,
     date timestamptz,
@@ -145,97 +200,37 @@ create or replace function api.assign_to_category(
 ) returns table(uuid text, description text, amount bigint, metadata jsonb, date timestamptz, ledger_uuid text, debit_account_uuid text, credit_account_uuid text) as
 $$
 declare
-    v_ledger_id          int;
-    v_income_account_id  int;
-    v_income_account_uuid text;
-    v_category_account_id int;
-    v_user_data          text := utils.get_user(); -- get current user context
-    v_transaction_uuid   text;
-    v_metadata           jsonb; -- To hold metadata if fetched from insert
+    v_util_result record; -- To store the result from utils.assign_to_category
 begin
-    -- find the ledger ID for the specified UUID and user
-    -- ensures the user owns the ledger
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = ledger_uuid
-       and l.user_data = v_user_data;
-
-    -- raise exception if ledger not found for the user
-    if v_ledger_id is null then
-        raise exception 'Ledger with UUID % not found for current user', ledger_uuid;
-    end if;
-
-    -- validate amount is positive
-    if amount <= 0 then
-        raise exception 'Assignment amount must be positive: %', amount;
-    end if;
-
-    -- find the Income account ID and UUID for this ledger and user
-    -- Income account is always type 'equity'
-    select a.id, a.uuid
-      into v_income_account_id, v_income_account_uuid
-      from data.accounts a
-     where a.ledger_id = v_ledger_id
-       and a.user_data = v_user_data
-       and a.name = 'Income'
-       and a.type = 'equity';
-
-    -- raise exception if Income account not found (should not happen if ledger setup is correct)
-    if v_income_account_id is null then
-        raise exception 'Income account not found for ledger %', v_ledger_id;
-    end if;
-
-    -- find the target category account ID for this ledger and user using its UUID
-    -- ensures the target account is an 'equity' type (a category)
-    select a.id
-      into v_category_account_id
-      from data.accounts a
-     where a.uuid = category_uuid
-       and a.ledger_id = v_ledger_id
-       and a.user_data = v_user_data
-       and a.type = 'equity';
-
-    -- raise exception if the target category is not found or doesn't belong to the user/ledger
-    if v_category_account_id is null then
-        raise exception 'Category with UUID % not found or does not belong to ledger % for current user', category_uuid, v_ledger_id;
-    end if;
-
-    -- create the transaction directly in data.transactions
-    -- debit: Income account (decreasing unassigned funds)
-    -- credit: Target category account (increasing assigned funds)
-    -- associate transaction with the user
-    insert into data.transactions (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
-    values (
-        v_ledger_id,
-        description,
-        date,
-        amount,
-        v_income_account_id, -- Debit Income ID
-        v_category_account_id, -- Credit Category ID
-        v_user_data
-    )
-    returning uuid, metadata into v_transaction_uuid, v_metadata; -- Get UUID and metadata of the new transaction
+    -- Call the internal utility function
+    select * into v_util_result from utils.assign_to_category(
+        p_ledger_uuid   => ledger_uuid,
+        p_date          => date,
+        p_description   => description,
+        p_amount        => amount,
+        p_category_uuid => category_uuid
+        -- p_user_data defaults to utils.get_user() in the utils function
+    );
 
    -- Manually construct the return record matching api.transactions structure
-   -- Use RETURN QUERY SELECT to return the structured data
+   -- using data from input parameters and the result of the utils function
    return query
    select
-       v_transaction_uuid::text,    -- transaction uuid
-       description::text,           -- transaction description
-       amount::bigint,              -- transaction amount
-       v_metadata::jsonb,           -- transaction metadata (if any)
-       date::timestamptz,           -- transaction date
-       ledger_uuid::text,           -- ledger uuid
-       v_income_account_uuid::text, -- debit account uuid (Income)
-       category_uuid::text;         -- credit account uuid (Target Category)
+       v_util_result.transaction_uuid::text,
+       description::text,
+       amount::bigint,
+       v_util_result.metadata::jsonb,
+       date::timestamptz,
+       ledger_uuid::text,
+       v_util_result.income_account_uuid::text, -- Debit is Income (from utils result)
+       category_uuid::text;                     -- Credit is Category (from input)
 
 end;
-$$ language plpgsql volatile security invoker; -- runs with invoker privileges, relies on user context checks
+$$ language plpgsql volatile security invoker; -- Runs as the calling user
 
 -- +goose StatementEnd
 
--- Grant permissions on new API functions to the web user role
+-- Grant permissions on new API functions
 GRANT EXECUTE ON FUNCTION api.add_category(text, text) TO pgb_web_user;
 GRANT EXECUTE ON FUNCTION api.assign_to_category(text, timestamptz, text, bigint, text) TO pgb_web_user;
 
@@ -248,6 +243,7 @@ REVOKE EXECUTE ON FUNCTION api.add_category(text, text) FROM pgb_web_user;
 REVOKE EXECUTE ON FUNCTION api.assign_to_category(text, timestamptz, text, bigint, text) FROM pgb_web_user;
 
 drop function if exists api.assign_to_category(text, timestamptz, text, bigint, text);
+drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text); -- Drop the new util function
 drop function if exists utils.find_category(text, text, text);
 drop function if exists api.add_category(text, text);
 drop function if exists utils.add_category(text, text, text);
