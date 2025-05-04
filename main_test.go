@@ -434,11 +434,222 @@ func TestDatabase(t *testing.T) {
 		})
 	})
 
+	// Test api.assign_to_category function
+	t.Run("AssignToCategory", func(t *testing.T) {
+		// Retrieve the categoryUUID created in the AddCategory test block
+		// This relies on test execution order or capturing the value at a higher scope.
+		// For simplicity here, we re-fetch it. A better approach might involve
+		// setting up a dedicated category within this test block or passing values.
+		var groceriesCategoryUUID string
+		t.Run("Setup_FindGroceries", func(t *testing.T) {
+			is := is_.New(t)
+			if ledgerUUID == "" {
+				t.Skip("Skipping because ledger UUID is not available")
+			}
+			err := conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE ledger_id = $1 AND name = $2", ledgerID, "Groceries").Scan(&groceriesCategoryUUID)
+			is.NoErr(err) // Should find Groceries category created in previous test
+			is.True(groceriesCategoryUUID != "")
+		})
 
-	// --- Placeholder for AssignToCategory tests ---
-	// t.Run("AssignToCategory", func(t *testing.T) {
-	//     // ... tests will go here ...
-	// })
+		// Skip subsequent tests if prerequisites failed
+		if ledgerUUID == "" || groceriesCategoryUUID == "" {
+			t.Skip("Skipping AssignToCategory tests because ledger or groceries category UUID is not available")
+		}
+
+		// Find Income category UUID
+		var incomeCategoryUUID string
+		err = conn.QueryRow(ctx, "SELECT uuid FROM data.accounts WHERE ledger_id = $1 AND name = $2", ledgerID, "Income").Scan(&incomeCategoryUUID)
+		is.NoErr(err) // Should find Income category
+		is.True(incomeCategoryUUID != "")
+
+		// --- Helper function to get balance ---
+		getBalance := func(accountUUID string) (int64, error) {
+			var balance int64
+			// Query the data.balances table directly for verification
+			// Need internal ID for the balances table join
+			var accountID int
+			err := conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", accountUUID).Scan(&accountID)
+			if err != nil {
+				return 0, fmt.Errorf("failed to get account ID for UUID %s: %w", accountUUID, err)
+			}
+			// Use COALESCE to handle cases where no balance record exists yet
+			err = conn.QueryRow(ctx, "SELECT COALESCE((SELECT balance FROM data.balances WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1), 0)", accountID).Scan(&balance)
+			if err != nil {
+				// This check might be redundant now with COALESCE, but kept for safety
+				if errors.Is(err, pgx.ErrNoRows) {
+					return 0, nil // Treat no record as zero balance
+				}
+				return 0, fmt.Errorf("failed to get balance for account ID %d: %w", accountID, err)
+			}
+			return balance, nil
+		}
+		// --- End Helper ---
+
+		var initialIncomeBalance, initialGroceriesBalance int64
+		initialIncomeBalance, err = getBalance(incomeCategoryUUID)
+		is.NoErr(err)
+		initialGroceriesBalance, err = getBalance(groceriesCategoryUUID)
+		is.NoErr(err)
+
+		assignAmount := int64(5000) // $50.00
+		assignDesc := "Assign $50 to Groceries"
+		assignDate := time.Now()
+		var transactionUUID string // Store UUID for verification
+
+		// 1. Call api.assign_to_category (Success Case)
+		t.Run("Success", func(t *testing.T) {
+			is := is_.New(t)
+			var (
+				retUUID             string
+				retDescription      string
+				retAmount           int64
+				retMetadata         *[]byte
+				retDate             time.Time
+				retLedgerUUID       string
+				retDebitAccountUUID string
+				retCreditAccountUUID string
+			)
+
+			// Since it returns SETOF, QueryRow works if exactly one row is expected
+			err := conn.QueryRow(ctx, "SELECT * FROM api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerUUID, assignDate, assignDesc, assignAmount, groceriesCategoryUUID,
+			).Scan(
+				&retUUID,
+				&retDescription,
+				&retAmount,
+				&retMetadata,
+				&retDate,
+				&retLedgerUUID,
+				&retDebitAccountUUID,
+				&retCreditAccountUUID,
+			)
+			is.NoErr(err) // Should execute function without error
+
+			// Assert Return Values
+			is.True(retUUID != "")                   // Should return a non-empty UUID
+			is.Equal(retDescription, assignDesc)     // Description should match
+			is.Equal(retAmount, assignAmount)        // Amount should match
+			// is.Equal(retDate, assignDate) // Be careful comparing time directly due to potential precision differences
+			is.True(retDate.Unix()-assignDate.Unix() < 2) // Check if times are very close (within a second)
+			is.Equal(retLedgerUUID, ledgerUUID)      // Ledger UUID should match
+			is.Equal(retDebitAccountUUID, incomeCategoryUUID) // Debit should be Income
+			is.Equal(retCreditAccountUUID, groceriesCategoryUUID) // Credit should be Groceries
+			is.True(retMetadata == nil)              // Metadata should be null initially
+
+			transactionUUID = retUUID // Store for verification
+		})
+
+		// 2. Verify Database State (Transaction)
+		t.Run("VerifyTransaction", func(t *testing.T) {
+			is := is_.New(t)
+			if transactionUUID == "" {
+				t.Skip("Skipping VerifyTransaction because transaction UUID was not captured")
+			}
+
+			var (
+				dbLedgerID        int
+				dbDescription     string
+				dbDate            time.Time
+				dbAmount          int64
+				dbDebitAccountID  int
+				dbCreditAccountID int
+				dbUserData        string
+			)
+			// Fetch internal IDs for comparison
+			var incomeAccountID, groceriesAccountID int
+			err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", incomeCategoryUUID).Scan(&incomeAccountID)
+			is.NoErr(err)
+			err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", groceriesCategoryUUID).Scan(&groceriesAccountID)
+			is.NoErr(err)
+
+
+			err = conn.QueryRow(ctx,
+				`SELECT ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data
+                 FROM data.transactions WHERE uuid = $1`, transactionUUID).Scan(
+				&dbLedgerID,
+				&dbDescription,
+				&dbDate,
+				&dbAmount,
+				&dbDebitAccountID,
+				&dbCreditAccountID,
+				&dbUserData,
+			)
+			is.NoErr(err) // Should find transaction
+
+			is.Equal(dbLedgerID, ledgerID)             // Ledger ID should match
+			is.Equal(dbDescription, assignDesc)        // Description should match
+			is.Equal(dbAmount, assignAmount)           // Amount should match
+			is.Equal(dbDebitAccountID, incomeAccountID)  // Debit ID should be Income
+			is.Equal(dbCreditAccountID, groceriesAccountID) // Credit ID should be Groceries
+			is.Equal(dbUserData, testUserID)           // User data should match
+			is.True(dbDate.Unix()-assignDate.Unix() < 2) // Check time
+		})
+
+		// 3. Verify Final Balances
+		t.Run("VerifyBalances", func(t *testing.T) {
+			is := is_.New(t)
+			if transactionUUID == "" { // Use transactionUUID as proxy for success of previous step
+				t.Skip("Skipping VerifyBalances because assignment transaction was not created")
+			}
+
+			finalIncomeBalance, err := getBalance(incomeCategoryUUID)
+			is.NoErr(err)
+			finalGroceriesBalance, err := getBalance(groceriesCategoryUUID)
+			is.NoErr(err)
+
+			log.Info().Int64("initialIncome", initialIncomeBalance).Int64("finalIncome", finalIncomeBalance).Int64("assigned", assignAmount).Msg("Income Balance Check")
+			log.Info().Int64("initialGroceries", initialGroceriesBalance).Int64("finalGroceries", finalGroceriesBalance).Int64("assigned", assignAmount).Msg("Groceries Balance Check")
+
+			is.Equal(finalIncomeBalance, initialIncomeBalance-assignAmount)     // Income balance should decrease
+			is.Equal(finalGroceriesBalance, initialGroceriesBalance+assignAmount) // Groceries balance should increase
+		})
+
+		// 4. Error Cases
+		t.Run("InvalidLedgerError", func(t *testing.T) {
+			is := is_.New(t)
+			invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
+			_, err := conn.Exec(ctx, "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+				invalidLedgerUUID, time.Now(), "Fail Assign", 1000, groceriesCategoryUUID)
+			is.True(err != nil)
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr))
+			is.True(strings.Contains(pgErr.Message, "not found for current user")) // Check message from utils function
+		})
+
+		t.Run("InvalidCategoryError", func(t *testing.T) {
+			is := is_.New(t)
+			invalidCategoryUUID := "00000000-0000-0000-0000-000000000000"
+			_, err := conn.Exec(ctx, "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerUUID, time.Now(), "Fail Assign", 1000, invalidCategoryUUID)
+			is.True(err != nil)
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr))
+			is.True(strings.Contains(pgErr.Message, "Category with UUID")) // Check message from utils function
+			is.True(strings.Contains(pgErr.Message, "not found or does not belong"))
+		})
+
+		t.Run("ZeroAmountError", func(t *testing.T) {
+			is := is_.New(t)
+			_, err := conn.Exec(ctx, "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerUUID, time.Now(), "Zero Assign", 0, groceriesCategoryUUID)
+			is.True(err != nil)
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr))
+			is.True(strings.Contains(pgErr.Message, "Assignment amount must be positive")) // Check message from utils function
+		})
+
+		t.Run("NegativeAmountError", func(t *testing.T) {
+			is := is_.New(t)
+			_, err := conn.Exec(ctx, "SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerUUID, time.Now(), "Negative Assign", -1000, groceriesCategoryUUID)
+			is.True(err != nil)
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr))
+			is.True(strings.Contains(pgErr.Message, "Assignment amount must be positive")) // Check message from utils function
+		})
+
+	})
+
 
 	// // Test account creation using the ledger created above
 	// t.Run(
@@ -482,4 +693,3 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 }
-
