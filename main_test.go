@@ -253,45 +253,45 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Test account creation using the ledger created above
-	t.Run(
-		"CreateAccounts", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test account creation using the ledger created above
+	// t.Run(
+	// 	"CreateAccounts", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 
-	// Test the find_category function
-	t.Run(
-		"FindCategory", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test the find_category function
+	// t.Run(
+	// 	"FindCategory", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 
-	// Test the get_budget_status function with a fresh ledger
-	t.Run(
-		"GetBudgetStatus", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test the get_budget_status function with a fresh ledger
+	// t.Run(
+	// 	"GetBudgetStatus", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 
-	// Test the get_account_balance function
-	t.Run(
-		"GetAccountBalance", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test the get_account_balance function
+	// t.Run(
+	// 	"GetAccountBalance", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 
-	// Test the balances table and trigger functionality
-	t.Run(
-		"BalancesTracking", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test the balances table and trigger functionality
+	// t.Run(
+	// 	"BalancesTracking", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 
-	// Test the get_account_transactions function with the new balance column
-	t.Run(
-		"GetAccountTransactions", func(t *testing.T) {
-			t.Skip("Skipping until implementation is ready")
-		},
-	)
+	// // Test the get_account_transactions function with the new balance column
+	// t.Run(
+	// 	"GetAccountTransactions", func(t *testing.T) {
+	// 		t.Skip("Skipping until implementation is ready")
+	// 	},
+	// )
 }
