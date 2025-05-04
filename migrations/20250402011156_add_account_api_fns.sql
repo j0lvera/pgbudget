@@ -1,66 +1,29 @@
 -- +goose Up
 -- +goose StatementBegin
 
-create or replace function utils.accounts_insert_single_fn() returns trigger as
-$$
-declare
-    v_ledger_id bigint;
-begin
-    -- get the ledger_id for denormalization
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = NEW.ledger_uuid;
+-- The api.accounts view and its associated INSERT trigger function (utils.accounts_insert_single_fn)
+-- have been moved to an earlier migration (20250402001313_add_accounts_view.sql)
+-- to resolve dependencies for functions like api.add_category.
 
-    if v_ledger_id is null then
-        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
-    end if;
+-- This migration file originally contained the view and trigger.
+-- It is kept in the sequence but is now effectively empty for the 'Up' direction
+-- regarding those specific objects.
 
-    -- insert the account into the accounts table
-       insert into data.accounts (name, type, description, metadata, ledger_id)
-       values (NEW.name,
-               NEW.type,
-               NEW.description,
-               NEW.metadata,
-               v_ledger_id)
-    returning uuid, name, type, description, metadata, user_data into
-        new.uuid, new.name, new.type, new.description, new.metadata, new.user_data;
+-- Future API functions related to accounts (e.g., update, delete) could be added here.
 
-    return new;
-end;
-$$ language plpgsql;
-
-create or replace view api.accounts with (security_invoker = true) as
-select a.uuid,
-       a.name,
-       a.type,
-       a.description,
-       a.metadata,
-       a.user_data,
-       (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
-  from data.accounts a;
-
-create trigger accounts_insert_tg
-    instead of insert
-    on api.accounts
-    for each row
-execute function utils.accounts_insert_single_fn();
-
--- allow authenticated user to access the accounts view.
-grant all on api.accounts to pgb_web_user;
+select 1; -- Placeholder to ensure the statement block is valid
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
--- drop the functions
 
-revoke all on api.accounts from pgb_web_user;
+-- The corresponding 'Down' operations for the view and trigger function
+-- are now located in the 'Down' section of migration
+-- 20250402001313_add_accounts_view.sql.
 
-drop trigger if exists accounts_insert_tg on api.accounts;
+-- If this migration added other objects in the future, their 'Down' operations would go here.
 
-drop view if exists api.accounts;
-
-drop function if exists utils.accounts_insert_single_fn();
+select 1; -- Placeholder to ensure the statement block is valid
 
 -- +goose StatementEnd
