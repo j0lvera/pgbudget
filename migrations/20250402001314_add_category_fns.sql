@@ -28,7 +28,7 @@ begin
     end if;
 
     -- find the Income account for this ledger
-    v_income_id := api.find_category(v_ledger_id, p_user_data, 'Income');
+    v_income_id := utils.find_category(p_ledger_uuid, 'Income');
     if v_income_id is null then
         raise exception 'Income account not found for ledger %', v_ledger_id;
     end if;
@@ -100,23 +100,34 @@ $$ language plpgsql;
 -- +goose StatementBegin
 
 -- function to find a category by name in a ledger
-create or replace function api.find_category(
-    p_ledger_id int,
-    p_user_data text,
-    p_category_name text
+create or replace function utils.find_category(
+    p_ledger_uuid text,
+    p_category_name text,
+    p_user_data text = utils.get_user()
 ) returns int as
 $$
 declare
+    v_ledger_id int;
     v_category_id int;
 begin
+    -- find the ledger ID for the specified UUID
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = p_ledger_uuid;
+     
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found', p_ledger_uuid;
+    end if;
+
     -- find the category account for this ledger
-    select id
+    select a.id
       into v_category_id
-      from data.accounts
-     where ledger_id = p_ledger_id
-       and user_data = p_user_data
-       and name = p_category_name
-       and type = 'equity';
+      from data.accounts a
+     where a.ledger_id = v_ledger_id
+       and a.user_data = p_user_data
+       and a.name = p_category_name
+       and a.type = 'equity';
 
     return v_category_id;
 end;
@@ -131,5 +142,6 @@ $$ language plpgsql;
 drop function if exists api.assign_to_category(text, timestamptz, text, bigint, int);
 drop function if exists api.add_category(text, text);
 drop function if exists api.find_category(int, text, text);
+drop function if exists utils.find_category(text, text, text);
 
 -- +goose StatementEnd
