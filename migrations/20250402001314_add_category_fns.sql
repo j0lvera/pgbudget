@@ -60,8 +60,8 @@ $$ language plpgsql security definer; -- runs with definer privileges for contro
 -- returns a record matching the structure of api.accounts view
 create or replace function api.add_category(
     ledger_uuid text,
-    name text
-) returns table(uuid text, name text, type text, description text, metadata jsonb, user_data text, ledger_uuid text) as
+    name text -- Keep user-friendly input parameter name
+) returns setof api.accounts as -- Use SETOF <view_name>
 $$
 declare
     v_util_result data.accounts; -- holds the result from the utility function
@@ -70,17 +70,12 @@ begin
     -- implicitly uses the current user's context via utils.get_user() default
     v_util_result := utils.add_category(ledger_uuid, name);
 
-    -- Manually construct the return record matching api.accounts structure
-    -- Use RETURN QUERY SELECT to return the structured data
+    -- Return the newly created account by querying the corresponding API view
+    -- This ensures the output matches the view definition exactly.
     return query
-    select
-        v_util_result.uuid::text,        -- account uuid
-        v_util_result.name::text,        -- account name
-        v_util_result.type::text,        -- account type
-        v_util_result.description::text, -- account description
-        v_util_result.metadata::jsonb,   -- account metadata
-        v_util_result.user_data::text,   -- user associated with the account
-        ledger_uuid::text;               -- use the input ledger_uuid directly
+    select *
+      from api.accounts a -- Query the view
+     where a.uuid = v_util_result.uuid; -- Filter for the created account UUID
 
 end;
 $$ language plpgsql volatile security invoker; -- runs with invoker privileges, relies on utils function for security
