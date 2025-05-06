@@ -462,40 +462,40 @@ func TestDatabase(t *testing.T) {
 			is.Equal(string(dbMetadata), accountMetadataJSON)   // DB Metadata should match
 			is.Equal(dbUserData, testUserID)                    // DB UserData should match
 			is.Equal(dbLedgerID, ledgerID)                      // DB LedgerID should match the parent ledger's internal ID
+		})
 
-			// Subtest for updating the account
-			t.Run("UpdateAccount", func(t *testing.T) {
-				is := is_.New(t)
+		// Subtest for updating the account
+		t.Run("UpdateAccount", func(t *testing.T) {
+			is := is_.New(t)
 
-				if accountUUID == "" {
-					t.Skip("Skipping UpdateAccount because accountUUID is not available")
-				}
+			if accountUUID == "" {
+				t.Skip("Skipping UpdateAccount because accountUUID is not available from CreateAccount")
+			}
 
-				newAccountName := "Updated Test Savings Account"
+			newAccountName := "Updated Test Savings Account"
 
-				// Update the account name via api.accounts view
-				// Assumes an INSTEAD OF UPDATE trigger handles this if the view is complex.
-				// If simple, PostgreSQL might handle it directly.
-				var updatedNameFromView string
-				err := conn.QueryRow(ctx,
-					"UPDATE api.accounts SET name = $1 WHERE uuid = $2 RETURNING name",
-					newAccountName, accountUUID,
-				).Scan(&updatedNameFromView)
-				is.NoErr(err) // Should update account name without error
-				is.Equal(updatedNameFromView, newAccountName) // Name returned by RETURNING should be the new name
+			// Update the account name via api.accounts view
+			// Assumes an INSTEAD OF UPDATE trigger handles this if the view is complex.
+			// If simple, PostgreSQL might handle it directly.
+			var updatedNameFromView string
+			err := conn.QueryRow(ctx,
+				"UPDATE api.accounts SET name = $1 WHERE uuid = $2 RETURNING name",
+				newAccountName, accountUUID,
+			).Scan(&updatedNameFromView)
+			is.NoErr(err) // Should update account name without error
+			is.Equal(updatedNameFromView, newAccountName) // Name returned by RETURNING should be the new name
 
-				// Verify name change by querying api.accounts view
-				var nameFromView string
-				err = conn.QueryRow(ctx, "SELECT name FROM api.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromView)
-				is.NoErr(err) // Should find the account in the view
-				is.Equal(nameFromView, newAccountName) // Name in view should be the new name
+			// Verify name change by querying api.accounts view
+			var nameFromView string
+			err = conn.QueryRow(ctx, "SELECT name FROM api.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromView)
+			is.NoErr(err) // Should find the account in the view
+			is.Equal(nameFromView, newAccountName) // Name in view should be the new name
 
-				// Verify name change by querying data.accounts table
-				var nameFromDataTable string
-				err = conn.QueryRow(ctx, "SELECT name FROM data.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromDataTable)
-				is.NoErr(err) // Should find the account in the data table
-				is.Equal(nameFromDataTable, newAccountName) // Name in data table should be the new name
-			})
+			// Verify name change by querying data.accounts table
+			var nameFromDataTable string
+			err = conn.QueryRow(ctx, "SELECT name FROM data.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromDataTable)
+			is.NoErr(err) // Should find the account in the data table
+			is.Equal(nameFromDataTable, newAccountName) // Name in data table should be the new name
 		})
 	})
 
