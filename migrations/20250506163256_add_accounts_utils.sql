@@ -25,18 +25,20 @@ comment on function utils.set_account_internal_type_fn() is 'Trigger function to
 create or replace function utils.accounts_insert_single_fn() returns trigger as
 $$
 declare
-    v_ledger_id bigint;
+    v_ledger_id   bigint;
+    v_user_data   text := utils.get_user(); -- Explicitly capture the current user context
 begin
     -- get the ledger_id based on the provided ledger_uuid
     select l.id
       into v_ledger_id
       from data.ledgers l
      where l.uuid = NEW.ledger_uuid
-       and l.user_data = utils.get_user(); -- Ensure user owns the ledger
+       and l.user_data = v_user_data; -- Ensure user (from v_user_data) owns the ledger
 
     -- Raise exception if the ledger is not found for the current user
     if v_ledger_id is null then
-        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
+        -- Include the user context in the error for better debugging
+        raise exception 'Ledger with UUID % not found for current user %', NEW.ledger_uuid, v_user_data;
     end if;
 
     -- insert the account into the base data.accounts table
