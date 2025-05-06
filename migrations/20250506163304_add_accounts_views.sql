@@ -9,9 +9,9 @@ select a.uuid,
        a.description,
        a.metadata,
        a.user_data,
-       -- Subquery to get the ledger's UUID based on the account's ledger_id
-       (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
-  from data.accounts a;
+       l.uuid::text as ledger_uuid -- Get ledger_uuid from the joined data.ledgers table
+  from data.accounts a
+  join data.ledgers l on a.ledger_id = l.id; -- Join accounts with ledgers
 
 grant select, insert, update, delete on api.accounts to pgb_web_user;
 
