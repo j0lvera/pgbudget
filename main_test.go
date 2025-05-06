@@ -780,6 +780,182 @@ func TestDatabase(t *testing.T) {
 		},
 	) // End of t.Run("Categories", ...)
 
+	// --- Transaction Tests ---
+	t.Run("Transactions", func(t *testing.T) {
+		// These UUIDs will be populated by sub-setup tests within "CreateTransaction"
+		var transactionLedgerUUID string // This will be assigned ledgerUUID from the outer scope
+		var mainAccountUUID string      // e.g., a checking account
+		var expenseCategoryUUID string  // e.g., a "Shopping" category
+
+		// Internal IDs for verification
+		var mainAccountID int
+		var expenseCategoryID int
+
+		t.Run("CreateTransaction", func(t *testing.T) {
+			// Assign the ledgerUUID from the outer scope.
+			// ledgerUUID and ledgerID are available from the "Ledgers" test group.
+			transactionLedgerUUID = ledgerUUID
+			if transactionLedgerUUID == "" {
+				t.Skip("Skipping CreateTransaction tests because ledger UUID is not available")
+			}
+
+			// Setup: Create a specific account and category for this transaction test
+			t.Run("Setup_TransactionPrerequisites", func(t *testing.T) {
+				is := is_.New(t)
+
+				// 1. Create a main account (e.g., Checking) for transactions
+				accountName := "Tx-Checking Account"
+				accountType := "asset"
+				err := conn.QueryRow(
+					ctx,
+					`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, $3) RETURNING uuid`,
+					transactionLedgerUUID, accountName, accountType,
+				).Scan(&mainAccountUUID)
+				is.NoErr(err)
+				is.True(mainAccountUUID != "")
+
+				// Get internal ID for verification later
+				err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", mainAccountUUID).Scan(&mainAccountID)
+				is.NoErr(err)
+				is.True(mainAccountID > 0)
+
+				// 2. Create an expense category (e.g., Shopping) for transactions
+				categoryName := "Tx-Shopping Category"
+				err = conn.QueryRow(
+					ctx, "SELECT uuid FROM api.add_category($1, $2)",
+					transactionLedgerUUID, categoryName,
+				).Scan(&expenseCategoryUUID)
+				is.NoErr(err)
+				is.True(expenseCategoryUUID != "")
+
+				// Get internal ID for verification later
+				err = conn.QueryRow(ctx, "SELECT id FROM data.accounts WHERE uuid = $1", expenseCategoryUUID).Scan(&expenseCategoryID)
+				is.NoErr(err)
+				is.True(expenseCategoryID > 0)
+			})
+
+			// Skip further tests if setup failed
+			if mainAccountUUID == "" || expenseCategoryUUID == "" {
+				t.Skip("Skipping CreateTransaction sub-tests because prerequisite account/category creation failed")
+				return // Important to return to prevent further execution in this subtest
+			}
+
+			var createdTransactionUUID string // To store the UUID of the created transaction
+
+			// Subtest for successful transaction creation (Outflow)
+			t.Run("Success_Outflow", func(t *testing.T) {
+				is := is_.New(t)
+				txDate := time.Now()
+				txDescription := "New Gadget Purchase"
+				txAmount := int64(12500) // $125.00
+				txType := "outflow"      // Spending from an asset account
+
+				var (
+					retUUID         string
+					retDate         pgtype.Timestamptz
+					retDescription  string
+					retAmount       int64
+					retLedgerUUID   string
+					retAccountUUID  string // This should be NEW.account_uuid from the trigger
+					retCategoryUUID string // This should be NEW.category_uuid from the trigger
+					retType         string // This should be NEW.type from the trigger
+					retMetadata     *[]byte
+				)
+
+				// Insert into api.transactions view
+				// The trigger utils.simple_transactions_insert_fn handles the logic
+				// and populates the NEW record which is returned.
+				err := conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date, metadata)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+					 RETURNING uuid, date, description, amount, ledger_uuid, account_uuid, category_uuid, type, metadata`,
+					transactionLedgerUUID, mainAccountUUID, expenseCategoryUUID, txType,
+					txAmount, txDescription, txDate, nil, // Assuming metadata is null for now
+				).Scan(
+					&retUUID,
+					&retDate,
+					&retDescription,
+					&retAmount,
+					&retLedgerUUID,
+					&retAccountUUID,
+					&retCategoryUUID,
+					&retType,
+					&retMetadata,
+				)
+				is.NoErr(err) // Should create transaction without error
+
+				// Assertions for returned values
+				is.True(retUUID != "")           // Should return a valid transaction UUID
+				createdTransactionUUID = retUUID // Store for verification
+				is.Equal(retDescription, txDescription)
+				is.Equal(retAmount, txAmount)
+				is.True(retDate.Time.Unix()-txDate.Unix() < 2) // Check if times are very close
+				is.Equal(retLedgerUUID, transactionLedgerUUID)
+				is.Equal(retAccountUUID, mainAccountUUID)         // Should match the input account_uuid
+				is.Equal(retCategoryUUID, expenseCategoryUUID)   // Should match the input category_uuid
+				is.Equal(retType, txType)                         // Should match the input type
+				is.True(retMetadata == nil || *retMetadata == nil) // Metadata should be null or empty JSON
+			})
+
+			// Subtest for verifying database state after outflow
+			t.Run("VerifyDatabase_Outflow", func(t *testing.T) {
+				is := is_.New(t)
+				if createdTransactionUUID == "" {
+					t.Skip("Skipping VerifyDatabase_Outflow because transaction UUID was not captured")
+				}
+
+				var (
+					dbLedgerID        int
+					dbDescription     string
+					dbDate            pgtype.Timestamptz
+					dbAmount          int64
+					dbDebitAccountID  int
+					dbCreditAccountID int
+					dbUserData        string
+				)
+
+				err := conn.QueryRow(
+					ctx,
+					`SELECT ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data
+					 FROM data.transactions WHERE uuid = $1`,
+					createdTransactionUUID,
+				).Scan(
+					&dbLedgerID,
+					&dbDescription,
+					&dbDate,
+					&dbAmount,
+					&dbDebitAccountID,
+					&dbCreditAccountID,
+					&dbUserData,
+				)
+				is.NoErr(err) // Should find the transaction in data.transactions
+
+				// Assertions for database values
+				is.Equal(dbLedgerID, ledgerID) // Internal ledger ID should match
+				is.Equal(dbDescription, "New Gadget Purchase")
+				is.Equal(dbAmount, int64(12500))
+				is.Equal(dbUserData, testUserID) // User data should match the simulated user
+
+				// For an outflow from an asset account ("Tx-Checking Account"):
+				// Debit: Category ("Tx-Shopping Category")
+				// Credit: Account ("Tx-Checking Account")
+				is.Equal(dbDebitAccountID, expenseCategoryID) // Debit should be the category's internal ID
+				is.Equal(dbCreditAccountID, mainAccountID)    // Credit should be the main account's internal ID
+			})
+
+			// TODO: Add more subtests for "CreateTransaction"
+			// - Success_Inflow
+			// - VerifyDatabase_Inflow
+			// - Error_InvalidLedger
+			// - Error_InvalidAccount
+			// - Error_InvalidCategory
+			// - Error_InvalidType
+			// - Error_ZeroAmount
+			// - Error_NegativeAmount
+		}) // End of t.Run("CreateTransaction", ...)
+	}) // End of t.Run("Transactions", ...)
+
 	// Test api.assign_to_category function
 	t.Run(
 		"AssignToCategory", func(t *testing.T) {
