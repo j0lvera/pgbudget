@@ -264,18 +264,11 @@ begin
     returning uuid into v_transaction_uuid;
 
     -- Return the data for the new row
-    select t.uuid,
-           t.description,
-           t.amount,
-           t.metadata,
-           t.date,
-           NEW.type,
-           NEW.account_uuid,
-           NEW.category_uuid,
-           NEW.ledger_uuid
-      into NEW
-      from data.transactions t
-     where t.uuid = v_transaction_uuid;
+    -- The NEW record for an INSTEAD OF INSERT trigger should be populated with values
+    -- that match the view's columns. PostgREST uses this to return the created resource.
+    -- NEW.ledger_uuid, NEW.account_uuid, NEW.category_uuid, NEW.type, NEW.description, NEW.date, NEW.amount, NEW.metadata
+    -- are already set from the input to the view. We need to set NEW.uuid.
+    NEW.uuid := v_transaction_uuid;
 
     return NEW;
 end;
@@ -298,13 +291,13 @@ begin
     select t.id
       into v_transaction_id
       from data.transactions t
-     where t.uuid = OLD.uuid;
+     where t.uuid = OLD.uuid; -- Use OLD.uuid to identify the transaction to update
 
     if v_transaction_id is null then
         raise exception 'Transaction with UUID % not found', OLD.uuid;
     end if;
 
-    -- get the ledger_id for denormalization
+    -- get the ledger_id using NEW.ledger_uuid as it might be part of the update
     select l.id
       into v_ledger_id
       from data.ledgers l
@@ -314,7 +307,7 @@ begin
         raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
     end if;
 
-    -- find the account_id from uuid
+    -- find the account_id from NEW.account_uuid
     select a.id, a.internal_type
       into v_account_id, v_account_internal_type
       from data.accounts a
@@ -355,21 +348,17 @@ begin
     -- determine debit and credit accounts based on account internal_type and transaction type
     if v_account_internal_type = 'asset_like' then
         if NEW.type = 'inflow' then
-            -- for inflow to asset_like: debit asset_like (increase), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
         else
-            -- for outflow from asset_like: debit category (decrease), credit asset_like (decrease)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
         end if;
     elsif v_account_internal_type = 'liability_like' then
         if NEW.type = 'inflow' then
-            -- for inflow to liability_like: debit category (decrease), credit liability_like (increase)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
         else
-            -- for outflow from liability_like: debit liability_like (decrease), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
         end if;
@@ -377,16 +366,19 @@ begin
         raise exception 'Account internal_type % is not supported for transactions', v_account_internal_type;
     end if;
 
-    -- Update the transaction
+    -- Update the transaction in data.transactions
     update data.transactions
        set description = NEW.description,
            date = NEW.date,
            amount = NEW.amount,
            debit_account_id = v_debit_account_id,
            credit_account_id = v_credit_account_id,
+           ledger_id = v_ledger_id, -- Ensure ledger_id is updated if NEW.ledger_uuid changed
            metadata = NEW.metadata
      where id = v_transaction_id;
 
+    -- NEW already contains the updated fields from the view's perspective.
+    -- NEW.uuid is OLD.uuid and should not change on update.
     return NEW;
 end;
 $$ language plpgsql;
@@ -396,10 +388,12 @@ $$ language plpgsql;
 create or replace function utils.simple_transactions_delete_fn() returns trigger as
 $$
 begin
-    -- Delete the transaction
+    -- Delete the transaction from data.transactions
     delete from data.transactions
      where uuid = OLD.uuid;
 
+    -- For INSTEAD OF DELETE, OLD contains the row to be deleted.
+    -- Returning OLD is standard practice.
     return OLD;
 end;
 $$ language plpgsql;
@@ -414,61 +408,63 @@ drop function if exists utils.add_transaction(text, timestamptz, text, text, big
 drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
 
 -- RECREATE utils.transactions_insert_single_fn() IN THE DOWN MIGRATION
-create or replace function utils.transactions_insert_single_fn() returns trigger as
+-- This function is used by the trigger on the original api.transactions view (manual double-entry)
+-- which is recreated in the down migration of 20250506165235_add_transactions_triggers.sql.
+create or replace function utils.transactions_insert_single_fn()
+returns trigger as
 $$
 declare
     v_ledger_id         bigint;
     v_debit_account_id  bigint;
     v_credit_account_id bigint;
+    v_user_data         text := utils.get_user();
 begin
-    -- get the ledger_id for denormalization
     select l.id
       into v_ledger_id
       from data.ledgers l
-     where l.uuid = NEW.ledger_uuid;
+     where l.uuid = NEW.ledger_uuid and l.user_data = v_user_data;
 
     if v_ledger_id is null then
-        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
+        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
     end if;
 
-    -- get the debit account id
     select a.id
       into v_debit_account_id
       from data.accounts a
      where a.uuid = NEW.debit_account_uuid
-       and a.ledger_id = v_ledger_id;
+       and a.ledger_id = v_ledger_id and a.user_data = v_user_data;
 
     if v_debit_account_id is null then
-        raise exception 'debit account with uuid % not found in ledger %', NEW.debit_account_uuid, NEW.ledger_uuid;
+        raise exception 'Debit account with UUID % not found in ledger % for current user', NEW.debit_account_uuid, NEW.ledger_uuid;
     end if;
 
-    -- get the credit account id
     select a.id
       into v_credit_account_id
       from data.accounts a
      where a.uuid = NEW.credit_account_uuid
-       and a.ledger_id = v_ledger_id;
+       and a.ledger_id = v_ledger_id and a.user_data = v_user_data;
 
     if v_credit_account_id is null then
-        raise exception 'credit account with uuid % not found in ledger %', NEW.credit_account_uuid, NEW.ledger_uuid;
+        raise exception 'Credit account with UUID % not found in ledger % for current user', NEW.credit_account_uuid, NEW.ledger_uuid;
     end if;
 
-    -- insert the transaction into the transactions table
-       insert into data.transactions (description, date, amount, debit_account_id, credit_account_id, ledger_id,
-                                      metadata)
-       values (NEW.description,
-               NEW.date,
-               NEW.amount,
-               v_debit_account_id,
-               v_credit_account_id,
-               v_ledger_id,
-               NEW.metadata)
+    insert into data.transactions (
+        description, date, amount,
+        debit_account_id, credit_account_id, ledger_id,
+        metadata
+    )
+    values (
+        NEW.description, NEW.date, NEW.amount,
+        v_debit_account_id, v_credit_account_id, v_ledger_id,
+        NEW.metadata
+    )
     returning uuid, description, amount, metadata, date into
-        new.uuid, new.description, new.amount, new.metadata, new.date;
-
-    return new;
+        NEW.uuid, NEW.description, NEW.amount, NEW.metadata, NEW.date;
+    
+    -- NEW.ledger_uuid, NEW.debit_account_uuid, NEW.credit_account_uuid are already set from the input.
+    return NEW;
 end;
-$$ language plpgsql;
+$$ language plpgsql volatile security definer;
 
 
 drop function if exists utils.simple_transactions_insert_fn();
