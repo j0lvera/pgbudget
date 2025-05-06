@@ -29,7 +29,7 @@ Key characteristics:
 -   **Tables**: Store the raw data (e.g., `data.ledgers`, `data.accounts`, `data.transactions`).
 -   **Primary Keys**: Use `bigint generated always as identity`.
 -   **UUIDs**: Publicly exposed identifiers are typically `text` (e.g., nanoid).
--   **RLS (Row Level Security)**: Enforced on tables to ensure users can only access and modify their own data. Policies typically check a `user_data` column against `utils.get_user()`.
+-   **RLS (Row Level Security)**: Enforced on tables to ensure users can only access and modify their own data. Policies typically check a `user_data` column against `utils.get_user()`. The `user_data` column in `data` tables is typically defined with `default utils.get_user()`, automatically populating it with the current user's identifier on insert and ensuring data ownership is recorded.
 -   **Triggers**: Used for:
     -   Maintaining `updated_at` timestamps.
     -   Automated actions (e.g., `api.create_default_ledger_accounts` trigger on `data.ledgers` after insert).
@@ -71,7 +71,7 @@ The `utils` schema contains helper functions and utilities that are used interna
 Key characteristics:
 -   **Internal Logic**: Encapsulates complex, reusable, or sensitive SQL logic.
 -   **Security Definer**: Many utility functions that need to operate on underlying `data` tables across different user contexts or perform privileged operations run with `SECURITY DEFINER`. This allows them to execute with the permissions of the function owner (a trusted role), not the calling user. This is crucial for tasks like creating records in `data` tables where the end-user (via `pgb_web_user`) might not have direct insert rights but is allowed to perform the action through a trusted `api` function.
--   **User Context**: Functions in `utils` often take `p_user_data` as a parameter or call `utils.get_user()` internally to ensure operations are performed within the correct user's scope, even when running as `SECURITY DEFINER`.
+-   **User Context**: Functions in `utils` often rely on `utils.get_user()` internally (especially when `SECURITY DEFINER`) to operate within the correct user's scope. They may also accept an explicit `p_user_data text default utils.get_user()` parameter. This provides flexibility for direct calls or testing scenarios where the user context needs to be explicitly passed, overriding the session's default derived from the JWT.
 -   **Naming Convention**: Often follow `<table>_<action>_<type>` or a descriptive name.
 
 Example: `utils.get_user()` (retrieves user ID from JWT claims set by PostgREST)
@@ -105,6 +105,7 @@ Key characteristics:
 -   **Business Logic**: Enforces high-level business rules and translates API calls into operations on the data layer, often via `utils` functions.
 -   **Data Transformation**: Views can format data from `data` tables into a more client-friendly structure. Functions return types that match these view structures or defined composite types.
 -   **Naming Convention**: Functions often follow `<table>_<action>_<type>` (e.g., `add_category`, `assign_to_category`). Parameters in API functions often use a `p_` prefix if there's a potential collision with column names in the return type, or if preferred for clarity.
+-   **Column Exposure**: API views should selectively expose columns. Internal database identifiers (e.g., `id` of type `bigint`) and internal audit timestamps (e.g., `created_at`, `updated_at` from `data` tables) are generally not exposed directly in the API. Publicly visible `uuid`s (often `text`) are used for entity identification in the API. Timestamps relevant to the business domain (e.g., transaction `date`) are exposed.
 
 **Common Patterns for API Functions:**
 
@@ -117,6 +118,122 @@ Key characteristics:
     *   The `api` function calls a `utils` function.
     *   The `utils` function performs the core logic and returns multiple pieces of data necessary for the API response (e.g., UUID of a newly created transaction, UUIDs of related accounts, metadata).
     *   The `api` function then uses its own input parameters along with the data returned by the `utils` function to *construct* a record that matches the expected API response structure (e.g., matching an `api.transactions` view's columns). This can be more efficient if the `utils` function already has all or most of the necessary information, avoiding a second query to the database.
+
+### 3.3.1. Making API Views Updatable (CRUD Operations)
+
+While simple API views selecting directly from a single `data` table can often be made directly updatable by PostgREST for `INSERT`, `UPDATE`, and `DELETE` operations, many views are more complex. Views that involve joins, aggregations, or computed columns (like resolving internal foreign key IDs to public UUIDs) are not directly updatable.
+
+To enable CRUD operations on such complex views via PostgREST, we use `INSTEAD OF` triggers. These triggers fire *instead of* the attempted `INSERT`, `UPDATE`, or `DELETE` operation on the view. The trigger function, typically residing in the `utils` schema, then performs the actual data manipulation on the underlying `data` tables. This often involves resolving UUIDs provided in the API call to their corresponding internal `bigint` IDs.
+
+**Example: Updatable `api.transactions` View for Inserts**
+
+Consider an `api.transactions` view designed to expose transaction details with related entity UUIDs:
+
+```sql
+-- api/views/transactions.sql (example path)
+create or replace view api.transactions with (security_invoker = true) as
+select t.uuid,
+       t.description,
+       t.amount,
+       t.metadata,
+       t.date,
+       (select l.uuid from data.ledgers l where l.id = t.ledger_id)::text          as ledger_uuid,
+       (select a.uuid from data.accounts a where a.id = t.debit_account_id)::text  as debit_account_uuid,
+       (select a.uuid from data.accounts a where a.id = t.credit_account_id)::text as credit_account_uuid
+  from data.transactions t;
+
+-- Grant select access to the web user
+-- GRANT SELECT ON api.transactions TO pgb_web_user;
+```
+
+To allow `INSERT` operations on this `api.transactions` view (e.g., `POST /transactions` via PostgREST), we define an `INSTEAD OF INSERT` trigger and its corresponding trigger function:
+
+```sql
+-- utils/transaction_triggers.sql (example path)
+create or replace function utils.transactions_insert_single_fn()
+returns trigger as
+$$
+declare
+    v_ledger_id         bigint;
+    v_debit_account_id  bigint;
+    v_credit_account_id bigint;
+    v_user_data         text := utils.get_user(); -- Capture user context
+begin
+    -- Resolve ledger_uuid to internal ledger_id
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = NEW.ledger_uuid and l.user_data = v_user_data; -- Ensure ledger belongs to user
+
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
+    end if;
+
+    -- Resolve debit_account_uuid to internal debit_account_id
+    select a.id
+      into v_debit_account_id
+      from data.accounts a
+     where a.uuid = NEW.debit_account_uuid
+       and a.ledger_id = v_ledger_id and a.user_data = v_user_data; -- Ensure account belongs to ledger and user
+
+    if v_debit_account_id is null then
+        raise exception 'Debit account with UUID % not found in ledger % for current user', NEW.debit_account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- Resolve credit_account_uuid to internal credit_account_id
+    select a.id
+      into v_credit_account_id
+      from data.accounts a
+     where a.uuid = NEW.credit_account_uuid
+       and a.ledger_id = v_ledger_id and a.user_data = v_user_data; -- Ensure account belongs to ledger and user
+
+    if v_credit_account_id is null then
+        raise exception 'Credit account with UUID % not found in ledger % for current user', NEW.credit_account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- Insert the transaction into the base data.transactions table
+    -- The user_data column in data.transactions will use its default (utils.get_user())
+    -- or can be explicitly set to v_user_data if needed.
+    insert into data.transactions (
+        description, date, amount,
+        debit_account_id, credit_account_id, ledger_id,
+        metadata
+        -- user_data will default to utils.get_user()
+    )
+    values (
+        NEW.description, NEW.date, NEW.amount,
+        v_debit_account_id, v_credit_account_id, v_ledger_id,
+        NEW.metadata
+    )
+    -- Return the newly inserted row's relevant fields (matching the view's columns)
+    -- so PostgREST can return the created resource.
+    returning uuid, description, amount, metadata, date into
+        NEW.uuid, NEW.description, NEW.amount, NEW.metadata, NEW.date;
+
+    -- NEW.ledger_uuid, NEW.debit_account_uuid, NEW.credit_account_uuid are already set from the input.
+    -- The trigger function must return NEW for INSERT/UPDATE triggers.
+    return NEW;
+end;
+$$ language plpgsql volatile security definer; -- Security definer if it needs to bypass RLS temporarily for lookups,
+                                           -- but user context is still checked.
+
+-- Create the trigger on the API view
+create trigger transactions_instead_of_insert_trigger
+    instead of insert on api.transactions
+    for each row execute function utils.transactions_insert_single_fn();
+
+-- Grant insert access to the web user
+-- GRANT INSERT ON api.transactions TO pgb_web_user;
+```
+
+**Notes on the `INSTEAD OF INSERT` pattern:**
+-   The trigger function (`utils.transactions_insert_single_fn`) resolves the provided `ledger_uuid`, `debit_account_uuid`, and `credit_account_uuid` to their internal `bigint` IDs.
+-   It performs necessary validations (e.g., ensuring accounts belong to the specified ledger and the current user).
+-   It inserts the record into the actual `data.transactions` table.
+-   It populates `NEW.uuid`, `NEW.description`, etc., with values from the newly inserted row (or input `NEW` values if they are part of the view and not generated during insert) so that PostgREST can return the representation of the created resource. The `ledger_uuid`, `debit_account_uuid`, and `credit_account_uuid` fields in `NEW` are already populated from the client's `INSERT` request to the view.
+-   Similar `INSTEAD OF UPDATE` and `INSTEAD OF DELETE` triggers, along with their respective `utils` functions, would be required to provide full CRUD functionality on the `api.transactions` view.
+
+This approach allows clients to interact with the API using user-friendly UUIDs for all entities, while the database internally manages relationships with `bigint` foreign keys. It's important to remember that when using the `utils` schema functions directly (bypassing the `api` views/triggers), the caller is responsible for providing correct internal IDs and adhering to double-entry patterns.
 
 **Examples:**
 
@@ -138,7 +255,7 @@ Key characteristics:
     -- grant select on api.ledgers to pgb_web_user;
     -- grant insert on api.ledgers to pgb_web_user; (if INSTEAD OF INSERT trigger exists)
     ```
-    For `INSERT` into `api.ledgers`, an `INSTEAD OF INSERT` trigger on the view would typically call a `utils.ledgers_insert_single` function or directly insert into `data.ledgers` if simple, then return the new record. The `main_test.go` shows direct `INSERT INTO api.ledgers (...) RETURNING uuid;` which implies such a trigger or rule exists, or that PostgREST handles it by mapping view columns to table columns if the view is simple and updatable. For this project, direct inserts into `data.ledgers` are handled by RLS and default `user_data`, and `api.ledgers` is primarily for reads or specific API function returns. Ledger creation in tests is shown via `INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid`, which relies on the view being updatable or having an appropriate trigger.
+    This view is simple enough that PostgREST can handle `INSERT` operations directly by mapping view columns to the underlying `data.ledgers` table columns. Required columns like `name` must be provided in the `INSERT` statement, while others like `uuid` and `user_data` will use their default values defined in `data.ledgers`. This is demonstrated in `main_test.go` with `INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid;`. For more complex views involving joins or transformations, `INSTEAD OF` triggers are necessary for `INSERT/UPDATE/DELETE` operations, as shown in the `api.transactions` example below.
 
 -   A function for creating a new category, which calls a `utils` function and then returns the new category by querying the `api.accounts` view (Pattern A):
     ```sql
