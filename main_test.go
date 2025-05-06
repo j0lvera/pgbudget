@@ -1170,10 +1170,39 @@ func TestDatabase(t *testing.T) {
 				// The expected message from utils.simple_transactions_insert_fn is 'Invalid transaction type: %. Must be either "inflow" or "outflow"'
 				is.True(strings.Contains(pgErr.Message, "Invalid transaction type"))
 				is.True(strings.Contains(pgErr.Message, `Must be either "inflow" or "outflow"`))
+			}) // End of t.Run("Error_InvalidType", ...)
+
+			// Subtest for error case: Zero Amount
+			t.Run("Error_ZeroAmount", func(t *testing.T) {
+				is := is_.New(t)
+				txDate := time.Now()
+				txDescription := "Transaction with zero amount"
+				txAmount := int64(0) // Zero amount
+				txType := "outflow"
+
+				// Attempt to insert with zero amount
+				_, err := conn.Exec(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					transactionLedgerUUID, // Valid ledger UUID
+					mainAccountUUID,       // Valid account UUID
+					expenseCategoryUUID,   // Valid category UUID
+					txType,
+					txAmount,              // Using zero amount
+					txDescription,
+					txDate,
+				)
+				is.True(err != nil) // Should return an error
+
+				// Check for the specific error message from utils.simple_transactions_insert_fn
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr)) // Error should be a PgError
+				// The expected message from utils.simple_transactions_insert_fn is 'Transaction amount must be positive: %'
+				is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
 			})
 
 			// TODO: Add more subtests for "CreateTransaction"
-			// - Error_ZeroAmount
 			// - Error_NegativeAmount
 		}) // End of t.Run("CreateTransaction", ...)
 	}) // End of t.Run("Transactions", ...)
