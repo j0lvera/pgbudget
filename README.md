@@ -111,7 +111,7 @@ Income is typically recorded as an "inflow" transaction using the `api.simple_tr
 
 ```sql
 -- Add income of $1000 from "Paycheck" (100000 cents)
--- For this example, let's say 'checking-account-uuid' is the UUID for your 'Checking' account.
+-- For this example, let's say 'aK9sLp0Q' is the UUID for your 'Checking' account.
 
 INSERT INTO api.simple_transactions (
     ledger_uuid,
@@ -201,7 +201,7 @@ Spending is recorded as an "outflow" transaction using the `api.simple_transacti
 
 ```sql
 -- Spend $15 on Milk from Groceries category (1500 cents)
--- Use your ledger_uuid, checking_account_uuid, and groceries_category_uuid.
+-- Use your ledger_uuid, checking_account_uuid (e.g., 'aK9sLp0Q'), and groceries_category_uuid.
 INSERT INTO api.simple_transactions (
     ledger_uuid,
     date,
@@ -243,14 +243,18 @@ INSERT INTO api.simple_transactions (
 ### Check Budget Status
 
 ```sql
--- View budget status for all categories in a specific ledger
--- This example uses a hypothetical api.get_budget_status function.
--- Alternatively, you might query a view like api.budget_status(ledger_uuid).
--- If querying data directly (for reads, using an example ledger_uuid):
-SELECT * FROM data.budget_status WHERE ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t');
+-- View budget status for all categories in a specific ledger.
+-- This example uses a hypothetical api.get_budget_status function or data.budget_status view.
+-- If not available, you would construct this by querying account balances and transaction activity.
+-- Example direct query on a hypothetical 'data.budget_status' view (for ledger_uuid 'd3pOOf6t'):
+SELECT * FROM data.budget_status
+WHERE ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t');
+
+-- Alternatively, using a hypothetical API function:
+-- SELECT * FROM api.get_budget_status('d3pOOf6t'); -- Use your ledger_uuid
 ```
 
-Example Result (from `data.budget_status` or a similar API view/function):
+Example Result (from a `data.budget_status` view or similar):
 ```
  id |     account_name     | budgeted | activity | balance 
 ----+----------------------+----------+----------+---------
@@ -258,38 +262,41 @@ Example Result (from `data.budget_status` or a similar API view/function):
   6 | Internet bill        |    7500  |   -7500  |      0
 ```
 (Assuming `id` here refers to an internal account ID; an API view might expose account UUIDs instead).
-
 Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.).
 
-For a specific ledger using an API function (if available):
-```sql
--- View budget status for a ledger using its UUID (example ledger_uuid)
-SELECT * FROM api.get_budget_status('d3pOOf6t'); -- Use your ledger_uuid
-```
-
-The budget status shows:
+The budget status typically shows:
 - **budgeted**: Money assigned to this category
-- **activity**: Money spent from this category
+- **activity**: Money spent from (or added to) this category
 - **balance**: Current available amount in the category
 
-You can also view all accounts and their balances (example of direct data query for reads):
+You can also view all accounts and their balances. This query retrieves the latest balance for each account from the `data.balances` table (which is assumed to be maintained by triggers).
+
 ```sql
--- View all accounts and their balances for a specific ledger
-SELECT 
-    a.uuid as account_uuid, -- Exposing UUID
-    a.name, 
-    a.type, 
-    (SELECT SUM(
-        CASE 
-            WHEN t.credit_account_id = a.id THEN t.amount 
-            WHEN t.debit_account_id = a.id THEN -t.amount 
-            ELSE 0 
-        END
-    ) FROM data.transactions t 
-    WHERE (t.credit_account_id = a.id OR t.debit_account_id = a.id) -- Ensure transaction involves the account
-      AND t.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t') -- Filter by ledger
-    ) as balance
+-- View all accounts and their latest balances for a specific ledger (e.g., 'd3pOOf6t')
+SELECT
+    a.uuid as account_uuid,
+    a.name,
+    a.type,
+    COALESCE(b.balance, 0) as balance -- Get latest balance from data.balances
 FROM data.accounts a
+LEFT JOIN (
+    -- Subquery to get the latest balance for each account
+    SELECT account_id, balance
+    FROM (
+        SELECT
+            bal_hist.account_id,
+            bal_hist.balance,
+            ROW_NUMBER() OVER (PARTITION BY bal_hist.account_id ORDER BY bal_hist.created_at DESC) as rn
+        FROM data.balances bal_hist
+        -- Optimization: Ensure balances are for accounts within the target ledger
+        WHERE EXISTS (
+            SELECT 1 FROM data.accounts acc_filter
+            WHERE acc_filter.id = bal_hist.account_id
+              AND acc_filter.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
+        )
+    ) sb
+    WHERE sb.rn = 1
+) b ON a.id = b.account_id
 WHERE a.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t') -- Filter accounts by ledger
 ORDER BY a.type, a.name;
 ```
@@ -308,27 +315,33 @@ Note: Balance amounts are in cents (91000 = $910.00).
 
 ### Check Account Balances
 
+To get the balance of a specific account, you can query the `data.balances` table. An API function like `api.get_account_balance` might also be provided for convenience.
+
 ```sql
--- Get the balance of a specific account using its UUID
-SELECT balance FROM api.get_account_balance(
-    'd3pOOf6t', -- Your ledger_uuid
-    'aK9sLp0Q'  -- The account_uuid you want to check (example: Checking account)
-) AS balance;
+-- Get the latest balance of a specific account using its UUID (e.g., 'aK9sLp0Q')
+-- for a specific ledger (e.g., 'd3pOOf6t').
+-- This query retrieves the latest balance from the 'data.balances' table.
+SELECT COALESCE(
+           (SELECT b.balance
+            FROM data.balances b
+            JOIN data.accounts acc ON b.account_id = acc.id
+            WHERE acc.uuid = 'aK9sLp0Q' -- The account_uuid you want to check
+              AND acc.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
+            ORDER BY b.created_at DESC
+            LIMIT 1),
+           0 -- Default to 0 if no balance record found
+       ) AS balance;
 ```
 
 Result (example):
 ```
  balance 
 ---------
-   87500
+   91000
 ```
-Note: Balance amount is in cents (87500 = $875.00).
+Note: Balance amount is in cents (91000 = $910.00).
 
-The `api.get_account_balance` function calculates the current balance of any account. It takes these parameters:
-- `ledger_uuid`: The UUID of your budget ledger.
-- `account_uuid`: The UUID of the account to check.
-
-This function automatically applies the correct accounting logic based on the account's internal type.
+This query directly accesses the `data.balances` table, which is assumed to store historical or current balances, ensuring you get the most up-to-date figure.
 
 ## Transaction Entry Options
 
@@ -401,12 +414,17 @@ Both methods maintain the integrity of your double-entry accounting system while
 
 ### View Account Transactions
 
+An API function like `api.get_account_transactions` or a view like `data.account_transactions` might be available for this. The example below illustrates the kind of information such a function/view would provide.
+
 ```sql
--- View transactions for a specific account using its UUID
-SELECT * FROM api.get_account_transactions('your-account-uuid');
+-- Example: View transactions for a specific account using its UUID
+-- SELECT * FROM api.get_account_transactions('your-account-uuid');
+
+-- Example: View transactions for the account with internal ID 4 using a hypothetical data view
+-- SELECT * FROM data.account_transactions WHERE account_id = 4;
 ```
 
-Result (example):
+Example Result (from a hypothetical `api.get_account_transactions` function or similar view):
 ```
     date    |   category    |   description    |   type   | amount | balance
 ------------+---------------+------------------+----------+--------+--------
@@ -419,8 +437,7 @@ Result (example):
 
 Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.).
 
-The `api.get_account_transactions` function provides a comprehensive view of all transactions affecting a specific account, with the following information:
-
+The transaction view would typically provide:
 - **date**: The date when the transaction occurred
 - **category**: The budget category or account associated with the transaction
 - **description**: The transaction description
@@ -428,13 +445,7 @@ The `api.get_account_transactions` function provides a comprehensive view of all
 - **amount**: The transaction amount (always positive, with the direction indicated by the type)
 - **balance**: The account balance after this transaction (running balance)
 
-The function automatically handles the display logic based on the account type. Transactions are sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
-
-You can also use the default view for a quick look at transactions in account ID 4 (if you know the internal ID and have direct data access):
-```sql
--- View transactions for the account with internal ID 4
-SELECT * FROM data.account_transactions WHERE account_id = 4;
-```
+The function/view would automatically handle the display logic based on the account type. Transactions are usually sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
 
 ## Contributing
 
