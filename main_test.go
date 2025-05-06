@@ -255,446 +255,530 @@ func TestDatabase(t *testing.T) {
 	var ledgerUUID string // Primary identifier for API calls
 
 	// --- Ledger Tests ---
-	t.Run("Ledgers", func(t *testing.T) {
-		t.Run(
-			"CreateLedger", func(t *testing.T) {
-				is := is_.New(t) // is instance for this subtest
-				ledgerName := "Test Budget"
+	t.Run(
+		"Ledgers", func(t *testing.T) {
+			t.Run(
+				"CreateLedger", func(t *testing.T) {
+					is := is_.New(t) // is instance for this subtest
+					ledgerName := "Test Budget"
 
-				// Create a new ledger by inserting into the API view, returning the UUID
-				err = conn.QueryRow(
-					ctx,
-					// Insert into the view, return the UUID exposed by the view
-					"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
-					ledgerName,
-				).Scan(&ledgerUUID)       // Scan into ledgerUUID
-				is.NoErr(err)             // Should create ledger without error
-				is.True(ledgerUUID != "") // Should return a valid ledger UUID
+					// Create a new ledger by inserting into the API view, returning the UUID
+					err = conn.QueryRow(
+						ctx,
+						// Insert into the view, return the UUID exposed by the view
+						"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+						ledgerName,
+					).Scan(&ledgerUUID)       // Scan into ledgerUUID
+					is.NoErr(err)             // Should create ledger without error
+					is.True(ledgerUUID != "") // Should return a valid ledger UUID
 
-				// Fetch the internal ID using the returned UUID (needed for direct data verification)
-				err = conn.QueryRow(
-					ctx,
-					"SELECT id FROM data.ledgers WHERE uuid = $1",
-					ledgerUUID,
-				).Scan(&ledgerID)
-				is.NoErr(err)         // Should find the ledger by UUID
-				is.True(ledgerID > 0) // Should have a valid internal ID
+					// Fetch the internal ID using the returned UUID (needed for direct data verification)
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.ledgers WHERE uuid = $1",
+						ledgerUUID,
+					).Scan(&ledgerID)
+					is.NoErr(err)         // Should find the ledger by UUID
+					is.True(ledgerID > 0) // Should have a valid internal ID
 
-				// Verify the ledger was created correctly using the internal ID
-				var name string
-				// Query the base table directly for verification
-				err = conn.QueryRow(
-					ctx,
-					"SELECT name FROM data.ledgers WHERE id = $1", // Use ledgerID here
-					ledgerID,
-				).Scan(&name)
-				is.NoErr(err)              // Should find the created ledger
-				is.Equal(ledgerName, name) // Ledger should have the correct name
-
-				// Verify that the internal accounts were created using the internal ID
-				var accountNames []string
-				rows, err := conn.Query(
-					ctx,
-					"SELECT name FROM data.accounts WHERE ledger_id = $1 ORDER BY name", // Use ledgerID here
-					ledgerID,
-				)
-				is.NoErr(err) // Should query accounts without error
-				defer rows.Close()
-
-				// Collect all account names
-				for rows.Next() {
+					// Verify the ledger was created correctly using the internal ID
 					var name string
-					err = rows.Scan(&name)
-					is.NoErr(err)
-					accountNames = append(accountNames, name)
-				}
-				is.NoErr(rows.Err())
+					// Query the base table directly for verification
+					err = conn.QueryRow(
+						ctx,
+						"SELECT name FROM data.ledgers WHERE id = $1", // Use ledgerID here
+						ledgerID,
+					).Scan(&name)
+					is.NoErr(err) // Should find the created ledger
+					is.Equal(
+						ledgerName, name,
+					)             // Ledger should have the correct name
 
-				log.Info().Interface("accounts", accountNames).Msg("Accounts")
-				// According to README.md, we should have Income, Off-budget, and Unassigned accounts
-				is.Equal(3, len(accountNames)) // Should have 3 default accounts
-				is.True(contains(accountNames, "Income"))
-				is.True(contains(accountNames, "Off-budget"))
-				is.True(contains(accountNames, "Unassigned"))
-			},
-		)
+					// Verify that the internal accounts were created using the internal ID
+					var accountNames []string
+					rows, err := conn.Query(
+						ctx,
+						"SELECT name FROM data.accounts WHERE ledger_id = $1 ORDER BY name", // Use ledgerID here
+						ledgerID,
+					)
+					is.NoErr(err) // Should query accounts without error
+					defer rows.Close()
 
-		// Test updating ledger name via API view
-		t.Run(
-			"UpdateLedger", func(t *testing.T) {
-				is := is_.New(t) // is instance for this subtest
+					// Collect all account names
+					for rows.Next() {
+						var name string
+						err = rows.Scan(&name)
+						is.NoErr(err)
+						accountNames = append(accountNames, name)
+					}
+					is.NoErr(rows.Err())
 
-				// Skip if ledger creation failed or did not run, so ledgerUUID is not available
-				if ledgerUUID == "" {
-					t.Skip("Skipping UpdateLedger because ledgerUUID is not available")
-				}
+					log.Info().Interface(
+						"accounts", accountNames,
+					).Msg("Accounts")
+					// According to README.md, we should have Income, Off-budget, and Unassigned accounts
+					is.Equal(
+						3, len(accountNames),
+					) // Should have 3 default accounts
+					is.True(contains(accountNames, "Income"))
+					is.True(contains(accountNames, "Off-budget"))
+					is.True(contains(accountNames, "Unassigned"))
+				},
+			)
 
-				newLedgerName := "Updated Test Budget"
+			// Test updating ledger name via API view
+			t.Run(
+				"UpdateLedger", func(t *testing.T) {
+					is := is_.New(t) // is instance for this subtest
 
-				// 1. Update the ledger name via the api.ledgers view
-				// The view is updatable for simple cases like this.
-				// PostgREST would translate a PATCH /ledgers?uuid=eq.{ledgerUUID} to a similar UPDATE.
-				// We also want to return the updated name to verify the update statement itself worked as expected.
-				var updatedNameFromView string
-				err := conn.QueryRow(
-					ctx,
-					"UPDATE api.ledgers SET name = $1 WHERE uuid = $2 RETURNING name",
-					newLedgerName,
-					ledgerUUID,
-				).Scan(&updatedNameFromView)
-				is.NoErr(err) // Should update ledger name without error
-				is.Equal(updatedNameFromView, newLedgerName) // The name returned by RETURNING should be the new name
+					// Skip if ledger creation failed or did not run, so ledgerUUID is not available
+					if ledgerUUID == "" {
+						t.Skip("Skipping UpdateLedger because ledgerUUID is not available")
+					}
 
-				// 2. Verify the name change by querying the api.ledgers view
-				var nameFromView string
-				err = conn.QueryRow(
-					ctx,
-					"SELECT name FROM api.ledgers WHERE uuid = $1",
-					ledgerUUID,
-				).Scan(&nameFromView)
-				is.NoErr(err) // Should find the ledger in the view
-				is.Equal(nameFromView, newLedgerName) // Name in view should be the new name
+					newLedgerName := "Updated Test Budget"
 
-				// 3. Verify the name change by querying the data.ledgers table directly
-				var nameFromDataTable string
-				err = conn.QueryRow(ctx, "SELECT name FROM data.ledgers WHERE uuid = $1", ledgerUUID).Scan(&nameFromDataTable)
-				is.NoErr(err) // Should find the ledger in the data table
-				is.Equal(nameFromDataTable, newLedgerName) // Name in data table should be the new name
-			},
-		)
-	})
+					// 1. Update the ledger name via the api.ledgers view
+					// The view is updatable for simple cases like this.
+					// PostgREST would translate a PATCH /ledgers?uuid=eq.{ledgerUUID} to a similar UPDATE.
+					// We also want to return the updated name to verify the update statement itself worked as expected.
+					var updatedNameFromView string
+					err := conn.QueryRow(
+						ctx,
+						"UPDATE api.ledgers SET name = $1 WHERE uuid = $2 RETURNING name",
+						newLedgerName,
+						ledgerUUID,
+					).Scan(&updatedNameFromView)
+					is.NoErr(err) // Should update ledger name without error
+					is.Equal(
+						updatedNameFromView, newLedgerName,
+					)             // The name returned by RETURNING should be the new name
+
+					// 2. Verify the name change by querying the api.ledgers view
+					var nameFromView string
+					err = conn.QueryRow(
+						ctx,
+						"SELECT name FROM api.ledgers WHERE uuid = $1",
+						ledgerUUID,
+					).Scan(&nameFromView)
+					is.NoErr(err) // Should find the ledger in the view
+					is.Equal(
+						nameFromView, newLedgerName,
+					)             // Name in view should be the new name
+
+					// 3. Verify the name change by querying the data.ledgers table directly
+					var nameFromDataTable string
+					err = conn.QueryRow(
+						ctx, "SELECT name FROM data.ledgers WHERE uuid = $1",
+						ledgerUUID,
+					).Scan(&nameFromDataTable)
+					is.NoErr(err) // Should find the ledger in the data table
+					is.Equal(
+						nameFromDataTable, newLedgerName,
+					)             // Name in data table should be the new name
+				},
+			)
+		},
+	)
 
 	// Test account creation and update via api.accounts view
 	var accountUUID string // To be set by CreateAccount and used by UpdateAccount
 	var accountID int      // Internal ID for data.accounts verification
 
 	// --- Account Tests ---
-	t.Run("Accounts", func(t *testing.T) {
-		t.Run("CreateAccount", func(t *testing.T) {
-			is := is_.New(t)
-
-			if ledgerUUID == "" {
-				t.Skip("Skipping CreateAccount because ledgerUUID is not available")
-			}
-
-			accountName := "Test Savings Account"
-			accountType := "asset"
-			accountDescription := "Savings for a rainy day"
-			// For JSONB, ensure it's a valid JSON string or null
-			accountMetadataJSON := `{"goal": "emergency fund", "priority": 1}`
-			var accountMetadataInput *string // Use pointer to string for metadata
-			accountMetadataInput = &accountMetadataJSON
-
-			var (
-				retUUID        string
-				retName        string
-				retType        string
-				retDescription pgtype.Text
-				retMetadata    *[]byte // Matches existing test patterns for JSONB
-				retUserData    string
-				retLedgerUUID  string
-			)
-
-			// Insert into api.accounts view
-			// Assumes an INSTEAD OF INSERT trigger handles this and returns relevant fields.
-			// The trigger function utils.accounts_insert_single_fn populates NEW.uuid, NEW.name, etc.
-			// NEW.ledger_uuid is from the input.
-			err := conn.QueryRow(ctx,
-				`INSERT INTO api.accounts (ledger_uuid, name, type, description, metadata)
-			 VALUES ($1, $2, $3, $4, $5)
-			 RETURNING uuid, name, type, description, metadata, user_data, ledger_uuid`,
-				ledgerUUID, accountName, accountType, accountDescription, accountMetadataInput,
-			).Scan(
-				&retUUID,
-				&retName,
-				&retType,
-				&retDescription,
-				&retMetadata,
-				&retUserData,
-				&retLedgerUUID,
-			)
-			is.NoErr(err) // Should create account without error
-
-			// Assertions for returned values from the view insert
-			is.True(retUUID != "")                              // Should return a valid account UUID
-			accountUUID = retUUID                               // Store for sub-test and further verification
-			is.Equal(retName, accountName)                      // Name should match
-			is.Equal(retType, accountType)                      // Type should match
-			is.True(retDescription.Valid)                       // Description should be valid
-			is.Equal(retDescription.String, accountDescription) // Description should match
-			is.True(retMetadata != nil)                         // Metadata should not be nil
-			is.Equal(string(*retMetadata), accountMetadataJSON) // Metadata should match
-			is.Equal(retUserData, testUserID)                   // UserData should match the test user
-			is.Equal(retLedgerUUID, ledgerUUID)                 // LedgerUUID should match the input
-
-			// Verify data in data.accounts table
-			var (
-				dbName         string
-				dbType         string
-				dbInternalType string
-				dbDescription  pgtype.Text
-				dbMetadata     []byte // Direct []byte for jsonb from table
-				dbUserData     string
-				dbLedgerID     int
-			)
-			err = conn.QueryRow(ctx,
-				`SELECT id, name, type, internal_type, description, metadata, user_data, ledger_id
-			 FROM data.accounts WHERE uuid = $1`,
-				accountUUID,
-			).Scan(
-				&accountID, // Store internal ID
-				&dbName,
-				&dbType,
-				&dbInternalType,
-				&dbDescription,
-				&dbMetadata,
-				&dbUserData,
-				&dbLedgerID,
-			)
-			is.NoErr(err) // Should find the account in data.accounts
-
-			is.True(accountID > 0)                              // Should have a valid internal ID
-			is.Equal(dbName, accountName)                       // Name in DB should match
-			is.Equal(dbType, accountType)                       // Type in DB should match
-			is.Equal(dbInternalType, "asset_like")              // Internal type should be correctly set by trigger
-			is.True(dbDescription.Valid)                        // DB Description should be valid
-			is.Equal(dbDescription.String, accountDescription)  // DB Description should match
-			is.Equal(string(dbMetadata), accountMetadataJSON)   // DB Metadata should match
-			is.Equal(dbUserData, testUserID)                    // DB UserData should match
-			is.Equal(dbLedgerID, ledgerID)                      // DB LedgerID should match the parent ledger's internal ID
-		})
-
-		// Subtest for updating the account
-		t.Run("UpdateAccount", func(t *testing.T) {
-			is := is_.New(t)
-
-			if accountUUID == "" {
-				t.Skip("Skipping UpdateAccount because accountUUID is not available from CreateAccount")
-			}
-
-			newAccountName := "Updated Test Savings Account"
-
-			// Update the account name via api.accounts view
-			// Assumes an INSTEAD OF UPDATE trigger handles this if the view is complex.
-			// If simple, PostgreSQL might handle it directly.
-			var updatedNameFromView string
-			err := conn.QueryRow(ctx,
-				"UPDATE api.accounts SET name = $1 WHERE uuid = $2 RETURNING name",
-				newAccountName, accountUUID,
-			).Scan(&updatedNameFromView)
-			is.NoErr(err) // Should update account name without error
-			is.Equal(updatedNameFromView, newAccountName) // Name returned by RETURNING should be the new name
-
-			// Verify name change by querying api.accounts view
-			var nameFromView string
-			err = conn.QueryRow(ctx, "SELECT name FROM api.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromView)
-			is.NoErr(err) // Should find the account in the view
-			is.Equal(nameFromView, newAccountName) // Name in view should be the new name
-
-			// Verify name change by querying data.accounts table
-			var nameFromDataTable string
-			err = conn.QueryRow(ctx, "SELECT name FROM data.accounts WHERE uuid = $1", accountUUID).Scan(&nameFromDataTable)
-			is.NoErr(err) // Should find the account in the data table
-			is.Equal(nameFromDataTable, newAccountName) // Name in data table should be the new name
-		})
-	})
-
-	// --- Category Tests ---
-	t.Run("Categories", func(t *testing.T) {
-		// This is the subtest for creating a category
-		t.Run("CreateCategory", func(t *testing.T) {
-			// t.Skip("For now") // Removed/Commented
-
-			// Skip if ledger creation failed
-			if ledgerUUID == "" {
-				t.Skip("Skipping CreateCategory tests because ledger creation failed or did not run")
-			}
-
-			is := is_.New(t)
-			categoryName := "Groceries"
-			var categoryUUID string
-
-			// 1. Call api.add_category (Success Case)
+	t.Run(
+		"Accounts", func(t *testing.T) {
 			t.Run(
-				"Success", func(t *testing.T) {
-					is := is_.New(t) // is instance for this subtest
+				"CreateAccount", func(t *testing.T) {
+					is := is_.New(t)
+
+					if ledgerUUID == "" {
+						t.Skip("Skipping CreateAccount because ledgerUUID is not available")
+					}
+
+					accountName := "Test Savings Account"
+					accountType := "asset"
+					accountDescription := "Savings for a rainy day"
+					// For JSONB, ensure it's a valid JSON string or null
+					accountMetadataJSON := `{"goal": "emergency fund", "priority": 1}`
+					var accountMetadataInput *string // Use pointer to string for metadata
+					accountMetadataInput = &accountMetadataJSON
+
 					var (
 						retUUID        string
 						retName        string
 						retType        string
 						retDescription pgtype.Text
-						retMetadata    *[]byte // Use pointer to byte slice for jsonb
+						retMetadata    *[]byte // Matches existing test patterns for JSONB
 						retUserData    string
 						retLedgerUUID  string
 					)
 
-					// Call the function and scan all returned fields
-					// Since it returns SETOF, QueryRow works if exactly one row is expected
+					// Insert into api.accounts view
+					// Assumes an INSTEAD OF INSERT trigger handles this and returns relevant fields.
+					// The trigger function utils.accounts_insert_single_fn populates NEW.uuid, NEW.name, etc.
+					// NEW.ledger_uuid is from the input.
 					err := conn.QueryRow(
-						ctx, "SELECT * FROM api.add_category($1, $2)",
-						ledgerUUID, categoryName,
+						ctx,
+						`INSERT INTO api.accounts (ledger_uuid, name, type, description, metadata)
+			 VALUES ($1, $2, $3, $4, $5)
+			 RETURNING uuid, name, type, description, metadata, user_data, ledger_uuid`,
+						ledgerUUID, accountName, accountType,
+						accountDescription, accountMetadataInput,
 					).Scan(
 						&retUUID,
 						&retName,
 						&retType,
 						&retDescription,
-						&retMetadata, // Pass address of pointer
+						&retMetadata,
 						&retUserData,
 						&retLedgerUUID,
 					)
-					is.NoErr(err) // Should execute function without error
+					is.NoErr(err) // Should create account without error
 
-					// Assert Return Values
-					is.True(retUUID != "") // Should return a non-empty UUID
+					// Assertions for returned values from the view insert
+					is.True(retUUID != "")        // Should return a valid account UUID
+					accountUUID = retUUID         // Store for sub-test and further verification
 					is.Equal(
-						retName, categoryName,
-					) // Returned name should match input
+						retName, accountName,
+					)                             // Name should match
 					is.Equal(
-						retType, "equity",
-					) // Returned type should be 'equity'
+						retType, accountType,
+					)                             // Type should match
+					is.True(retDescription.Valid) // Description should be valid
 					is.Equal(
-						retLedgerUUID, ledgerUUID,
-					) // Returned ledger UUID should match input
+						retDescription.String, accountDescription,
+					)                             // Description should match
+					is.True(retMetadata != nil)   // Metadata should not be nil
+					is.Equal(
+						string(*retMetadata), accountMetadataJSON,
+					)                             // Metadata should match
 					is.Equal(
 						retUserData, testUserID,
-					)                              // Returned user_data should match simulated user
-					is.True(!retDescription.Valid) // Description should be null initially
-					is.True(retMetadata == nil)    // Metadata should be null initially (check if pointer is nil)
+					)                             // UserData should match the test user
+					is.Equal(
+						retLedgerUUID, ledgerUUID,
+					)                             // LedgerUUID should match the input
 
-					categoryUUID = retUUID // Store for later verification and tests
-				},
-			)
-
-			// 2. Verify Database State
-			t.Run(
-				"VerifyDatabase", func(t *testing.T) {
-					is := is_.New(t) // is instance for this subtest
-					// Skip if the previous step failed to get a UUID
-					if categoryUUID == "" {
-						t.Skip("Skipping VerifyDatabase because category UUID was not captured")
-					}
-
+					// Verify data in data.accounts table
 					var (
-						dbID           int
-						dbLedgerID     int
 						dbName         string
 						dbType         string
 						dbInternalType string
-						dbUserData     string
 						dbDescription  pgtype.Text
-						dbMetadata     *[]byte // Use pointer to byte slice for jsonb
+						dbMetadata     []byte // Direct []byte for jsonb from table
+						dbUserData     string
+						dbLedgerID     int
 					)
-
-					// Query the data.accounts table directly
-					err := conn.QueryRow(
+					err = conn.QueryRow(
 						ctx,
-						`SELECT id, ledger_id, name, type, internal_type, user_data, description, metadata
-                 FROM data.accounts WHERE uuid = $1`, categoryUUID,
+						`SELECT id, name, type, internal_type, description, metadata, user_data, ledger_id
+			 FROM data.accounts WHERE uuid = $1`,
+						accountUUID,
 					).Scan(
-						&dbID,
-						&dbLedgerID,
+						&accountID, // Store internal ID
 						&dbName,
 						&dbType,
 						&dbInternalType,
-						&dbUserData,
 						&dbDescription,
-						&dbMetadata, // Pass address of pointer
+						&dbMetadata,
+						&dbUserData,
+						&dbLedgerID,
 					)
-					is.NoErr(err) // Should find the account in the database
+					is.NoErr(err) // Should find the account in data.accounts
 
-					// Assert Database Values
+					is.True(accountID > 0)       // Should have a valid internal ID
 					is.Equal(
-						dbLedgerID, ledgerID,
-					) // Ledger ID should match the one created earlier
+						dbName, accountName,
+					)                            // Name in DB should match
 					is.Equal(
-						dbName, categoryName,
-					) // Name should match
+						dbType, accountType,
+					)                            // Type in DB should match
 					is.Equal(
-						dbType, "equity",
-					) // Type should be 'equity'
+						dbInternalType, "asset_like",
+					)                            // Internal type should be correctly set by trigger
+					is.True(dbDescription.Valid) // DB Description should be valid
 					is.Equal(
-						dbInternalType, "liability_like",
-					) // Internal type should be 'liability_like'
+						dbDescription.String, accountDescription,
+					)                            // DB Description should match
+					is.Equal(
+						string(dbMetadata), accountMetadataJSON,
+					)                            // DB Metadata should match
 					is.Equal(
 						dbUserData, testUserID,
-					)                             // User data should match
-					is.True(!dbDescription.Valid) // Description should be null
-					is.True(dbMetadata == nil)    // Metadata should be null (check if pointer is nil)
+					)                            // DB UserData should match
+					is.Equal(
+						dbLedgerID, ledgerID,
+					)                            // DB LedgerID should match the parent ledger's internal ID
 				},
 			)
 
-			// 3. Test Error Case: Duplicate Name
+			// Subtest for updating the account
 			t.Run(
-				"DuplicateNameError", func(t *testing.T) {
-					is := is_.New(t) // is instance for this subtest
-					// Skip if the category wasn't created successfully
-					if categoryUUID == "" {
-						t.Skip("Skipping DuplicateNameError because category UUID was not captured")
+				"UpdateAccount", func(t *testing.T) {
+					is := is_.New(t)
+
+					if accountUUID == "" {
+						t.Skip("Skipping UpdateAccount because accountUUID is not available from CreateAccount")
 					}
 
-					// Call add_category again with the same name
-					_, err := conn.Exec(
-						ctx, "SELECT api.add_category($1, $2)", ledgerUUID,
-						categoryName,
-					)
-					is.True(err != nil) // Should return an error
+					newAccountName := "Updated Test Savings Account"
 
-					// Check for PostgreSQL unique violation error (code 23505)
-					var pgErr *pgconn.PgError
-					is.True(errors.As(err, &pgErr)) // Error should be a PgError
+					// Update the account name via api.accounts view
+					// Assumes an INSTEAD OF UPDATE trigger handles this if the view is complex.
+					// If simple, PostgreSQL might handle it directly.
+					var updatedNameFromView string
+					err := conn.QueryRow(
+						ctx,
+						"UPDATE api.accounts SET name = $1 WHERE uuid = $2 RETURNING name",
+						newAccountName, accountUUID,
+					).Scan(&updatedNameFromView)
+					is.NoErr(err) // Should update account name without error
 					is.Equal(
-						pgErr.Code, "23505",
-					) // Error code should be unique_violation
+						updatedNameFromView, newAccountName,
+					)             // Name returned by RETURNING should be the new name
+
+					// Verify name change by querying api.accounts view
+					var nameFromView string
+					err = conn.QueryRow(
+						ctx, "SELECT name FROM api.accounts WHERE uuid = $1",
+						accountUUID,
+					).Scan(&nameFromView)
+					is.NoErr(err) // Should find the account in the view
+					is.Equal(
+						nameFromView, newAccountName,
+					)             // Name in view should be the new name
+
+					// Verify name change by querying data.accounts table
+					var nameFromDataTable string
+					err = conn.QueryRow(
+						ctx, "SELECT name FROM data.accounts WHERE uuid = $1",
+						accountUUID,
+					).Scan(&nameFromDataTable)
+					is.NoErr(err) // Should find the account in the data table
+					is.Equal(
+						nameFromDataTable, newAccountName,
+					)             // Name in data table should be the new name
 				},
 			)
+		},
+	)
 
-			// 4. Test Error Case: Invalid Ledger
+	// --- Category Tests ---
+	t.Run(
+		"Categories", func(t *testing.T) {
+			// This is the subtest for creating a category
 			t.Run(
-				"InvalidLedgerError", func(t *testing.T) {
-					is := is_.New(t)                                            // is instance for this subtest
-					invalidLedgerUUID := "00000000-0000-0000-0000-000000000000" // Or any non-existent UUID
+				"CreateCategory", func(t *testing.T) {
+					// t.Skip("For now") // Removed/Commented
 
-					_, err := conn.Exec(
-						ctx, "SELECT api.add_category($1, $2)",
-						invalidLedgerUUID, "Another Category",
+					// Skip if ledger creation failed
+					if ledgerUUID == "" {
+						t.Skip("Skipping CreateCategory tests because ledger creation failed or did not run")
+					}
+
+					//is := is_.New(t)
+					categoryName := "Groceries"
+					var categoryUUID string
+
+					// 1. Call api.add_category (Success Case)
+					t.Run(
+						"Success", func(t *testing.T) {
+							is := is_.New(t) // is instance for this subtest
+							var (
+								retUUID        string
+								retName        string
+								retType        string
+								retDescription pgtype.Text
+								retMetadata    *[]byte // Use pointer to byte slice for jsonb
+								retUserData    string
+								retLedgerUUID  string
+							)
+
+							// Call the function and scan all returned fields
+							// Since it returns SETOF, QueryRow works if exactly one row is expected
+							err := conn.QueryRow(
+								ctx, "SELECT * FROM api.add_category($1, $2)",
+								ledgerUUID, categoryName,
+							).Scan(
+								&retUUID,
+								&retName,
+								&retType,
+								&retDescription,
+								&retMetadata, // Pass address of pointer
+								&retUserData,
+								&retLedgerUUID,
+							)
+							is.NoErr(err) // Should execute function without error
+
+							// Assert Return Values
+							is.True(retUUID != "") // Should return a non-empty UUID
+							is.Equal(
+								retName, categoryName,
+							) // Returned name should match input
+							is.Equal(
+								retType, "equity",
+							) // Returned type should be 'equity'
+							is.Equal(
+								retLedgerUUID, ledgerUUID,
+							) // Returned ledger UUID should match input
+							is.Equal(
+								retUserData, testUserID,
+							)                              // Returned user_data should match simulated user
+							is.True(!retDescription.Valid) // Description should be null initially
+							is.True(retMetadata == nil)    // Metadata should be null initially (check if pointer is nil)
+
+							categoryUUID = retUUID // Store for later verification and tests
+						},
 					)
-					is.True(err != nil) // Should return an error
 
-					// Check for the specific error message from utils.add_category
-					var pgErr *pgconn.PgError
-					is.True(errors.As(err, &pgErr)) // Error should be a PgError
-					// Check the Message field for the specific exception text raised by the function
-					is.True(
-						strings.Contains(
-							pgErr.Message, "not found for current user",
-						),
+					// 2. Verify Database State
+					t.Run(
+						"VerifyDatabase", func(t *testing.T) {
+							is := is_.New(t) // is instance for this subtest
+							// Skip if the previous step failed to get a UUID
+							if categoryUUID == "" {
+								t.Skip("Skipping VerifyDatabase because category UUID was not captured")
+							}
+
+							var (
+								dbID           int
+								dbLedgerID     int
+								dbName         string
+								dbType         string
+								dbInternalType string
+								dbUserData     string
+								dbDescription  pgtype.Text
+								dbMetadata     *[]byte // Use pointer to byte slice for jsonb
+							)
+
+							// Query the data.accounts table directly
+							err := conn.QueryRow(
+								ctx,
+								`SELECT id, ledger_id, name, type, internal_type, user_data, description, metadata
+                 FROM data.accounts WHERE uuid = $1`, categoryUUID,
+							).Scan(
+								&dbID,
+								&dbLedgerID,
+								&dbName,
+								&dbType,
+								&dbInternalType,
+								&dbUserData,
+								&dbDescription,
+								&dbMetadata, // Pass address of pointer
+							)
+							is.NoErr(err) // Should find the account in the database
+
+							// Assert Database Values
+							is.Equal(
+								dbLedgerID, ledgerID,
+							) // Ledger ID should match the one created earlier
+							is.Equal(
+								dbName, categoryName,
+							) // Name should match
+							is.Equal(
+								dbType, "equity",
+							) // Type should be 'equity'
+							is.Equal(
+								dbInternalType, "liability_like",
+							) // Internal type should be 'liability_like'
+							is.Equal(
+								dbUserData, testUserID,
+							)                             // User data should match
+							is.True(!dbDescription.Valid) // Description should be null
+							is.True(dbMetadata == nil)    // Metadata should be null (check if pointer is nil)
+						},
+					)
+
+					// 3. Test Error Case: Duplicate Name
+					t.Run(
+						"DuplicateNameError", func(t *testing.T) {
+							is := is_.New(t) // is instance for this subtest
+							// Skip if the category wasn't created successfully
+							if categoryUUID == "" {
+								t.Skip("Skipping DuplicateNameError because category UUID was not captured")
+							}
+
+							// Call add_category again with the same name
+							_, err := conn.Exec(
+								ctx, "SELECT api.add_category($1, $2)",
+								ledgerUUID,
+								categoryName,
+							)
+							is.True(err != nil) // Should return an error
+
+							// Check for PostgreSQL unique violation error (code 23505)
+							var pgErr *pgconn.PgError
+							is.True(
+								errors.As(
+									err, &pgErr,
+								),
+							) // Error should be a PgError
+							is.Equal(
+								pgErr.Code, "23505",
+							) // Error code should be unique_violation
+						},
+					)
+
+					// 4. Test Error Case: Invalid Ledger
+					t.Run(
+						"InvalidLedgerError", func(t *testing.T) {
+							is := is_.New(t)                                            // is instance for this subtest
+							invalidLedgerUUID := "00000000-0000-0000-0000-000000000000" // Or any non-existent UUID
+
+							_, err := conn.Exec(
+								ctx, "SELECT api.add_category($1, $2)",
+								invalidLedgerUUID, "Another Category",
+							)
+							is.True(err != nil) // Should return an error
+
+							// Check for the specific error message from utils.add_category
+							var pgErr *pgconn.PgError
+							is.True(
+								errors.As(
+									err, &pgErr,
+								),
+							) // Error should be a PgError
+							// Check the Message field for the specific exception text raised by the function
+							is.True(
+								strings.Contains(
+									pgErr.Message, "not found for current user",
+								),
+							)
+						},
+					)
+
+					// 5. Test Error Case: Empty Name
+					t.Run(
+						"EmptyNameError", func(t *testing.T) {
+							is := is_.New(t) // is instance for this subtest
+
+							_, err := conn.Exec(
+								ctx, "SELECT api.add_category($1, $2)",
+								ledgerUUID, "",
+							)
+							is.True(err != nil) // Should return an error
+
+							// Check for the specific error message from utils.add_category
+							var pgErr *pgconn.PgError
+							is.True(
+								errors.As(
+									err, &pgErr,
+								),
+							) // Error should be a PgError
+							// Check the Message field for the specific exception text raised by the function
+							is.True(
+								strings.Contains(
+									pgErr.Message,
+									"Category name cannot be empty",
+								),
+							)
+						},
 					)
 				},
-			)
-
-			// 5. Test Error Case: Empty Name
-			t.Run(
-				"EmptyNameError", func(t *testing.T) {
-					is := is_.New(t) // is instance for this subtest
-
-					_, err := conn.Exec(
-						ctx, "SELECT api.add_category($1, $2)", ledgerUUID, "",
-					)
-					is.True(err != nil) // Should return an error
-
-					// Check for the specific error message from utils.add_category
-					var pgErr *pgconn.PgError
-					is.True(errors.As(err, &pgErr)) // Error should be a PgError
-					// Check the Message field for the specific exception text raised by the function
-					is.True(
-						strings.Contains(
-							pgErr.Message, "Category name cannot be empty",
-						),
-					)
-				},
-			)
-		}) // End of t.Run("CreateCategory", ...)
-	}) // End of t.Run("Categories", ...)
+			) // End of t.Run("CreateCategory", ...)
+		},
+	) // End of t.Run("Categories", ...)
 
 	// Test api.assign_to_category function
 	t.Run(
