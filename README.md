@@ -302,10 +302,10 @@ Result (example):
  account_uuid |      name       |  type   | balance 
 --------------+-----------------+---------+---------
  aK9sLp0Q     | Checking        | asset   |  91000
- iNcOmE4u     | Income          | equity  |  72500
- gR0cErI3     | Groceries       | equity  |  18500
- iNtErN3t     | Internet bill   | equity  |      0
- uNaSsIgN     | Unassigned      | equity  |      0
+ zKHL0bud     | Income          | equity  |  72500
+ qRZ6vwSL     | Groceries       | equity  |  18500
+ 2bkJFTjy     | Internet bill   | equity  |      0
+ YJoetziG     | Unassigned      | equity  |      0
 ```
 Note: Balance amounts are in cents (91000 = $910.00).
 
