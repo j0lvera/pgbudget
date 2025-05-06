@@ -54,10 +54,16 @@ create policy balances_policy on data.balances
 -- +goose Down
 -- +goose StatementBegin
 
+-- drop policy
 drop policy if exists balances_policy on data.balances;
 
+-- revoke sequence permissions
+revoke usage, select on sequence data.balances_id_seq from pgb_web_user;
+
+-- revoke table permissions
 revoke all on data.balances from pgb_web_user;
 
+-- drop table
 drop table if exists data.balances;
 
 -- +goose StatementEnd
