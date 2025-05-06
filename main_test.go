@@ -499,17 +499,20 @@ func TestDatabase(t *testing.T) {
 		})
 	})
 
-	// Test api.add_category function
-	t.Run(
-		"AddCategory", func(t *testing.T) {
-			t.Skip("For now")
+	// --- Category Tests ---
+	t.Run("Categories", func(t *testing.T) {
+		// This is the subtest for creating a category
+		t.Run("CreateCategory", func(t *testing.T) {
+			// t.Skip("For now") // Removed/Commented
+
 			// Skip if ledger creation failed
 			if ledgerUUID == "" {
-				t.Skip("Skipping AddCategory tests because ledger creation failed or did not run")
+				t.Skip("Skipping CreateCategory tests because ledger creation failed or did not run")
 			}
 
+			is := is_.New(t)
 			categoryName := "Groceries"
-			var categoryUUID string // Store UUID for subsequent subtests
+			var categoryUUID string
 
 			// 1. Call api.add_category (Success Case)
 			t.Run(
@@ -690,13 +693,13 @@ func TestDatabase(t *testing.T) {
 					)
 				},
 			)
-		},
-	)
+		}) // End of t.Run("CreateCategory", ...)
+	}) // End of t.Run("Categories", ...)
 
 	// Test api.assign_to_category function
 	t.Run(
 		"AssignToCategory", func(t *testing.T) {
-			t.Skip("For now")
+			t.Skip("For now") // This test can remain skipped
 			// Retrieve the categoryUUID created in the AddCategory test block
 			// This relies on test execution order or capturing the value at a higher scope.
 			// For simplicity here, we re-fetch it. A better approach might involve
