@@ -317,6 +317,50 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
+	// Test updating ledger name via API view
+	t.Run(
+		"UpdateLedgerNameViaView", func(t *testing.T) {
+			is := is_.New(t) // is instance for this subtest
+
+			// Skip if ledger creation failed or did not run, so ledgerUUID is not available
+			if ledgerUUID == "" {
+				t.Skip("Skipping UpdateLedgerNameViaView because ledgerUUID is not available")
+			}
+
+			newLedgerName := "Updated Test Budget"
+
+			// 1. Update the ledger name via the api.ledgers view
+			// The view is updatable for simple cases like this.
+			// PostgREST would translate a PATCH /ledgers?uuid=eq.{ledgerUUID} to a similar UPDATE.
+			// We also want to return the updated name to verify the update statement itself worked as expected.
+			var updatedNameFromView string
+			err := conn.QueryRow(
+				ctx,
+				"UPDATE api.ledgers SET name = $1 WHERE uuid = $2 RETURNING name",
+				newLedgerName,
+				ledgerUUID,
+			).Scan(&updatedNameFromView)
+			is.NoErr(err) // Should update ledger name without error
+			is.Equal(updatedNameFromView, newLedgerName) // The name returned by RETURNING should be the new name
+
+			// 2. Verify the name change by querying the api.ledgers view
+			var nameFromView string
+			err = conn.QueryRow(
+				ctx,
+				"SELECT name FROM api.ledgers WHERE uuid = $1",
+				ledgerUUID,
+			).Scan(&nameFromView)
+			is.NoErr(err) // Should find the ledger in the view
+			is.Equal(nameFromView, newLedgerName) // Name in view should be the new name
+
+			// 3. Verify the name change by querying the data.ledgers table directly
+			var nameFromDataTable string
+			err = conn.QueryRow(ctx, "SELECT name FROM data.ledgers WHERE uuid = $1", ledgerUUID).Scan(&nameFromDataTable)
+			is.NoErr(err) // Should find the ledger in the data table
+			is.Equal(nameFromDataTable, newLedgerName) // Name in data table should be the new name
+		},
+	)
+
 	// Test api.add_category function
 	t.Run(
 		"AddCategory", func(t *testing.T) {
