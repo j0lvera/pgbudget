@@ -167,64 +167,6 @@ end;
 $$ language plpgsql volatile security definer; -- Security definer for controlled execution
 
 
--- create a function to handle transaction insertion through the API view
-create or replace function utils.transactions_insert_single_fn() returns trigger as
-$$
-declare
-    v_ledger_id         bigint;
-    v_debit_account_id  bigint;
-    v_credit_account_id bigint;
-begin
-    -- get the ledger_id for denormalization
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = NEW.ledger_uuid;
-
-    if v_ledger_id is null then
-        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
-    end if;
-
-    -- get the debit account id
-    select a.id
-      into v_debit_account_id
-      from data.accounts a
-     where a.uuid = NEW.debit_account_uuid
-       and a.ledger_id = v_ledger_id;
-
-    if v_debit_account_id is null then
-        raise exception 'debit account with uuid % not found in ledger %', NEW.debit_account_uuid, NEW.ledger_uuid;
-    end if;
-
-    -- get the credit account id
-    select a.id
-      into v_credit_account_id
-      from data.accounts a
-     where a.uuid = NEW.credit_account_uuid
-       and a.ledger_id = v_ledger_id;
-
-    if v_credit_account_id is null then
-        raise exception 'credit account with uuid % not found in ledger %', NEW.credit_account_uuid, NEW.ledger_uuid;
-    end if;
-
-    -- insert the transaction into the transactions table
-       insert into data.transactions (description, date, amount, debit_account_id, credit_account_id, ledger_id,
-                                      metadata)
-       values (NEW.description,
-               NEW.date,
-               NEW.amount,
-               v_debit_account_id,
-               v_credit_account_id,
-               v_ledger_id,
-               NEW.metadata)
-    returning uuid, description, amount, metadata, date into
-        new.uuid, new.description, new.amount, new.metadata, new.date;
-
-    return new;
-end;
-$$ language plpgsql;
-
-
 -- Create a function to handle simple transaction insertion
 create or replace function utils.simple_transactions_insert_fn() returns trigger as
 $$
@@ -470,7 +412,65 @@ $$ language plpgsql;
 
 drop function if exists utils.add_transaction(text, timestamptz, text, text, bigint, text, text);
 drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
-drop function if exists utils.transactions_insert_single_fn();
+
+-- RECREATE utils.transactions_insert_single_fn() IN THE DOWN MIGRATION
+create or replace function utils.transactions_insert_single_fn() returns trigger as
+$$
+declare
+    v_ledger_id         bigint;
+    v_debit_account_id  bigint;
+    v_credit_account_id bigint;
+begin
+    -- get the ledger_id for denormalization
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = NEW.ledger_uuid;
+
+    if v_ledger_id is null then
+        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
+    end if;
+
+    -- get the debit account id
+    select a.id
+      into v_debit_account_id
+      from data.accounts a
+     where a.uuid = NEW.debit_account_uuid
+       and a.ledger_id = v_ledger_id;
+
+    if v_debit_account_id is null then
+        raise exception 'debit account with uuid % not found in ledger %', NEW.debit_account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- get the credit account id
+    select a.id
+      into v_credit_account_id
+      from data.accounts a
+     where a.uuid = NEW.credit_account_uuid
+       and a.ledger_id = v_ledger_id;
+
+    if v_credit_account_id is null then
+        raise exception 'credit account with uuid % not found in ledger %', NEW.credit_account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- insert the transaction into the transactions table
+       insert into data.transactions (description, date, amount, debit_account_id, credit_account_id, ledger_id,
+                                      metadata)
+       values (NEW.description,
+               NEW.date,
+               NEW.amount,
+               v_debit_account_id,
+               v_credit_account_id,
+               v_ledger_id,
+               NEW.metadata)
+    returning uuid, description, amount, metadata, date into
+        new.uuid, new.description, new.amount, new.metadata, new.date;
+
+    return new;
+end;
+$$ language plpgsql;
+
+
 drop function if exists utils.simple_transactions_insert_fn();
 drop function if exists utils.simple_transactions_update_fn();
 drop function if exists utils.simple_transactions_delete_fn();
