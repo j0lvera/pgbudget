@@ -103,16 +103,16 @@ begin
     end if;
 
     -- find the account_id from uuid
-    select a.id, a.internal_type 
+    select a.id, a.internal_type
       into v_account_id, v_account_internal_type
       from data.accounts a
-     where a.uuid = NEW.account_uuid 
+     where a.uuid = NEW.account_uuid
        and a.ledger_id = v_ledger_id;
-    
+
     if v_account_id is null then
         raise exception 'Account with UUID % not found in ledger %', NEW.account_uuid, NEW.ledger_uuid;
     end if;
-    
+
     -- validate transaction type
     if NEW.type not in ('inflow', 'outflow') then
         raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
@@ -134,7 +134,7 @@ begin
         select c.id into v_category_id
         from data.accounts c
         where c.uuid = NEW.category_uuid and c.ledger_id = v_ledger_id;
-        
+
         if v_category_id is null then
             raise exception 'Category with UUID % not found in ledger %', NEW.category_uuid, NEW.ledger_uuid;
         end if;
@@ -211,7 +211,7 @@ begin
       into v_transaction_id
       from data.transactions t
      where t.uuid = OLD.uuid;
-    
+
     if v_transaction_id is null then
         raise exception 'Transaction with UUID % not found', OLD.uuid;
     end if;
@@ -227,16 +227,16 @@ begin
     end if;
 
     -- find the account_id from uuid
-    select a.id, a.internal_type 
+    select a.id, a.internal_type
       into v_account_id, v_account_internal_type
       from data.accounts a
-     where a.uuid = NEW.account_uuid 
+     where a.uuid = NEW.account_uuid
        and a.ledger_id = v_ledger_id;
-    
+
     if v_account_id is null then
         raise exception 'Account with UUID % not found in ledger %', NEW.account_uuid, NEW.ledger_uuid;
     end if;
-    
+
     -- validate transaction type
     if NEW.type not in ('inflow', 'outflow') then
         raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
@@ -258,7 +258,7 @@ begin
         select c.id into v_category_id
         from data.accounts c
         where c.uuid = NEW.category_uuid and c.ledger_id = v_ledger_id;
-        
+
         if v_category_id is null then
             raise exception 'Category with UUID % not found in ledger %', NEW.category_uuid, NEW.ledger_uuid;
         end if;
@@ -317,31 +317,31 @@ $$ language plpgsql;
 
 -- Create the simple_transactions view
 create or replace view api.simple_transactions with (security_invoker = true) as
-select 
+select
     t.uuid,
     t.description,
     t.amount,
     t.metadata,
     t.date,
     -- Determine transaction type based on account relationships
-    case 
+    case
         when a_debit.internal_type = 'asset_like' and a_debit.id = t.debit_account_id then 'inflow'
         when a_credit.internal_type = 'asset_like' and a_credit.id = t.credit_account_id then 'outflow'
         when a_debit.internal_type = 'liability_like' and a_debit.id = t.debit_account_id then 'outflow'
         when a_credit.internal_type = 'liability_like' and a_credit.id = t.credit_account_id then 'inflow'
     end as type,
     -- Determine which account is the bank/credit card account
-    case 
+    case
         when a_debit.type in ('asset', 'liability') then a_debit.uuid
         when a_credit.type in ('asset', 'liability') then a_credit.uuid
     end as account_uuid,
     -- Determine which account is the category
-    case 
+    case
         when a_debit.type = 'equity' then a_debit.uuid
         when a_credit.type = 'equity' then a_credit.uuid
     end as category_uuid,
     (select l.uuid from data.ledgers l where l.id = t.ledger_id)::text as ledger_uuid
-from 
+from
     data.transactions t
     join data.accounts a_debit on t.debit_account_id = a_debit.id
     join data.accounts a_credit on t.credit_account_id = a_credit.id;
