@@ -1139,10 +1139,40 @@ func TestDatabase(t *testing.T) {
 				// The expected message from utils.simple_transactions_insert_fn is 'Category with UUID % not found in ledger %'
 				is.True(strings.Contains(pgErr.Message, "Category with UUID"))
 				is.True(strings.Contains(pgErr.Message, "not found in ledger"))
+			}) // End of t.Run("Error_InvalidCategory", ...)
+
+			// Subtest for error case: Invalid Transaction Type
+			t.Run("Error_InvalidType", func(t *testing.T) {
+				is := is_.New(t)
+				invalidTxType := "sideways" // An invalid transaction type
+				txDate := time.Now()
+				txDescription := "Transaction with invalid type"
+				txAmount := int64(4000) // $40.00
+
+				// Attempt to insert with an invalid type
+				_, err := conn.Exec(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					transactionLedgerUUID, // Valid ledger UUID
+					mainAccountUUID,       // Valid account UUID
+					expenseCategoryUUID,   // Valid category UUID
+					invalidTxType,         // Using the invalid transaction type
+					txAmount,
+					txDescription,
+					txDate,
+				)
+				is.True(err != nil) // Should return an error
+
+				// Check for the specific error message from utils.simple_transactions_insert_fn
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr)) // Error should be a PgError
+				// The expected message from utils.simple_transactions_insert_fn is 'Invalid transaction type: %. Must be either "inflow" or "outflow"'
+				is.True(strings.Contains(pgErr.Message, "Invalid transaction type"))
+				is.True(strings.Contains(pgErr.Message, `Must be either "inflow" or "outflow"`))
 			})
 
 			// TODO: Add more subtests for "CreateTransaction"
-			// - Error_InvalidType
 			// - Error_ZeroAmount
 			// - Error_NegativeAmount
 		}) // End of t.Run("CreateTransaction", ...)
