@@ -1200,10 +1200,40 @@ func TestDatabase(t *testing.T) {
 				is.True(errors.As(err, &pgErr)) // Error should be a PgError
 				// The expected message from utils.simple_transactions_insert_fn is 'Transaction amount must be positive: %'
 				is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
+			}) // End of t.Run("Error_ZeroAmount", ...)
+
+			// Subtest for error case: Negative Amount
+			t.Run("Error_NegativeAmount", func(t *testing.T) {
+				is := is_.New(t)
+				txDate := time.Now()
+				txDescription := "Transaction with negative amount"
+				txAmount := int64(-5000) // Negative amount
+				txType := "outflow"
+
+				// Attempt to insert with negative amount
+				_, err := conn.Exec(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					transactionLedgerUUID, // Valid ledger UUID
+					mainAccountUUID,       // Valid account UUID
+					expenseCategoryUUID,   // Valid category UUID
+					txType,
+					txAmount,              // Using negative amount
+					txDescription,
+					txDate,
+				)
+				is.True(err != nil) // Should return an error
+
+				// Check for the specific error message from utils.simple_transactions_insert_fn
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr)) // Error should be a PgError
+				// The expected message from utils.simple_transactions_insert_fn is 'Transaction amount must be positive: %'
+				is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
 			})
 
 			// TODO: Add more subtests for "CreateTransaction"
-			// - Error_NegativeAmount
+			// (Consider if there are other specific error paths in simple_transactions_insert_fn)
 		}) // End of t.Run("CreateTransaction", ...)
 	}) // End of t.Run("Transactions", ...)
 
