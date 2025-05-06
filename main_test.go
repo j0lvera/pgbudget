@@ -131,18 +131,18 @@ func setupTestLedger(
 	}
 	accountUUIDs["Income"] = incomeUUID
 
-	// 5. Add Income Transaction via simple_transactions view
+	// 5. Add Income Transaction via api.transactions view (formerly simple_transactions)
 	var incomeTxUUID string
 	err = conn.QueryRow(
 		ctx,
-		`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
+		`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`, // CHANGED to api.transactions
 		ledgerUUID, "2023-01-01", "Salary deposit", "inflow", 100000,
 		checkingUUID, incomeUUID,
 	).Scan(&incomeTxUUID)
 	if err != nil {
 		err = fmt.Errorf(
-			"failed to create income transaction via simple_transactions view: %w",
+			"failed to create income transaction via api.transactions view: %w", // CHANGED message
 			err,
 		)
 		return // Return immediately on error
@@ -165,18 +165,18 @@ func setupTestLedger(
 	}
 	transactionUUIDs["Budget"] = budgetTxUUID
 
-	// 7. Spend Money from Groceries via simple_transactions view
+	// 7. Spend Money from Groceries via api.transactions view (formerly simple_transactions)
 	var spendTxUUID string
 	err = conn.QueryRow(
 		ctx,
-		`INSERT INTO api.simple_transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
-         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`,
+		`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+         VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING uuid`, // CHANGED to api.transactions
 		ledgerUUID, "2023-01-02", "Grocery shopping", "outflow", 7500,
 		checkingUUID, groceriesUUID,
 	).Scan(&spendTxUUID)
 	if err != nil {
 		err = fmt.Errorf(
-			"failed to create spending transaction via simple_transactions view: %w",
+			"failed to create spending transaction via api.transactions view: %w", // CHANGED message
 			err,
 		)
 		return // Return immediately on error
