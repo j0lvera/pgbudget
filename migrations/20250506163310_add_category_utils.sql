@@ -139,9 +139,7 @@ $$ language plpgsql volatile security definer; -- Security definer for controlle
 
 -- +goose Down
 -- +goose StatementBegin
-drop function if exists utils.add_category(
-    p_ledger_uuid text,
-    p_name text,
-    p_user_data text = utils.get_user()
-) cascade;
+drop function if exists utils.add_category(text, text, text) cascade;
+drop function if exists utils.find_category(text, text, text) cascade;
+drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
 -- +goose StatementEnd
