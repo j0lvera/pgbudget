@@ -85,61 +85,10 @@ begin
 end;
 $$ language plpgsql stable security definer; -- runs with definer privileges, read-only
 
-
-
--- function to assign money from Income to a category (internal utility)
--- performs the core logic: finds accounts, validates, inserts transaction
--- returns necessary info for the API layer
-create or replace function utils.assign_to_category(
-    p_ledger_uuid text,
-    p_date timestamptz,
-    p_description text,
-    p_amount bigint,
-    p_category_uuid text,
-    p_user_data text = utils.get_user()
-) returns table(transaction_uuid text, income_account_uuid text, metadata jsonb) as
-$$
-declare
-    v_ledger_id          int;
-    v_income_account_id  int;
-    v_income_account_uuid_local text; -- Renamed to avoid conflict with return column name
-    v_category_account_id int;
-    v_transaction_uuid_local text; -- Renamed
-    v_metadata_local jsonb; -- Renamed
-begin
-    -- find the ledger ID for the specified UUID and user
-    select l.id into v_ledger_id from data.ledgers l where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
-    if v_ledger_id is null then raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; end if;
-
-    -- validate amount is positive
-    if p_amount <= 0 then raise exception 'Assignment amount must be positive: %', p_amount; end if;
-
-    -- find the Income account ID and UUID
-    select a.id, a.uuid into v_income_account_id, v_income_account_uuid_local from data.accounts a
-     where a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.name = 'Income' and a.type = 'equity';
-    if v_income_account_id is null then raise exception 'Income account not found for ledger %', v_ledger_id; end if;
-
-    -- find the target category account ID
-    select a.id into v_category_account_id from data.accounts a
-     where a.uuid = p_category_uuid and a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.type = 'equity';
-    if v_category_account_id is null then raise exception 'Category with UUID % not found or does not belong to ledger % for current user', p_category_uuid, v_ledger_id; end if;
-
-    -- create the transaction (debit Income, credit Category)
-       insert into data.transactions (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
-       values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
-    returning uuid, metadata into v_transaction_uuid_local, v_metadata_local;
-
-    -- Return the essential details
-    return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
-
-end;
-$$ language plpgsql volatile security definer; -- Security definer for controlled execution
-
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 drop function if exists utils.add_category(text, text, text) cascade;
 drop function if exists utils.find_category(text, text, text) cascade;
-drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
 -- +goose StatementEnd
