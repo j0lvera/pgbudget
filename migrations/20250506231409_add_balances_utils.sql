@@ -318,5 +318,17 @@ $$ language plpgsql;
 
 -- +goose Down
 -- +goose StatementBegin
-SELECT 'down SQL query';
+
+-- drop the function to get budget status
+drop function if exists utils.get_budget_status(integer);
+
+-- drop the function to get account balance
+drop function if exists utils.get_account_balance(integer, integer);
+
+-- drop the function to get account transactions
+drop function if exists utils.get_account_transactions(integer);
+
+-- drop the trigger function
+drop function if exists utils.update_account_balance();
+
 -- +goose StatementEnd
