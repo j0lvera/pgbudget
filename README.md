@@ -42,165 +42,232 @@ This approach avoids floating-point precision issues when dealing with money. It
 
 ## Usage Examples
 
+All API interactions should use UUIDs to identify resources like ledgers, accounts, and categories.
+
 ### Create a Budget (Ledger)
+
+You create a new budget (referred to as a "ledger") by inserting into the `api.ledgers` view.
 
 ```sql
 -- Create a new budget ledger
-INSERT INTO data.ledgers (name) VALUES ('My Budget') RETURNING id;
+INSERT INTO api.ledgers (name) VALUES ('My Budget') RETURNING uuid;
+```
+
+Result (example):
+```
+               uuid
+--------------------------------------
+ abcdef12-3456-7890-cdef-1234567890ab
+```
+Store this `uuid` as it will be used as the `ledger_uuid` in subsequent operations.
+
+### Update a Ledger's Name
+
+You can update a ledger's attributes, such as its name, via the `api.ledgers` view.
+
+```sql
+-- Update the name of an existing ledger
+UPDATE api.ledgers
+   SET name = 'My Renovated Budget'
+ WHERE uuid = 'abcdef12-3456-7890-cdef-1234567890ab' -- Use the UUID of the ledger you want to update
+ RETURNING name;
 ```
 
 Result:
 ```
- id 
-----
-  1
+        name         
+---------------------
+ My Renovated Budget
 ```
 
 ### Create a Checking Account
 
+Accounts (like bank accounts, credit cards, etc.) are created by inserting into the `api.accounts` view.
+
 ```sql
 -- Create a checking account (asset type)
-SELECT api.add_account(
-    1,                          -- ledger_id
-    'Checking',                 -- name
-    'asset'                     -- type
-) AS account_id;
+INSERT INTO api.accounts (ledger_uuid, name, type)
+VALUES ('abcdef12-3456-7890-cdef-1234567890ab', 'Checking', 'asset') -- Use your ledger_uuid
+RETURNING uuid;
 ```
 
-Result:
+Result (example):
 ```
- account_id 
------------
-         4
+               uuid
+--------------------------------------
+ fedcba09-8765-4321-fedc-ba9876543210
 ```
+Store this `uuid` as it will be used as an `account_uuid`.
 
-The `api.add_account` function simplifies creating accounts by automatically setting the correct internal type. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `name`: The name of the account to create
-- `type`: The account type ('asset', 'liability', or 'equity')
-
-It returns the ID of the newly created account.
+You can create accounts by inserting directly into the `api.accounts` view. This view handles the underlying logic. Required fields typically include:
+- `ledger_uuid`: The UUID of your budget ledger.
+- `name`: The name of the account.
+- `type`: The account type ('asset', 'liability', or 'equity').
+The insert operation will return the UUID of the newly created account.
 
 ### Add Income
 
+Income is typically recorded as an "inflow" transaction using the `api.simple_transactions` view. This transaction increases the balance of an asset account (e.g., 'Checking') and credits the special 'Income' category.
+
 ```sql
 -- Add income of $1000 from "Paycheck" (100000 cents)
-SELECT api.add_transaction(
-    1,                          -- ledger_id
-    NOW(),                      -- date
-    'Paycheck',                 -- description
-    'inflow',                   -- type
-    100000,                     -- amount (100000 cents = $1000.00)
-    4,                          -- account_id (Checking account)
-    api.find_category(1, 'Income')  -- category_id
-);
+-- First, find the UUID of the 'Income' category for your ledger
+-- (Assuming api.find_category function exists and returns the UUID)
+-- For this example, let's say 'income-category-uuid' is the UUID for the 'Income' category.
+-- And 'checking-account-uuid' is the UUID for your 'Checking' account.
+
+INSERT INTO api.simple_transactions (
+    ledger_uuid,
+    date,
+    description,
+    type,
+    amount,
+    account_uuid,       -- The bank account receiving the money
+    category_uuid       -- The 'Income' category
+) VALUES (
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    NOW(),
+    'Paycheck',
+    'inflow',
+    100000,             -- Amount in cents ($1000.00)
+    'fedcba09-8765-4321-fedc-ba9876543210', -- Your checking_account_uuid
+    (SELECT uuid FROM api.accounts WHERE ledger_uuid = 'abcdef12-3456-7890-cdef-1234567890ab' AND name = 'Income') -- Dynamically find Income category UUID
+) RETURNING uuid;
 ```
 
-Result:
+Result (example):
 ```
- add_transaction 
-----------------
-              1
+               uuid
+--------------------------------------
+ 1234abcd-efab-cdef-0123-456789abcdef
 ```
+For more details on transaction entry, see the "Transaction Entry Options" section below. To find category UUIDs like 'Income', you can query the `api.accounts` view or use a helper function like `api.find_category(ledger_uuid, category_name)` if available (see "Create Categories" for `api.add_category` which returns UUIDs).
 
 ### Create Categories
 
+Budget categories are created using the `api.add_category` function.
+
 ```sql
 -- Create a new category using the add_category function
-SELECT api.add_category(
-    1,                          -- ledger_id
-    'Groceries'                 -- name
-) AS category_id;
+SELECT uuid FROM api.add_category(
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    'Groceries'
+) AS category_uuid;
 
-SELECT api.add_category(
-    1,                          -- ledger_id
-    'Internet bill'             -- name
-) AS category_id;
+SELECT uuid FROM api.add_category(
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    'Internet bill'
+) AS category_uuid;
 ```
-
 The `api.add_category` function simplifies creating budget categories by automatically setting the correct account type and internal type. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `name`: The name of the category to create
+- `ledger_uuid`: The UUID of your budget ledger.
+- `name`: The name of the category to create.
 
-It returns the ID of the newly created category account.
+It returns the UUID of the newly created category account (which you should store as `category_uuid`).
 
 ### Assign Money to Categories
 
-```sql
+The `api.assign_to_category` function handles moving money from your 'Income' account to specific budget categories.
 
+```sql
 -- Assign $200 to Groceries (20000 cents)
-SELECT api.assign_to_category(
-    1,                          -- ledger_id
-    NOW(),                      -- date
-    'Budget: Groceries',        -- description
-    20000,                      -- amount (20000 cents = $200.00)
-    api.find_category(1, 'Groceries')  -- category_id
-);
+-- Let's assume 'groceries-category-uuid' is the UUID for your 'Groceries' category.
+SELECT uuid FROM api.assign_to_category(
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    NOW(),                                  -- Date of assignment
+    'Budget: Groceries',                    -- Description
+    20000,                                  -- Amount in cents ($200.00)
+    'your-groceries-category-uuid'          -- The UUID of the 'Groceries' category
+) AS transaction_uuid;
 
 -- Assign $75 to Internet bill (7500 cents)
-SELECT api.assign_to_category(
-    1,                          -- ledger_id
-    NOW(),                      -- date
-    'Budget: Internet',         -- description
-    7500,                       -- amount (7500 cents = $75.00)
-    api.find_category(1, 'Internet bill')  -- category_id
-);
+-- Let's assume 'internet-bill-category-uuid' is the UUID for your 'Internet bill' category.
+SELECT uuid FROM api.assign_to_category(
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    NOW(),
+    'Budget: Internet',
+    7500,                                   -- Amount in cents ($75.00)
+    'your-internet-bill-category-uuid'      -- The UUID of the 'Internet bill' category
+) AS transaction_uuid;
 ```
 
-The `api.assign_to_category` function handles moving money from your Income account to specific budget categories. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `date`: When the assignment occurs
-- `description`: A description for the assignment
-- `amount`: How much money to assign (must be positive)
-- `category_id`: The category to assign money to
+It takes these parameters:
+- `ledger_uuid`: The UUID of your budget ledger.
+- `date`: When the assignment occurs.
+- `description`: A description for the assignment.
+- `amount`: How much money to assign (must be positive, in cents).
+- `category_uuid`: The UUID of the category to assign money to.
 
 ### Spend Money
 
+Spending is recorded as an "outflow" transaction using the `api.simple_transactions` view. This decreases the balance of an asset account (e.g., 'Checking') and debits the relevant budget category.
+
 ```sql
 -- Spend $15 on Milk from Groceries category (1500 cents)
-SELECT api.add_transaction(
-    1,                          -- ledger_id
-    NOW(),                      -- date
-    'Milk',                     -- description
-    'outflow',                  -- type
-    1500,                       -- amount (1500 cents = $15.00)
-    4,                          -- account_id (Checking account)
-    api.find_category(1, 'Groceries')  -- category_id
-);
+-- Use your ledger_uuid, checking_account_uuid, and groceries_category_uuid.
+INSERT INTO api.simple_transactions (
+    ledger_uuid,
+    date,
+    description,
+    type,
+    amount,
+    account_uuid,       -- The bank account money is spent from
+    category_uuid       -- The budget category the spending is attributed to
+) VALUES (
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    NOW(),
+    'Milk',
+    'outflow',
+    1500,                                   -- Amount in cents ($15.00)
+    'fedcba09-8765-4321-fedc-ba9876543210', -- Your checking_account_uuid
+    'your-groceries-category-uuid'          -- Your groceries_category_uuid
+) RETURNING uuid;
 
 -- Pay the entire Internet bill (7500 cents)
-SELECT api.add_transaction(
-    1,                          -- ledger_id
-    NOW(),                      -- date
-    'Monthly Internet',         -- description
-    'outflow',                  -- type
-    7500,                       -- amount (7500 cents = $75.00)
-    4,                          -- account_id (Checking account)
-    api.find_category(1, 'Internet bill')  -- category_id
-);
+INSERT INTO api.simple_transactions (
+    ledger_uuid,
+    date,
+    description,
+    type,
+    amount,
+    account_uuid,
+    category_uuid
+) VALUES (
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    NOW(),
+    'Monthly Internet',
+    'outflow',
+    7500,                                   -- Amount in cents ($75.00)
+    'fedcba09-8765-4321-fedc-ba9876543210', -- Your checking_account_uuid
+    'your-internet-bill-category-uuid'      -- Your internet_bill_category_uuid
+) RETURNING uuid;
 ```
 
 ### Check Budget Status
 
 ```sql
--- View budget status for all categories
-SELECT * FROM data.budget_status;
+-- View budget status for all categories in a specific ledger
+-- This example uses a hypothetical api.get_budget_status function.
+-- Alternatively, you might query a view like api.budget_status(ledger_uuid).
+-- If querying data directly (for reads):
+SELECT * FROM data.budget_status WHERE ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'abcdef12-3456-7890-cdef-1234567890ab');
 ```
 
-Result:
+Example Result (from `data.budget_status` or a similar API view/function):
 ```
  id |     account_name     | budgeted | activity | balance 
 ----+----------------------+----------+----------+---------
   5 | Groceries            |   20000  |   -1500  |  18500
   6 | Internet bill        |    7500  |   -7500  |      0
 ```
+(Assuming `id` here refers to an internal account ID; an API view might expose account UUIDs instead).
 
-Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.). The frontend application is responsible for formatting these values with proper decimal places and currency symbols.
+Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.).
 
-For a specific ledger:
+For a specific ledger using an API function (if available):
 ```sql
--- View budget status for ledger ID 2
-SELECT * FROM api.get_budget_status(2);
+-- View budget status for a ledger using its UUID
+SELECT * FROM api.get_budget_status('abcdef12-3456-7890-cdef-1234567890ab'); -- Use your ledger_uuid
 ```
 
 The budget status shows:
@@ -208,11 +275,11 @@ The budget status shows:
 - **activity**: Money spent from this category
 - **balance**: Current available amount in the category
 
-You can also view all accounts and their balances:
-
+You can also view all accounts and their balances (example of direct data query for reads):
 ```sql
--- View all accounts and their balances
+-- View all accounts and their balances for a specific ledger
 SELECT 
+    a.uuid as account_uuid, -- Exposing UUID
     a.name, 
     a.type, 
     (SELECT SUM(
@@ -222,53 +289,49 @@ SELECT
             ELSE 0 
         END
     ) FROM data.transactions t 
-    WHERE t.credit_account_id = a.id OR t.debit_account_id = a.id) as balance
+    WHERE (t.credit_account_id = a.id OR t.debit_account_id = a.id)
+      AND t.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'abcdef12-3456-7890-cdef-1234567890ab')
+    ) as balance
 FROM data.accounts a
-WHERE a.ledger_id = 1
+WHERE a.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'abcdef12-3456-7890-cdef-1234567890ab') -- Use your ledger_uuid
 ORDER BY a.type, a.name;
 ```
 
-Result:
+Result (example):
 ```
-      name       |   type    | balance 
------------------+-----------+---------
- Checking        | asset     |  91000
- Income          | equity    |  72500
- Groceries       | equity    |  18500
- Internet bill   | equity    |      0
- Unassigned      | equity    |      0
+           account_uuid           |      name       |   type    | balance 
+----------------------------------+-----------------+-----------+---------
+ fedcba09-8765-4321-fedc-ba9876543210 | Checking        | asset     |  91000
+ your-income-category-uuid        | Income          | equity    |  72500
+ your-groceries-category-uuid     | Groceries       | equity    |  18500
+ your-internet-bill-category-uuid | Internet bill   | equity    |      0
+ your-unassigned-category-uuid    | Unassigned      | equity    |      0
 ```
-
 Note: Balance amounts are in cents (91000 = $910.00).
 
 ### Check Account Balances
 
 ```sql
--- Get the balance of a specific account
-SELECT api.get_account_balance(
-    1,                          -- ledger_id
-    4                           -- account_id
+-- Get the balance of a specific account using its UUID
+SELECT balance FROM api.get_account_balance(
+    'abcdef12-3456-7890-cdef-1234567890ab', -- Your ledger_uuid
+    'fedcba09-8765-4321-fedc-ba9876543210'  -- The account_uuid you want to check
 ) AS balance;
 ```
 
-Result:
+Result (example):
 ```
  balance 
 ---------
    87500
 ```
-
 Note: Balance amount is in cents (87500 = $875.00).
 
-The `api.get_account_balance` function calculates the current balance of any account, handling both asset-like and liability-like accounts correctly. It takes these parameters:
-- `ledger_id`: The ID of your budget ledger
-- `account_id`: The ID of the account to check
+The `api.get_account_balance` function calculates the current balance of any account. It takes these parameters:
+- `ledger_uuid`: The UUID of your budget ledger.
+- `account_uuid`: The UUID of the account to check.
 
-This function automatically applies the correct accounting logic based on the account's internal type:
-- For asset-like accounts (e.g., checking accounts): debits increase balance, credits decrease balance
-- For liability-like accounts (e.g., credit cards, budget categories): credits increase balance, debits decrease balance
-
-This ensures that balances are always calculated correctly regardless of account type.
+This function automatically applies the correct accounting logic based on the account's internal type.
 
 ## Transaction Entry Options
 
@@ -284,24 +347,23 @@ INSERT INTO api.simple_transactions (
     description,
     type,                      -- 'inflow' or 'outflow'
     amount,                    -- in cents (5000 = $50.00)
-    account_uuid,              -- the bank account or credit card
-    category_uuid              -- the budget category
+    account_uuid,              -- the bank account or credit card UUID
+    category_uuid              -- the budget category UUID
 ) VALUES (
-    'ledger-uuid',
+    'your-ledger-uuid',
     NOW(),
     'Grocery shopping',
     'outflow',
     5000,                      -- 5000 cents = $50.00
-    'checking-account-uuid',   -- bank account
-    'groceries-category-uuid'  -- category
-);
+    'your-checking-account-uuid',
+    'your-groceries-category-uuid'
+) RETURNING uuid;
 
 -- Update a transaction
 UPDATE api.simple_transactions
    SET amount = 6000,          -- 6000 cents = $60.00
-       type = 'outflow',
        description = 'Updated grocery shopping'
- WHERE uuid = 'transaction-uuid';
+ WHERE uuid = 'your-transaction-uuid'; -- Use the UUID of the transaction to update
 ```
 
 This approach:
@@ -323,13 +385,13 @@ INSERT INTO api.transactions (
     debit_account_uuid,
     credit_account_uuid
 ) VALUES (
-    'ledger-uuid',
+    'your-ledger-uuid',
     'Grocery shopping',
     NOW(),
     5000,                       -- 5000 cents = $50.00
-    'groceries-category-uuid',  -- account to debit
-    'checking-account-uuid'     -- account to credit
-);
+    'your-groceries-category-uuid',  -- account UUID to debit
+    'your-checking-account-uuid'     -- account UUID to credit
+) RETURNING uuid;
 ```
 
 This approach:
@@ -343,11 +405,11 @@ Both methods maintain the integrity of your double-entry accounting system while
 ### View Account Transactions
 
 ```sql
--- View transactions for a specific account
-SELECT * FROM api.get_account_transactions(4);  -- Replace 4 with your account ID
+-- View transactions for a specific account using its UUID
+SELECT * FROM api.get_account_transactions('your-account-uuid');
 ```
 
-Result:
+Result (example):
 ```
     date    |   category    |   description    |   type   | amount | balance
 ------------+---------------+------------------+----------+--------+--------
@@ -369,23 +431,12 @@ The `api.get_account_transactions` function provides a comprehensive view of all
 - **amount**: The transaction amount (always positive, with the direction indicated by the type)
 - **balance**: The account balance after this transaction (running balance)
 
-The function automatically handles the display logic based on the account type:
-- For asset-like accounts (e.g., checking accounts):
-  - Debits (money coming in) are shown as "inflow"
-  - Credits (money going out) are shown as "outflow"
-- For liability-like accounts (e.g., credit cards, budget categories):
-  - Credits (increasing debt/budget) are shown as "inflow"
-  - Debits (decreasing debt/budget) are shown as "outflow"
+The function automatically handles the display logic based on the account type. Transactions are sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
 
-This makes the transaction history intuitive regardless of the underlying accounting mechanics.
-
-Transactions are sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
-
-You can also use the default view for a quick look at transactions in account ID 4:
-
+You can also use the default view for a quick look at transactions in account ID 4 (if you know the internal ID and have direct data access):
 ```sql
--- View transactions for the default account
-SELECT * FROM data.account_transactions;
+-- View transactions for the account with internal ID 4
+SELECT * FROM data.account_transactions WHERE account_id = 4;
 ```
 
 ## Contributing
