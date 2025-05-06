@@ -1107,10 +1107,41 @@ func TestDatabase(t *testing.T) {
 				// The expected message from utils.simple_transactions_insert_fn is 'Account with UUID % not found in ledger %'
 				is.True(strings.Contains(pgErr.Message, "Account with UUID"))
 				is.True(strings.Contains(pgErr.Message, "not found in ledger"))
+			}) // End of t.Run("Error_InvalidAccount", ...)
+
+			// Subtest for error case: Invalid Category
+			t.Run("Error_InvalidCategory", func(t *testing.T) {
+				is := is_.New(t)
+				invalidCategoryUUID := "22222222-2222-2222-2222-222222222222" // A non-existent UUID
+				txDate := time.Now()
+				txDescription := "Transaction with invalid category"
+				txAmount := int64(3000) // $30.00
+				txType := "outflow"
+
+				// Attempt to insert with an invalid category_uuid
+				_, err := conn.Exec(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+					transactionLedgerUUID, // Valid ledger UUID
+					mainAccountUUID,       // Valid account UUID
+					invalidCategoryUUID,   // Using the invalid category UUID
+					txType,
+					txAmount,
+					txDescription,
+					txDate,
+				)
+				is.True(err != nil) // Should return an error
+
+				// Check for the specific error message from utils.simple_transactions_insert_fn
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr)) // Error should be a PgError
+				// The expected message from utils.simple_transactions_insert_fn is 'Category with UUID % not found in ledger %'
+				is.True(strings.Contains(pgErr.Message, "Category with UUID"))
+				is.True(strings.Contains(pgErr.Message, "not found in ledger"))
 			})
 
 			// TODO: Add more subtests for "CreateTransaction"
-			// - Error_InvalidCategory
 			// - Error_InvalidType
 			// - Error_ZeroAmount
 			// - Error_NegativeAmount
