@@ -28,8 +28,6 @@ comment on column data.ledgers.name is 'User-defined name for the ledger.';
 comment on column data.ledgers.description is 'Optional description for the ledger.';
 comment on column data.ledgers.metadata is 'Optional JSONB field for storing arbitrary structured data related to the ledger.';
 comment on column data.ledgers.user_data is 'Identifier of the user who owns the ledger, typically from JWT.';
-comment on column data.ledgers.created_at is 'Timestamp of when the ledger was created.';
-comment on column data.ledgers.updated_at is 'Timestamp of when the ledger was last updated.';
 
 create trigger ledgers_updated_at_tg
     before update
