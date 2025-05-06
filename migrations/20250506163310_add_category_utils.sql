@@ -1,0 +1,147 @@
+-- +goose Up
+-- +goose StatementBegin
+
+-- function to create a new category account (internal)
+-- takes ledger uuid, category name, and user_data
+-- returns the full data.accounts record for the new category
+create or replace function utils.add_category(
+    p_ledger_uuid text,
+    p_name text,
+    p_user_data text = utils.get_user()
+) returns data.accounts as -- Return the full account record
+$$
+declare
+    v_ledger_id   int;
+    v_account_record data.accounts;
+begin
+    -- find the ledger ID for the specified UUID and user
+    -- ensures the user owns the ledger
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = p_ledger_uuid
+       and l.user_data = p_user_data;
+
+    -- raise exception if ledger not found for the user
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
+    end if;
+
+    -- validate the category name is not empty
+    if p_name is null or trim(p_name) = '' then
+        raise exception 'Category name cannot be empty';
+    end if;
+
+    -- create the category account (equity type, liability_like behavior)
+    -- associate it with the user using user_data
+       insert into data.accounts (ledger_id, name, type, internal_type, user_data)
+       values (v_ledger_id, p_name, 'equity', 'liability_like', p_user_data)
+    returning * into v_account_record; -- return the newly created account record
+
+    return v_account_record;
+end;
+$$ language plpgsql security definer; -- runs with definer privileges for controlled data access
+
+
+
+-- function to find a category by name in a ledger (internal utility)
+-- takes ledger uuid, category name, and user_data
+-- returns the UUID of the found category account
+create or replace function utils.find_category(
+    p_ledger_uuid text,
+    p_category_name text,
+    p_user_data text = utils.get_user()
+) returns text as -- Return UUID
+$$
+declare
+    v_ledger_id int;
+    v_category_uuid text;
+begin
+    -- find the ledger ID for the specified UUID and user
+    -- ensures the user owns the ledger
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = p_ledger_uuid
+       and l.user_data = p_user_data;
+
+    -- raise exception if ledger not found for the user
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
+    end if;
+
+    -- find the category account UUID for this ledger, user, and name
+    -- ensures the account is of type 'equity' (a category)
+    select a.uuid
+      into v_category_uuid
+      from data.accounts a
+     where a.ledger_id = v_ledger_id
+       and a.user_data = p_user_data
+       and a.name = p_category_name
+       and a.type = 'equity';
+
+    -- return the found UUID (will be null if not found)
+    return v_category_uuid;
+end;
+$$ language plpgsql stable security definer; -- runs with definer privileges, read-only
+
+
+
+-- function to assign money from Income to a category (internal utility)
+-- performs the core logic: finds accounts, validates, inserts transaction
+-- returns necessary info for the API layer
+create or replace function utils.assign_to_category(
+    p_ledger_uuid text,
+    p_date timestamptz,
+    p_description text,
+    p_amount bigint,
+    p_category_uuid text,
+    p_user_data text = utils.get_user()
+) returns table(transaction_uuid text, income_account_uuid text, metadata jsonb) as
+$$
+declare
+    v_ledger_id          int;
+    v_income_account_id  int;
+    v_income_account_uuid_local text; -- Renamed to avoid conflict with return column name
+    v_category_account_id int;
+    v_transaction_uuid_local text; -- Renamed
+    v_metadata_local jsonb; -- Renamed
+begin
+    -- find the ledger ID for the specified UUID and user
+    select l.id into v_ledger_id from data.ledgers l where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
+    if v_ledger_id is null then raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; end if;
+
+    -- validate amount is positive
+    if p_amount <= 0 then raise exception 'Assignment amount must be positive: %', p_amount; end if;
+
+    -- find the Income account ID and UUID
+    select a.id, a.uuid into v_income_account_id, v_income_account_uuid_local from data.accounts a
+     where a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.name = 'Income' and a.type = 'equity';
+    if v_income_account_id is null then raise exception 'Income account not found for ledger %', v_ledger_id; end if;
+
+    -- find the target category account ID
+    select a.id into v_category_account_id from data.accounts a
+     where a.uuid = p_category_uuid and a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.type = 'equity';
+    if v_category_account_id is null then raise exception 'Category with UUID % not found or does not belong to ledger % for current user', p_category_uuid, v_ledger_id; end if;
+
+    -- create the transaction (debit Income, credit Category)
+       insert into data.transactions (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
+       values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
+    returning uuid, metadata into v_transaction_uuid_local, v_metadata_local;
+
+    -- Return the essential details
+    return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
+
+end;
+$$ language plpgsql volatile security definer; -- Security definer for controlled execution
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+drop function if exists utils.add_category(
+    p_ledger_uuid text,
+    p_name text,
+    p_user_data text = utils.get_user()
+) cascade;
+-- +goose StatementEnd
