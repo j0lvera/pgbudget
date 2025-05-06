@@ -37,5 +37,11 @@ execute function utils.simple_transactions_delete_fn();
 
 -- +goose Down
 -- +goose StatementBegin
-SELECT 'down SQL query';
+
+drop trigger if exists transactions_updated_at_tg on data.transactions;
+drop trigger if exists transactions_insert_tg on api.transactions;
+drop trigger if exists simple_transactions_insert_tg on api.simple_transactions;
+drop trigger if exists simple_transactions_update_tg on api.simple_transactions;
+drop trigger if exists simple_transactions_delete_tg on api.simple_transactions;
+
 -- +goose StatementEnd
