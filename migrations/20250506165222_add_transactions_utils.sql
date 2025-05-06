@@ -422,7 +422,9 @@ $$ language plpgsql;
 -- +goose StatementBegin
 
 drop function if exists utils.add_transaction(text, timestamptz, text, text, bigint, text, text);
-
 drop function if exists utils.transactions_insert_single_fn();
+drop function if exists utils.simple_transactions_insert_fn();
+drop function if exists utils.simple_transactions_update_fn();
+drop function if exists utils.simple_transactions_delete_fn();
 
 -- +goose StatementEnd

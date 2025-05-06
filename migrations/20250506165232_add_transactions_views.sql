@@ -57,18 +57,7 @@ grant select, insert, update, delete on api.simple_transactions to pgb_web_user;
 revoke all on api.transactions from pgb_web_user;
 revoke all on api.simple_transactions from pgb_web_user;
 
-drop trigger if exists transactions_insert_tg on api.transactions;
-drop trigger if exists simple_transactions_insert_tg on api.simple_transactions;
-drop trigger if exists simple_transactions_update_tg on api.simple_transactions;
-drop trigger if exists simple_transactions_delete_tg on api.simple_transactions;
-
 drop view if exists api.transactions;
 drop view if exists api.simple_transactions;
-
-drop function if exists utils.transactions_insert_single_fn();
-drop function if exists utils.simple_transactions_insert_fn();
-drop function if exists utils.simple_transactions_update_fn();
-drop function if exists utils.simple_transactions_delete_fn();
-
 
 -- +goose StatementEnd
