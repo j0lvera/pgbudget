@@ -22,21 +22,6 @@ create table data.ledgers
     constraint ledgers_description_length_check check (char_length(description) <= 255)
 );
 
-comment on table data.ledgers is 'Stores ledger information for users, representing their overall budget.';
-comment on column data.ledgers.uuid is 'Public unique identifier for the ledger.';
-comment on column data.ledgers.name is 'User-defined name for the ledger.';
-comment on column data.ledgers.description is 'Optional description for the ledger.';
-comment on column data.ledgers.metadata is 'Optional JSONB field for storing arbitrary structured data related to the ledger.';
-comment on column data.ledgers.user_data is 'Identifier of the user who owns the ledger, typically from JWT.';
-
-create trigger ledgers_updated_at_tg
-    before update
-    on data.ledgers
-    for each row
-execute procedure utils.set_updated_at_fn();
-
-comment on trigger ledgers_updated_at_tg on data.ledgers is 'Automatically updates the updated_at timestamp before any update operation on a ledger.';
-
 -- allow authenticated user to access the ledgers table.
 grant all on data.ledgers to pgb_web_user;
 grant usage, select on sequence data.ledgers_id_seq to pgb_web_user;
@@ -51,7 +36,6 @@ create policy ledgers_policy on data.ledgers
 
 comment on policy ledgers_policy on data.ledgers is 'Ensures that users can only access and modify their own ledgers based on the user_data column.';
 
-
 -- +goose StatementEnd
 
 -- +goose Down
@@ -60,8 +44,6 @@ comment on policy ledgers_policy on data.ledgers is 'Ensures that users can only
 drop policy if exists ledgers_policy on data.ledgers;
 
 revoke all on data.ledgers from pgb_web_user;
-
-drop trigger if exists ledgers_updated_at_tg on data.ledgers;
 
 drop table data.ledgers;
 
