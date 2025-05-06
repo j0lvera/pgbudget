@@ -319,12 +319,12 @@ func TestDatabase(t *testing.T) {
 
 	// Test updating ledger name via API view
 	t.Run(
-		"UpdateLedgerNameViaView", func(t *testing.T) {
+		"UpdateLedger", func(t *testing.T) {
 			is := is_.New(t) // is instance for this subtest
 
 			// Skip if ledger creation failed or did not run, so ledgerUUID is not available
 			if ledgerUUID == "" {
-				t.Skip("Skipping UpdateLedgerNameViaView because ledgerUUID is not available")
+				t.Skip("Skipping UpdateLedger because ledgerUUID is not available")
 			}
 
 			newLedgerName := "Updated Test Budget"

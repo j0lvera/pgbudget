@@ -11,8 +11,7 @@ select a.uuid,
        a.user_data,
        -- Subquery to get the ledger's UUID based on the account's ledger_id
        (select l.uuid from data.ledgers l where l.id = a.ledger_id)::text as ledger_uuid
-  from data.accounts a
- where a.user_data = utils.get_user(); -- Apply RLS-like filtering directly in the view
+  from data.accounts a;
 
 grant select, insert, update, delete on api.accounts to pgb_web_user;
 
