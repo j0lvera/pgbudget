@@ -944,9 +944,108 @@ func TestDatabase(t *testing.T) {
 				is.Equal(dbCreditAccountID, mainAccountID)    // Credit should be the main account's internal ID
 			})
 
+			var createdInflowTransactionUUID string // To store the UUID of the created inflow transaction
+
+			// Subtest for successful transaction creation (Inflow)
+			t.Run("Success_Inflow", func(t *testing.T) {
+				is := is_.New(t)
+				txDate := time.Now().Add(time.Hour) // Slightly different time for uniqueness
+				txDescription := "Client Payment Received"
+				txAmount := int64(50000) // $500.00
+				txType := "inflow"       // Receiving into an asset account
+
+				var (
+					retUUID         string
+					retDate         pgtype.Timestamptz
+					retDescription  string
+					retAmount       int64
+					retLedgerUUID   string
+					retAccountUUID  string
+					retCategoryUUID string
+					retType         string
+					retMetadata     *[]byte
+				)
+
+				err := conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date, metadata)
+					 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+					 RETURNING uuid, date, description, amount, ledger_uuid, account_uuid, category_uuid, type, metadata`,
+					transactionLedgerUUID, mainAccountUUID, expenseCategoryUUID, txType, // Using expenseCategoryUUID as the source category for inflow
+					txAmount, txDescription, txDate, nil,
+				).Scan(
+					&retUUID,
+					&retDate,
+					&retDescription,
+					&retAmount,
+					&retLedgerUUID,
+					&retAccountUUID,
+					&retCategoryUUID,
+					&retType,
+					&retMetadata,
+				)
+				is.NoErr(err) // Should create transaction without error
+
+				// Assertions for returned values
+				is.True(retUUID != "")            // Should return a valid transaction UUID
+				createdInflowTransactionUUID = retUUID // Store for verification
+				is.Equal(retDescription, txDescription)
+				is.Equal(retAmount, txAmount)
+				is.True(retDate.Time.Unix()-txDate.Unix() < 2) // Check if times are very close
+				is.Equal(retLedgerUUID, transactionLedgerUUID)
+				is.Equal(retAccountUUID, mainAccountUUID)       // Should match the input account_uuid
+				is.Equal(retCategoryUUID, expenseCategoryUUID) // Should match the input category_uuid
+				is.Equal(retType, txType)                       // Should match the input type
+				is.True(retMetadata == nil || *retMetadata == nil)
+			})
+
+			// Subtest for verifying database state after inflow
+			t.Run("VerifyDatabase_Inflow", func(t *testing.T) {
+				is := is_.New(t)
+				if createdInflowTransactionUUID == "" {
+					t.Skip("Skipping VerifyDatabase_Inflow because inflow transaction UUID was not captured")
+				}
+
+				var (
+					dbLedgerID        int
+					dbDescription     string
+					dbDate            pgtype.Timestamptz
+					dbAmount          int64
+					dbDebitAccountID  int
+					dbCreditAccountID int
+					dbUserData        string
+				)
+
+				err := conn.QueryRow(
+					ctx,
+					`SELECT ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data
+					 FROM data.transactions WHERE uuid = $1`,
+					createdInflowTransactionUUID,
+				).Scan(
+					&dbLedgerID,
+					&dbDescription,
+					&dbDate,
+					&dbAmount,
+					&dbDebitAccountID,
+					&dbCreditAccountID,
+					&dbUserData,
+				)
+				is.NoErr(err) // Should find the transaction in data.transactions
+
+				// Assertions for database values
+				is.Equal(dbLedgerID, ledgerID) // Internal ledger ID should match
+				is.Equal(dbDescription, "Client Payment Received")
+				is.Equal(dbAmount, int64(50000))
+				is.Equal(dbUserData, testUserID) // User data should match the simulated user
+
+				// For an inflow to an asset account ("Tx-Checking Account"):
+				// Debit: Account ("Tx-Checking Account")
+				// Credit: Category ("Tx-Shopping Category" in this example)
+				is.Equal(dbDebitAccountID, mainAccountID)     // Debit should be the main account's internal ID
+				is.Equal(dbCreditAccountID, expenseCategoryID) // Credit should be the category's internal ID
+			})
+
 			// TODO: Add more subtests for "CreateTransaction"
-			// - Success_Inflow
-			// - VerifyDatabase_Inflow
 			// - Error_InvalidLedger
 			// - Error_InvalidAccount
 			// - Error_InvalidCategory
