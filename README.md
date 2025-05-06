@@ -111,10 +111,7 @@ Income is typically recorded as an "inflow" transaction using the `api.simple_tr
 
 ```sql
 -- Add income of $1000 from "Paycheck" (100000 cents)
--- First, find the UUID of the 'Income' category for your ledger
--- (Assuming api.find_category function exists and returns the UUID)
--- For this example, let's say 'income-category-uuid' is the UUID for the 'Income' category.
--- And 'checking-account-uuid' is the UUID for your 'Checking' account.
+-- For this example, let's say 'checking-account-uuid' is the UUID for your 'Checking' account.
 
 INSERT INTO api.simple_transactions (
     ledger_uuid,
@@ -131,7 +128,7 @@ INSERT INTO api.simple_transactions (
     'inflow',
     100000,             -- Amount in cents ($1000.00)
     'aK9sLp0Q', -- Your checking_account_uuid
-    (SELECT uuid FROM api.accounts WHERE ledger_uuid = 'd3pOOf6t' AND name = 'Income') -- Dynamically find Income category UUID
+    (SELECT uuid FROM api.accounts WHERE ledger_uuid = 'd3pOOf6t' AND name = 'Income' AND type = 'equity') -- Dynamically find Income category UUID
 ) RETURNING uuid;
 ```
 
@@ -141,7 +138,7 @@ Result (example):
 ----------
  xY7zPqR2
 ```
-For more details on transaction entry, see the "Transaction Entry Options" section below. To find category UUIDs like 'Income', you can query the `api.accounts` view or use a helper function like `api.find_category(ledger_uuid, category_name)` if available (see "Create Categories" for `api.add_category` which returns UUIDs).
+For more details on transaction entry, see the "Transaction Entry Options" section below. To find UUIDs of existing categories (like the default 'Income' category, or categories you've previously created), you can query the `api.accounts` view. For example, to find the 'Income' category UUID for a specific ledger: `SELECT uuid FROM api.accounts WHERE ledger_uuid = 'your-ledger-uuid' AND name = 'Income' AND type = 'equity';`. The `api.add_category` function, detailed in the "Create Categories" section, returns the UUID immediately upon creation of a new category.
 
 ### Create Categories
 
@@ -171,7 +168,7 @@ The `api.assign_to_category` function handles moving money from your 'Income' ac
 
 ```sql
 -- Assign $200 to Groceries (20000 cents)
--- Let's assume 'groceries-category-uuid' is the UUID for your 'Groceries' category.
+-- Let's assume 'your-groceries-category-uuid' is the UUID for your 'Groceries' category.
 SELECT uuid FROM api.assign_to_category(
     'd3pOOf6t', -- Your ledger_uuid
     NOW(),                                  -- Date of assignment
@@ -181,7 +178,7 @@ SELECT uuid FROM api.assign_to_category(
 ) AS transaction_uuid;
 
 -- Assign $75 to Internet bill (7500 cents)
--- Let's assume 'internet-bill-category-uuid' is the UUID for your 'Internet bill' category.
+-- Let's assume 'your-internet-bill-category-uuid' is the UUID for your 'Internet bill' category.
 SELECT uuid FROM api.assign_to_category(
     'd3pOOf6t', -- Your ledger_uuid
     NOW(),
