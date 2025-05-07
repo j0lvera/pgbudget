@@ -23,13 +23,19 @@ create table if not exists data.balances
     transaction_id   bigint      not null references data.transactions (id),
 
     constraint balances_uuid_unique unique (uuid),
+    -- Allow more descriptive operation types
     constraint balances_operation_type_check check (
-        operation_type in ('credit', 'debit')
+        char_length(operation_type) > 0 and char_length(operation_type) <= 50 -- Example: 'transaction_insert', 'transaction_delete', etc.
         ),
-    constraint balances_delta_valid_check check (
-        (operation_type = 'debit' and delta > 0) or
-        (operation_type = 'credit' and delta < 0)
-        ),
+    -- This constraint is removed because delta's sign is now correctly handled by trigger functions
+    -- based on account internal_type and the nature of the operation.
+    -- The operation_type itself is no longer 'debit' or 'credit' at the balance entry level
+    -- in a way that directly dictates delta's sign for this constraint.
+    -- constraint balances_delta_valid_check check (
+    --    (operation_type = 'debit' and delta > 0) or
+    --    (operation_type = 'credit' and delta < 0)
+    --    ),
+    constraint balances_calculation_check check (balance = previous_balance + delta),
     constraint balances_user_data_length_check check (char_length(user_data) <= 255)
 );
 
