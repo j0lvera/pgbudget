@@ -18,6 +18,7 @@ create table data.transactions
     credit_account_id bigint      not null references data.accounts (id),
     debit_account_id  bigint      not null references data.accounts (id),
 
+    deleted_at        timestamptz default null, -- For soft deletes
     user_data         text        not null default utils.get_user(),
 
     -- fks
@@ -51,6 +52,9 @@ create policy transactions_policy on data.transactions
 drop policy if exists transactions_policy on data.transactions;
 
 revoke all on data.transactions from pgb_web_user;
+
+-- It's good practice to drop columns in Down, though dropping the table handles it.
+-- alter table data.transactions drop column if exists deleted_at;
 
 drop table if exists data.transactions;
 
