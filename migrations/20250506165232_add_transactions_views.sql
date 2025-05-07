@@ -8,9 +8,10 @@
 create or replace view api.transactions with (security_invoker = true) as
 select
     t.uuid,
-    t.date,
     t.description,
     t.amount, -- This is the absolute amount of the transaction
+    t.date,
+    t.metadata,
     l.uuid as ledger_uuid,
     -- The following columns are primarily for the INSERT/UPDATE payload via the view.
     -- For SELECTs, their values might not be directly derivable from a single data.transactions row
@@ -19,10 +20,9 @@ select
     -- For direct SELECTs, these might need more complex logic or be NULL if not easily determined.
     -- For simplicity in SELECT, we'll make them NULL-able or derive if straightforward.
     -- The trigger functions are responsible for interpreting these from the NEW record on INSERT/UPDATE.
-    null::text as account_uuid, -- Placeholder: The trigger function expects NEW.account_uuid
-    null::text as category_uuid, -- Placeholder: The trigger function expects NEW.category_uuid
     null::text as type, -- Placeholder: The trigger function expects NEW.type ('inflow'/'outflow')
-    t.metadata
+    null::text as account_uuid, -- Placeholder: The trigger function expects NEW.account_uuid
+    null::text as category_uuid -- Placeholder: The trigger function expects NEW.category_uuid
 from
     data.transactions t
     join data.ledgers l on t.ledger_id = l.id;
@@ -115,16 +115,16 @@ grant select, insert, update, delete on api.transactions to pgb_web_user; -- Ass
 create or replace view api.simple_transactions with (security_invoker = true) as
 select
     t.uuid,
-    t.date,
     t.description,
     t.amount,
+    t.date,
+    t.metadata,
     l.uuid as ledger_uuid,
     -- These columns are for the INSERT/UPDATE payload for the triggers.
     -- For SELECT, they are placeholders.
-    null::text as account_uuid,
-    null::text as category_uuid,
     null::text as type, -- 'inflow'/'outflow'
-    t.metadata
+    null::text as account_uuid,
+    null::text as category_uuid
 from
     data.transactions t
     join data.ledgers l on t.ledger_id = l.id;
