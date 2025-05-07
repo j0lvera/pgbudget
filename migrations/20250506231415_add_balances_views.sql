@@ -10,9 +10,11 @@ select b.uuid,
        b.operation_type,
        b.user_data,
        b.created_at,
-       (select a.uuid from data.accounts a where a.id = b.account_id)::text as account_uuid,
-       (select t.uuid from data.transactions t where t.id = b.transaction_id)::text as transaction_uuid
-  from data.balances b;
+       acc.uuid::text as account_uuid,
+       tx.uuid::text  as transaction_uuid
+  from data.balances b
+         left join data.accounts acc on acc.id = b.account_id
+         left join data.transactions tx on tx.id = b.transaction_id;
 
 -- grant only SELECT permissions to the web user (read-only)
 grant select on api.balances to pgb_web_user;
