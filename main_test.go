@@ -1943,10 +1943,10 @@ func TestDatabase(t *testing.T) {
 			is.True(groceriesApplicationDone)  // Groceries account application missing or incorrect
 		})
 
-		t.Run("Delete_Transaction", func(t *testing.T) {
+		t.Run("Delete_Transaction_SoftDelete", func(t *testing.T) {
 			is := is_.New(t)
 			if inflowTxUUID == "" || inflowTxInternalID == 0 {
-				t.Skip("Skipping Delete_Transaction as inflowTxUUID/ID is not set")
+				t.Skip("Skipping Delete_Transaction_SoftDelete as inflowTxUUID/ID is not set")
 			}
 
 			// Get balances before delete for accounts involved in inflowTx
@@ -1962,11 +1962,30 @@ func TestDatabase(t *testing.T) {
 			_, err := conn.Exec(ctx, `DELETE FROM api.transactions WHERE uuid = $1`, inflowTxUUID)
 			is.NoErr(err)
 
-			// Verify data.balances entries for this transaction_id
+			// 1. Verify data.transactions.deleted_at is set
+			var deletedAt pgtype.Timestamptz
+			err = conn.QueryRow(ctx, "SELECT deleted_at FROM data.transactions WHERE uuid = $1", inflowTxUUID).Scan(&deletedAt)
+			is.NoErr(err) // Should find the transaction in data.transactions
+			is.True(deletedAt.Valid) // deleted_at should be set (not NULL)
+			is.True(!deletedAt.Time.IsZero()) // deleted_at should be a valid timestamp
+
+			// 2. Verify transaction is not visible in api.transactions view
+			// (Assuming api.transactions view is updated to filter out deleted_at IS NOT NULL)
+			var tempUUID string
+			err = conn.QueryRow(ctx, "SELECT uuid FROM api.transactions WHERE uuid = $1", inflowTxUUID).Scan(&tempUUID)
+			is.True(errors.Is(err, pgx.ErrNoRows)) // Should not find transaction in API view
+
+			// 3. Verify original data.balances entries for 'transaction_insert' still exist
+			var originalInsertCount int
+			err = conn.QueryRow(ctx, "SELECT COUNT(*) FROM data.balances WHERE transaction_id = $1 AND operation_type = 'transaction_insert'", inflowTxInternalID).Scan(&originalInsertCount)
+			is.NoErr(err)
+			is.Equal(originalInsertCount, 2) // The two original insert balance entries should still be there
+
+			// 4. Verify new data.balances entries for 'transaction_soft_delete'
 			var deleteBalanceEntries []struct { AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
 			rows, err := conn.Query(ctx,
 				`SELECT account_id, previous_balance, delta, balance, operation_type
-				 FROM data.balances WHERE transaction_id = $1 AND operation_type = 'transaction_delete'
+				 FROM data.balances WHERE transaction_id = $1 AND operation_type = 'transaction_soft_delete'
 				 ORDER BY account_id ASC`, // Order by account_id for predictable checking
 				inflowTxInternalID,
 			)
@@ -1983,7 +2002,7 @@ func TestDatabase(t *testing.T) {
 
 			var checkingDeleteDone, groceriesDeleteDone bool
 			for _, entry := range deleteBalanceEntries {
-				is.Equal(entry.OperationType, "transaction_delete")
+				is.Equal(entry.OperationType, "transaction_soft_delete")
 				if entry.AccountID == btCheckingAccountID { // Checking (Asset)
 					is.Equal(entry.PreviousBalance, prevCheckingBalBeforeDelete)
 					is.Equal(entry.Delta, -inflowTxAmount) // Reversing original delta of +inflowTxAmount
