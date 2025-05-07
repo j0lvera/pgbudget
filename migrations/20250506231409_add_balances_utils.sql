@@ -6,11 +6,11 @@ create or replace function utils.update_account_balance()
     returns trigger as $$
 declare
     v_debit_account_previous_balance  bigint;
-    v_debit_account_internal_type     data.account_internal_type; -- Use ENUM type
+    v_debit_account_internal_type     text; -- CORRECTED: Was data.account_internal_type
     v_delta_debit                     bigint;
 
     v_credit_account_previous_balance bigint;
-    v_credit_account_internal_type    data.account_internal_type; -- Use ENUM type
+    v_credit_account_internal_type    text; -- CORRECTED: Was data.account_internal_type
     v_delta_credit                    bigint;
 
     v_ledger_id                       bigint;
@@ -48,7 +48,7 @@ begin
     -- Insert new balance for DEBIT account
     insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
     values (new.debit_account_id, new.id, v_ledger_id, v_debit_account_previous_balance, v_delta_debit,
-            v_debit_account_previous_balance + v_delta_debit, 'transaction_insert'); -- CORRECTED operation_type
+            v_debit_account_previous_balance + v_delta_debit, 'transaction_insert');
 
     -- Process CREDIT side
     -- Get previous balance and internal type for the CREDIT account
@@ -80,11 +80,11 @@ begin
     -- Insert new balance for CREDIT account
     insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
     values (new.credit_account_id, new.id, v_ledger_id, v_credit_account_previous_balance, v_delta_credit,
-            v_credit_account_previous_balance + v_delta_credit, 'transaction_insert'); -- CORRECTED operation_type
+            v_credit_account_previous_balance + v_delta_credit, 'transaction_insert');
 
     return NEW;
 end;
-$$ language plpgsql security definer; -- Added SECURITY DEFINER as per previous discussions
+$$ language plpgsql security definer;
 
 -- function to handle balance updates when a transaction is deleted
 create or replace function utils.handle_transaction_delete_balance()
