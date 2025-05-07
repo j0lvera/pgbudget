@@ -1675,11 +1675,11 @@ func TestDatabase(t *testing.T) {
 			// Initial balances (should be 0 for new accounts, and no entry found)
 			initialCheckingBal, _, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
 			is.Equal(initialCheckingBal, int64(0))
-			is.False(checkingFound) // Expect no balance entry yet
+			is.Equal(checkingFound, false) // Expect no balance entry yet
 
 			initialGroceriesBal, _, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
 			is.Equal(initialGroceriesBal, int64(0))
-			is.False(groceriesFound) // Expect no balance entry yet
+			is.Equal(groceriesFound, false) // Expect no balance entry yet
 
 			// Insert outflow transaction: Spend from Checking for Groceries
 			// api.transactions: account_uuid is Checking, category_uuid is Groceries, type is outflow
@@ -1910,8 +1910,8 @@ func TestDatabase(t *testing.T) {
 					t.Fatalf("Unexpected account_id %d in reversal balance entry", entry.AccountID)
 				}
 			}
-			is.True(checkingReversalDone, "Checking account reversal missing or incorrect")
-			is.True(groceriesReversalDone, "Groceries account reversal missing or incorrect")
+			is.True(checkingReversalDone)    // Checking account reversal missing or incorrect
+			is.True(groceriesReversalDone)   // Groceries account reversal missing or incorrect
 
 			// Balances after reversal
 			balanceCheckingAfterReversal := prevCheckingBalBeforeUpdate + outflowTxAmount
@@ -1939,8 +1939,8 @@ func TestDatabase(t *testing.T) {
 					t.Fatalf("Unexpected account_id %d in application balance entry", entry.AccountID)
 				}
 			}
-			is.True(checkingApplicationDone, "Checking account application missing or incorrect")
-			is.True(groceriesApplicationDone, "Groceries account application missing or incorrect")
+			is.True(checkingApplicationDone)   // Checking account application missing or incorrect
+			is.True(groceriesApplicationDone)  // Groceries account application missing or incorrect
 		})
 
 		t.Run("Delete_Transaction", func(t *testing.T) {
@@ -1998,8 +1998,8 @@ func TestDatabase(t *testing.T) {
 					t.Fatalf("Unexpected account_id %d in delete balance entry", entry.AccountID)
 				}
 			}
-			is.True(checkingDeleteDone, "Checking account delete missing or incorrect")
-			is.True(groceriesDeleteDone, "Groceries account delete missing or incorrect")
+			is.True(checkingDeleteDone)    // Checking account delete missing or incorrect
+			is.True(groceriesDeleteDone)   // Groceries account delete missing or incorrect
 		})
 
 	}) // End of BalancesTracking
