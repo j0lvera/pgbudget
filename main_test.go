@@ -1583,6 +1583,427 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
+	// --- Balances Tracking Tests ---
+	t.Run("BalancesTracking", func(t *testing.T) {
+		// Note: Top-level 'is' for BalancesTracking group is not used directly in subtests.
+		// Each subtest creates its own 'is := is_.New(t)'.
+
+		if ledgerUUID == "" || ledgerID == 0 {
+			t.Skip("Skipping BalancesTracking tests because ledgerUUID/ledgerID is not available")
+		}
+
+		var (
+			btCheckingAccountUUID      string
+			btCheckingAccountID        int
+			// btCheckingAccountIntType   string // Not directly used, but good for context
+			btGroceriesCategoryUUID    string
+			btGroceriesCategoryID      int
+			// btGroceriesCategoryIntType string // Not directly used
+		)
+
+		// Helper to get latest balance details directly from data.balances
+		// It now takes t *testing.T to create a subtest-specific 'is' instance.
+		getLatestBalanceEntry := func(subTestT *testing.T, accountID int) (prevBal int64, currentBal int64, opType string, found bool) {
+			is := is_.New(subTestT) // Create 'is' instance specific to this helper call's context
+			err := conn.QueryRow(ctx,
+				`SELECT previous_balance, balance, operation_type FROM data.balances
+				 WHERE account_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`,
+				accountID,
+			).Scan(&prevBal, &currentBal, &opType)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return 0, 0, "", false
+			}
+			is.NoErr(err)
+			return prevBal, currentBal, opType, true
+		}
+
+		// Setup: Create dedicated accounts for balance tracking tests
+		t.Run("Setup_BalanceTestAccounts", func(t *testing.T) {
+			is := is_.New(t)
+			var checkingIntType, groceriesIntType string // Temporary for setup verification
+
+			// 1. Create Checking Account (Asset)
+			checkingName := "BT Checking"
+			err := conn.QueryRow(ctx,
+				`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+				ledgerUUID, checkingName,
+			).Scan(&btCheckingAccountUUID)
+			is.NoErr(err)
+			is.True(btCheckingAccountUUID != "")
+
+			err = conn.QueryRow(ctx,
+				`SELECT id, internal_type FROM data.accounts WHERE uuid = $1`,
+				btCheckingAccountUUID,
+			).Scan(&btCheckingAccountID, &checkingIntType)
+			is.NoErr(err)
+			is.True(btCheckingAccountID > 0)
+			is.Equal(checkingIntType, "asset_like")
+			// btCheckingAccountIntType = checkingIntType // Store if needed elsewhere
+
+			// 2. Create Groceries Category (Equity)
+			groceriesName := "BT Groceries"
+			err = conn.QueryRow(ctx,
+				`SELECT uuid FROM api.add_category($1, $2)`,
+				ledgerUUID, groceriesName,
+			).Scan(&btGroceriesCategoryUUID)
+			is.NoErr(err)
+			is.True(btGroceriesCategoryUUID != "")
+
+			err = conn.QueryRow(ctx,
+				`SELECT id, internal_type FROM data.accounts WHERE uuid = $1`,
+				btGroceriesCategoryUUID,
+			).Scan(&btGroceriesCategoryID, &groceriesIntType)
+			is.NoErr(err)
+			is.True(btGroceriesCategoryID > 0)
+			is.Equal(groceriesIntType, "liability_like")
+			// btGroceriesCategoryIntType = groceriesIntType // Store if needed elsewhere
+		})
+
+		if btCheckingAccountUUID == "" || btGroceriesCategoryUUID == "" {
+			// Use t.Fatalf for setup failures to stop further tests in this group.
+			t.Fatalf("Failed to set up accounts for BalancesTracking tests. CheckingUUID: '%s', GroceriesUUID: '%s'", btCheckingAccountUUID, btGroceriesCategoryUUID)
+		}
+
+		var outflowTxUUID string
+		var outflowTxInternalID int    // Store as int
+		var outflowTxAmount int64 = 7500 // $75.00
+
+		t.Run("Insert_OutflowTransaction", func(t *testing.T) {
+			is := is_.New(t)
+			txTime := time.Now()
+
+			// Initial balances (should be 0 for new accounts, and no entry found)
+			initialCheckingBal, _, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
+			is.Equal(initialCheckingBal, int64(0))
+			is.False(checkingFound) // Expect no balance entry yet
+
+			initialGroceriesBal, _, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
+			is.Equal(initialGroceriesBal, int64(0))
+			is.False(groceriesFound) // Expect no balance entry yet
+
+			// Insert outflow transaction: Spend from Checking for Groceries
+			// api.transactions: account_uuid is Checking, category_uuid is Groceries, type is outflow
+			// data.transactions: debit=Groceries(L), credit=Checking(A)
+			err := conn.QueryRow(ctx,
+				`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+				 VALUES ($1, $2, $3, 'outflow', $4, 'BT Outflow', $5) RETURNING uuid`,
+				ledgerUUID, btCheckingAccountUUID, btGroceriesCategoryUUID, outflowTxAmount, txTime,
+			).Scan(&outflowTxUUID)
+			is.NoErr(err)
+			is.True(outflowTxUUID != "")
+
+			// Get internal transaction ID
+			err = conn.QueryRow(ctx, "SELECT id FROM data.transactions WHERE uuid = $1", outflowTxUUID).Scan(&outflowTxInternalID)
+			is.NoErr(err)
+			is.True(outflowTxInternalID > 0)
+
+			// Verify data.balances entries
+			var balanceEntries []struct {
+				AccountID       int
+				PreviousBalance int64
+				Delta           int64
+				Balance         int64
+				OperationType   string
+				UserData        string
+			}
+			rows, err := conn.Query(ctx,
+				`SELECT account_id, previous_balance, delta, balance, operation_type, user_data
+				 FROM data.balances WHERE transaction_id = $1 ORDER BY account_id`, // Order by account_id for predictable checking
+				outflowTxInternalID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			for rows.Next() {
+				var entry struct {
+					AccountID       int
+					PreviousBalance int64
+					Delta           int64
+					Balance         int64
+					OperationType   string
+					UserData        string
+				}
+				err = rows.Scan(&entry.AccountID, &entry.PreviousBalance, &entry.Delta, &entry.Balance, &entry.OperationType, &entry.UserData)
+				is.NoErr(err)
+				balanceEntries = append(balanceEntries, entry)
+			}
+			is.NoErr(rows.Err())
+			is.Equal(len(balanceEntries), 2) // Should have two balance entries
+
+			for _, entry := range balanceEntries {
+				is.Equal(entry.OperationType, "transaction_insert")
+				is.Equal(entry.UserData, testUserID)
+				if entry.AccountID == btCheckingAccountID { // Checking (Asset, credited by outflow)
+					is.Equal(entry.PreviousBalance, initialCheckingBal)
+					is.Equal(entry.Delta, -outflowTxAmount) // Credit to asset_like decreases balance
+					is.Equal(entry.Balance, initialCheckingBal-outflowTxAmount)
+				} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/Liability-like, debited by outflow)
+					is.Equal(entry.PreviousBalance, initialGroceriesBal)
+					is.Equal(entry.Delta, -outflowTxAmount) // Debit to liability_like decreases balance
+					is.Equal(entry.Balance, initialGroceriesBal-outflowTxAmount)
+				} else {
+					t.Fatalf("Unexpected account_id in balance entry: %d", entry.AccountID)
+				}
+			}
+
+			// Verify api.balances view
+			var apiBalanceEntries []struct {
+				AccountUUID string
+				Balance     int64
+				Delta       int64
+			}
+			rowsAPI, err := conn.Query(ctx,
+				`SELECT account_uuid, balance, delta FROM api.balances WHERE transaction_uuid = $1 ORDER BY account_uuid`,
+				outflowTxUUID,
+			)
+			is.NoErr(err)
+			defer rowsAPI.Close()
+			for rowsAPI.Next() {
+				var entry struct {
+					AccountUUID string
+					Balance     int64
+					Delta       int64
+				}
+				err = rowsAPI.Scan(&entry.AccountUUID, &entry.Balance, &entry.Delta)
+				is.NoErr(err)
+				apiBalanceEntries = append(apiBalanceEntries, entry)
+			}
+			is.NoErr(rowsAPI.Err())
+			is.Equal(len(apiBalanceEntries), 2)
+
+			for _, entry := range apiBalanceEntries {
+				if entry.AccountUUID == btCheckingAccountUUID {
+					is.Equal(entry.Delta, -outflowTxAmount)
+					is.Equal(entry.Balance, initialCheckingBal-outflowTxAmount)
+				} else if entry.AccountUUID == btGroceriesCategoryUUID {
+					is.Equal(entry.Delta, -outflowTxAmount)
+					is.Equal(entry.Balance, initialGroceriesBal-outflowTxAmount)
+				} else {
+					t.Fatalf("Unexpected account_uuid in API balance entry: %s", entry.AccountUUID)
+				}
+			}
+		})
+
+		var inflowTxUUID string
+		var inflowTxInternalID int
+		var inflowTxAmount int64 = 30000 // $300.00 (changed from 3000 to make it different from outflow)
+
+		t.Run("Insert_InflowTransaction", func(t *testing.T) {
+			is := is_.New(t)
+			txTime := time.Now().Add(1 * time.Second)
+
+			// Get current balances after the outflow
+			_, prevCheckingBal, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
+			is.True(checkingFound) // Should exist now
+			_, prevGroceriesBal, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
+			is.True(groceriesFound) // Should exist now
+
+			// Insert inflow transaction: Income to Checking, sourced from Groceries category for this test
+			// api.transactions: account_uuid is Checking, category_uuid is Groceries, type is inflow
+			// data.transactions: debit=Checking(A), credit=Groceries(L)
+			err := conn.QueryRow(ctx,
+				`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+				 VALUES ($1, $2, $3, 'inflow', $4, 'BT Inflow', $5) RETURNING uuid`,
+				ledgerUUID, btCheckingAccountUUID, btGroceriesCategoryUUID, inflowTxAmount, txTime,
+			).Scan(&inflowTxUUID)
+			is.NoErr(err)
+			is.True(inflowTxUUID != "")
+
+			err = conn.QueryRow(ctx, "SELECT id FROM data.transactions WHERE uuid = $1", inflowTxUUID).Scan(&inflowTxInternalID)
+			is.NoErr(err)
+			is.True(inflowTxInternalID > 0)
+
+			// Verify data.balances entries
+			var balanceEntries []struct{ AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+			rows, err := conn.Query(ctx,
+				`SELECT account_id, previous_balance, delta, balance, operation_type
+				 FROM data.balances WHERE transaction_id = $1 ORDER BY account_id`, inflowTxInternalID)
+			is.NoErr(err)
+			defer rows.Close()
+			for rows.Next() {
+				var entry struct{ AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+				err = rows.Scan(&entry.AccountID, &entry.PreviousBalance, &entry.Delta, &entry.Balance, &entry.OperationType)
+				is.NoErr(err)
+				balanceEntries = append(balanceEntries, entry)
+			}
+			is.NoErr(rows.Err())
+			is.Equal(len(balanceEntries), 2)
+
+			for _, entry := range balanceEntries {
+				is.Equal(entry.OperationType, "transaction_insert")
+				if entry.AccountID == btCheckingAccountID { // Checking (Asset, debited by inflow)
+					is.Equal(entry.PreviousBalance, prevCheckingBal)
+					is.Equal(entry.Delta, inflowTxAmount) // Debit to asset_like increases balance
+					is.Equal(entry.Balance, prevCheckingBal+inflowTxAmount)
+				} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/Liability-like, credited by inflow)
+					is.Equal(entry.PreviousBalance, prevGroceriesBal)
+					is.Equal(entry.Delta, inflowTxAmount) // Credit to liability_like increases balance
+					is.Equal(entry.Balance, prevGroceriesBal+inflowTxAmount)
+				} else {
+					t.Fatalf("Unexpected account_id: %d", entry.AccountID)
+				}
+			}
+		})
+
+		t.Run("Update_TransactionAmount", func(t *testing.T) {
+			is := is_.New(t)
+			if outflowTxUUID == "" || outflowTxInternalID == 0 {
+				t.Skip("Skipping Update_TransactionAmount as outflowTxUUID/ID is not set")
+			}
+
+			newOutflowTxAmount := int64(10000) // $100.00, original was $75.00 (outflowTxAmount)
+
+			// Get balances before update for each account involved in outflowTx
+			// These are the balances *after* the inflow transaction, but *before* this update.
+			_, prevCheckingBalBeforeUpdate, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
+			is.True(checkingFound)
+			_, prevGroceriesBalBeforeUpdate, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
+			is.True(groceriesFound)
+
+			// Update the amount of the first outflow transaction
+			var updatedAmount int64
+			err := conn.QueryRow(ctx,
+				`UPDATE api.transactions SET amount = $1 WHERE uuid = $2 RETURNING amount`,
+				newOutflowTxAmount, outflowTxUUID,
+			).Scan(&updatedAmount)
+			is.NoErr(err)
+			is.Equal(updatedAmount, newOutflowTxAmount)
+
+			// Verify data.balances entries for this transaction_id
+			var updateBalanceEntries []struct { AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+			rows, err := conn.Query(ctx,
+				`SELECT account_id, previous_balance, delta, balance, operation_type
+				 FROM data.balances WHERE transaction_id = $1 AND operation_type LIKE 'transaction_update_%'
+				 ORDER BY created_at ASC, id ASC`, // Order by creation to see reversal then application
+				outflowTxInternalID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			for rows.Next() {
+				var entry struct{ AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+				err = rows.Scan(&entry.AccountID, &entry.PreviousBalance, &entry.Delta, &entry.Balance, &entry.OperationType)
+				is.NoErr(err)
+				updateBalanceEntries = append(updateBalanceEntries, entry)
+			}
+			is.NoErr(rows.Err())
+			is.Equal(len(updateBalanceEntries), 4) // 2 reversal, 2 application
+
+			// Verify Reversal Entries (original outflowTxAmount = $75.00)
+			// Original outflow: Debit Groceries(L), Credit Checking(A). Deltas were -7500 for both.
+			// Reversal deltas should be +7500 for both.
+			is.Equal(updateBalanceEntries[0].OperationType, "transaction_update_reversal")
+			is.Equal(updateBalanceEntries[1].OperationType, "transaction_update_reversal")
+
+			var checkingReversalDone, groceriesReversalDone bool
+			for i := 0; i < 2; i++ { // Check first two entries for reversal
+				entry := updateBalanceEntries[i]
+				if entry.AccountID == btCheckingAccountID {
+					is.Equal(entry.PreviousBalance, prevCheckingBalBeforeUpdate)
+					is.Equal(entry.Delta, outflowTxAmount) // Reversing original delta of -outflowTxAmount
+					is.Equal(entry.Balance, prevCheckingBalBeforeUpdate+outflowTxAmount)
+					checkingReversalDone = true
+				} else if entry.AccountID == btGroceriesCategoryID {
+					is.Equal(entry.PreviousBalance, prevGroceriesBalBeforeUpdate)
+					is.Equal(entry.Delta, outflowTxAmount) // Reversing original delta of -outflowTxAmount
+					is.Equal(entry.Balance, prevGroceriesBalBeforeUpdate+outflowTxAmount)
+					groceriesReversalDone = true
+				} else {
+					t.Fatalf("Unexpected account_id %d in reversal balance entry", entry.AccountID)
+				}
+			}
+			is.True(checkingReversalDone, "Checking account reversal missing or incorrect")
+			is.True(groceriesReversalDone, "Groceries account reversal missing or incorrect")
+
+			// Balances after reversal
+			balanceCheckingAfterReversal := prevCheckingBalBeforeUpdate + outflowTxAmount
+			balanceGroceriesAfterReversal := prevGroceriesBalBeforeUpdate + outflowTxAmount
+
+			// Verify Application Entries (newOutflowTxAmount = $100.00)
+			// New outflow: Debit Groceries(L), Credit Checking(A). Deltas should be -10000 for both.
+			is.Equal(updateBalanceEntries[2].OperationType, "transaction_update_application")
+			is.Equal(updateBalanceEntries[3].OperationType, "transaction_update_application")
+
+			var checkingApplicationDone, groceriesApplicationDone bool
+			for i := 2; i < 4; i++ { // Check next two entries for application
+				entry := updateBalanceEntries[i]
+				if entry.AccountID == btCheckingAccountID { // Checking (Asset, credited)
+					is.Equal(entry.PreviousBalance, balanceCheckingAfterReversal)
+					is.Equal(entry.Delta, -newOutflowTxAmount)
+					is.Equal(entry.Balance, balanceCheckingAfterReversal-newOutflowTxAmount)
+					checkingApplicationDone = true
+				} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/L, debited)
+					is.Equal(entry.PreviousBalance, balanceGroceriesAfterReversal)
+					is.Equal(entry.Delta, -newOutflowTxAmount)
+					is.Equal(entry.Balance, balanceGroceriesAfterReversal-newOutflowTxAmount)
+					groceriesApplicationDone = true
+				} else {
+					t.Fatalf("Unexpected account_id %d in application balance entry", entry.AccountID)
+				}
+			}
+			is.True(checkingApplicationDone, "Checking account application missing or incorrect")
+			is.True(groceriesApplicationDone, "Groceries account application missing or incorrect")
+		})
+
+		t.Run("Delete_Transaction", func(t *testing.T) {
+			is := is_.New(t)
+			if inflowTxUUID == "" || inflowTxInternalID == 0 {
+				t.Skip("Skipping Delete_Transaction as inflowTxUUID/ID is not set")
+			}
+
+			// Get balances before delete for accounts involved in inflowTx
+			// These are the balances *after* the outflow update, but *before* this delete.
+			_, prevCheckingBalBeforeDelete, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
+			is.True(checkingFound)
+			_, prevGroceriesBalBeforeDelete, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
+			is.True(groceriesFound)
+
+			// Delete the inflow transaction (original inflowTxAmount = $300.00)
+			// Original inflow: Debit Checking(A), Credit Groceries(L). Deltas were +30000 for both.
+			// Deletion deltas should be -30000 for both.
+			_, err := conn.Exec(ctx, `DELETE FROM api.transactions WHERE uuid = $1`, inflowTxUUID)
+			is.NoErr(err)
+
+			// Verify data.balances entries for this transaction_id
+			var deleteBalanceEntries []struct { AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+			rows, err := conn.Query(ctx,
+				`SELECT account_id, previous_balance, delta, balance, operation_type
+				 FROM data.balances WHERE transaction_id = $1 AND operation_type = 'transaction_delete'
+				 ORDER BY account_id ASC`, // Order by account_id for predictable checking
+				inflowTxInternalID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			for rows.Next() {
+				var entry struct{ AccountID int; PreviousBalance int64; Delta int64; Balance int64; OperationType string }
+				err = rows.Scan(&entry.AccountID, &entry.PreviousBalance, &entry.Delta, &entry.Balance, &entry.OperationType)
+				is.NoErr(err)
+				deleteBalanceEntries = append(deleteBalanceEntries, entry)
+			}
+			is.NoErr(rows.Err())
+			is.Equal(len(deleteBalanceEntries), 2)
+
+			var checkingDeleteDone, groceriesDeleteDone bool
+			for _, entry := range deleteBalanceEntries {
+				is.Equal(entry.OperationType, "transaction_delete")
+				if entry.AccountID == btCheckingAccountID { // Checking (Asset)
+					is.Equal(entry.PreviousBalance, prevCheckingBalBeforeDelete)
+					is.Equal(entry.Delta, -inflowTxAmount) // Reversing original delta of +inflowTxAmount
+					is.Equal(entry.Balance, prevCheckingBalBeforeDelete-inflowTxAmount)
+					checkingDeleteDone = true
+				} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/L)
+					is.Equal(entry.PreviousBalance, prevGroceriesBalBeforeDelete)
+					is.Equal(entry.Delta, -inflowTxAmount) // Reversing original delta of +inflowTxAmount
+					is.Equal(entry.Balance, prevGroceriesBalBeforeDelete-inflowTxAmount)
+					groceriesDeleteDone = true
+				} else {
+					t.Fatalf("Unexpected account_id %d in delete balance entry", entry.AccountID)
+				}
+			}
+			is.True(checkingDeleteDone, "Checking account delete missing or incorrect")
+			is.True(groceriesDeleteDone, "Groceries account delete missing or incorrect")
+		})
+
+	}) // End of BalancesTracking
+
 	// // Test account creation using the ledger created above
 	// t.Run(
 	// 	"CreateAccounts", func(t *testing.T) {
@@ -1613,7 +2034,7 @@ func TestDatabase(t *testing.T) {
 
 	// // Test the balances table and trigger functionality
 	// t.Run(
-	// 	"BalancesTracking", func(t *testing.T) {
+	// 	"BalancesTracking", func(t *testing.T) { // This is the one being added
 	// 		t.Skip("Skipping until implementation is ready")
 	// 	},
 	// )
