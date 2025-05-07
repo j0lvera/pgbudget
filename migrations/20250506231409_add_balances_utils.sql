@@ -34,7 +34,7 @@ begin
         select balance into v_previous_balance
           from data.balances
          where account_id = NEW.debit_account_id
-         order by created_at desc
+         order by created_at desc, id desc
          limit 1;
     else
         v_previous_balance := 0;
@@ -89,7 +89,7 @@ begin
         select balance into v_previous_balance
           from data.balances
          where account_id = NEW.credit_account_id
-         order by created_at desc
+         order by created_at desc, id desc
          limit 1;
     else
         v_previous_balance := 0;
@@ -130,6 +130,188 @@ begin
     return NEW;
 end;
 $$ language plpgsql;
+
+-- function to handle balance updates when a transaction is deleted
+create or replace function utils.handle_transaction_delete_balance()
+    returns trigger as
+$$
+declare
+    v_old_debit_account_previous_balance  bigint;
+    v_old_debit_account_internal_type     text;
+    v_delta_reversal_debit                bigint;
+
+    v_old_credit_account_previous_balance bigint;
+    v_old_credit_account_internal_type    text;
+    v_delta_reversal_credit               bigint;
+begin
+    -- REVERSAL FOR OLD DEBIT ACCOUNT
+    -- get previous balance and internal type for the OLD DEBIT account
+    select balance into v_old_debit_account_previous_balance
+    from data.balances
+    where account_id = old.debit_account_id
+    order by created_at desc, id desc limit 1;
+
+    select internal_type into v_old_debit_account_internal_type
+    from data.accounts where id = old.debit_account_id;
+
+    if v_old_debit_account_previous_balance is null then
+        v_old_debit_account_previous_balance := 0;
+    end if;
+
+    if v_old_debit_account_internal_type is null then
+        raise exception 'internal_type not found for old debit account %', old.debit_account_id;
+    end if;
+
+    -- calculate reversal delta for OLD DEBIT account
+    if v_old_debit_account_internal_type = 'asset_like' then
+        v_delta_reversal_debit := -old.amount; -- reversing a debit to asset decreases balance
+    elsif v_old_debit_account_internal_type = 'liability_like' then
+        v_delta_reversal_debit := old.amount;  -- reversing a debit to liability/equity increases balance
+    else
+        raise exception 'unknown internal_type % for old debit account %', v_old_debit_account_internal_type, old.debit_account_id;
+    end if;
+
+    -- insert balance entry for OLD DEBIT account reversal
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (old.debit_account_id, old.id, old.ledger_id, v_old_debit_account_previous_balance, v_delta_reversal_debit,
+            v_old_debit_account_previous_balance + v_delta_reversal_debit, 'transaction_delete');
+
+    -- REVERSAL FOR OLD CREDIT ACCOUNT
+    -- get previous balance and internal type for the OLD CREDIT account
+    select balance into v_old_credit_account_previous_balance
+    from data.balances
+    where account_id = old.credit_account_id
+    order by created_at desc, id desc limit 1;
+
+    select internal_type into v_old_credit_account_internal_type
+    from data.accounts where id = old.credit_account_id;
+
+    if v_old_credit_account_previous_balance is null then
+        v_old_credit_account_previous_balance := 0;
+    end if;
+
+    if v_old_credit_account_internal_type is null then
+        raise exception 'internal_type not found for old credit account %', old.credit_account_id;
+    end if;
+
+    -- calculate reversal delta for OLD CREDIT account
+    if v_old_credit_account_internal_type = 'asset_like' then
+        v_delta_reversal_credit := old.amount;  -- reversing a credit to asset increases balance
+    elsif v_old_credit_account_internal_type = 'liability_like' then
+        v_delta_reversal_credit := -old.amount; -- reversing a credit to liability/equity decreases balance
+    else
+        raise exception 'unknown internal_type % for old credit account %', v_old_credit_account_internal_type, old.credit_account_id;
+    end if;
+
+    -- insert balance entry for OLD CREDIT account reversal
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (old.credit_account_id, old.id, old.ledger_id, v_old_credit_account_previous_balance, v_delta_reversal_credit,
+            v_old_credit_account_previous_balance + v_delta_reversal_credit, 'transaction_delete');
+
+    return old; -- for AFTER DELETE, return value is ignored but OLD is conventional
+end;
+$$ language plpgsql security definer;
+
+-- function to handle balance updates when a transaction is updated
+create or replace function utils.handle_transaction_update_balance()
+    returns trigger as
+$$
+declare
+    -- variables for OLD transaction reversal
+    v_old_debit_account_previous_balance  bigint;
+    v_old_debit_account_internal_type     text;
+    v_delta_reversal_old_debit            bigint;
+
+    v_old_credit_account_previous_balance bigint;
+    v_old_credit_account_internal_type    text;
+    v_delta_reversal_old_credit           bigint;
+
+    -- variables for NEW transaction application
+    v_new_debit_account_previous_balance  bigint;
+    v_new_debit_account_internal_type     text;
+    v_delta_application_new_debit         bigint;
+
+    v_new_credit_account_previous_balance bigint;
+    v_new_credit_account_internal_type    text;
+    v_delta_application_new_credit        bigint;
+begin
+    -- STEP 1: REVERSE THE EFFECTS OF THE OLD TRANSACTION VALUES
+
+    -- REVERSAL FOR OLD DEBIT ACCOUNT
+    select balance into v_old_debit_account_previous_balance
+    from data.balances where account_id = old.debit_account_id
+    order by created_at desc, id desc limit 1;
+    select internal_type into v_old_debit_account_internal_type
+    from data.accounts where id = old.debit_account_id;
+    if v_old_debit_account_previous_balance is null then v_old_debit_account_previous_balance := 0; end if;
+    if v_old_debit_account_internal_type is null then raise exception 'internal_type not found for old debit account %', old.debit_account_id; end if;
+
+    if v_old_debit_account_internal_type = 'asset_like' then v_delta_reversal_old_debit := -old.amount;
+    elsif v_old_debit_account_internal_type = 'liability_like' then v_delta_reversal_old_debit := old.amount;
+    else raise exception 'unknown internal_type % for old debit account %', v_old_debit_account_internal_type, old.debit_account_id; end if;
+
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (old.debit_account_id, old.id, old.ledger_id, v_old_debit_account_previous_balance, v_delta_reversal_old_debit,
+            v_old_debit_account_previous_balance + v_delta_reversal_old_debit, 'transaction_update_reversal');
+
+    -- REVERSAL FOR OLD CREDIT ACCOUNT
+    select balance into v_old_credit_account_previous_balance
+    from data.balances where account_id = old.credit_account_id
+    order by created_at desc, id desc limit 1;
+    select internal_type into v_old_credit_account_internal_type
+    from data.accounts where id = old.credit_account_id;
+    if v_old_credit_account_previous_balance is null then v_old_credit_account_previous_balance := 0; end if;
+    if v_old_credit_account_internal_type is null then raise exception 'internal_type not found for old credit account %', old.credit_account_id; end if;
+
+    if v_old_credit_account_internal_type = 'asset_like' then v_delta_reversal_old_credit := old.amount;
+    elsif v_old_credit_account_internal_type = 'liability_like' then v_delta_reversal_old_credit := -old.amount;
+    else raise exception 'unknown internal_type % for old credit account %', v_old_credit_account_internal_type, old.credit_account_id; end if;
+
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (old.credit_account_id, old.id, old.ledger_id, v_old_credit_account_previous_balance, v_delta_reversal_old_credit,
+            v_old_credit_account_previous_balance + v_delta_reversal_old_credit, 'transaction_update_reversal');
+
+    -- STEP 2: APPLY THE EFFECTS OF THE NEW TRANSACTION VALUES
+
+    -- APPLICATION FOR NEW DEBIT ACCOUNT
+    -- Previous balance for the NEW debit account is the latest balance *after* any reversal involving this account.
+    select balance into v_new_debit_account_previous_balance
+    from data.balances where account_id = new.debit_account_id
+    order by created_at desc, id desc limit 1;
+    select internal_type into v_new_debit_account_internal_type
+    from data.accounts where id = new.debit_account_id;
+    if v_new_debit_account_previous_balance is null then v_new_debit_account_previous_balance := 0; end if; -- Should not be null if reversal happened correctly
+    if v_new_debit_account_internal_type is null then raise exception 'internal_type not found for new debit account %', new.debit_account_id; end if;
+
+    if v_new_debit_account_internal_type = 'asset_like' then v_delta_application_new_debit := new.amount;
+    elsif v_new_debit_account_internal_type = 'liability_like' then v_delta_application_new_debit := -new.amount;
+    else raise exception 'unknown internal_type % for new debit account %', v_new_debit_account_internal_type, new.debit_account_id; end if;
+
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (new.debit_account_id, new.id, new.ledger_id, v_new_debit_account_previous_balance, v_delta_application_new_debit,
+            v_new_debit_account_previous_balance + v_delta_application_new_debit, 'transaction_update_application');
+
+    -- APPLICATION FOR NEW CREDIT ACCOUNT
+    -- Previous balance for the NEW credit account is the latest balance *after* any reversal involving this account.
+    select balance into v_new_credit_account_previous_balance
+    from data.balances where account_id = new.credit_account_id
+    order by created_at desc, id desc limit 1;
+    select internal_type into v_new_credit_account_internal_type
+    from data.accounts where id = new.credit_account_id;
+    if v_new_credit_account_previous_balance is null then v_new_credit_account_previous_balance := 0; end if; -- Should not be null if reversal happened correctly
+    if v_new_credit_account_internal_type is null then raise exception 'internal_type not found for new credit account %', new.credit_account_id; end if;
+
+    if v_new_credit_account_internal_type = 'asset_like' then v_delta_application_new_credit := -new.amount;
+    elsif v_new_credit_account_internal_type = 'liability_like' then v_delta_application_new_credit := new.amount;
+    else raise exception 'unknown internal_type % for new credit account %', v_new_credit_account_internal_type, new.credit_account_id; end if;
+
+    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
+    values (new.credit_account_id, new.id, new.ledger_id, v_new_credit_account_previous_balance, v_delta_application_new_credit,
+            v_new_credit_account_previous_balance + v_delta_application_new_credit, 'transaction_update_application');
+
+    return new;
+end;
+$$ language plpgsql security definer;
 
 create or replace function utils.get_account_transactions(p_account_id int)
     returns table (
@@ -318,6 +500,12 @@ $$ language plpgsql;
 
 -- +goose Down
 -- +goose StatementBegin
+
+-- drop the function to handle transaction updates
+drop function if exists utils.handle_transaction_update_balance();
+
+-- drop the function to handle transaction deletes
+drop function if exists utils.handle_transaction_delete_balance();
 
 -- drop the function to get budget status
 drop function if exists utils.get_budget_status(integer);
