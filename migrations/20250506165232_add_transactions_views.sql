@@ -46,17 +46,7 @@ create or replace function api.assign_to_category(
     p_amount bigint,
     p_category_uuid text
 )
-returns table (
-    uuid text,
-    description text,
-    amount bigint,
-    date timestamptz,
-    metadata jsonb,
-    ledger_uuid text,
-    type text,
-    account_uuid text,
-    category_uuid text
-) as
+returns SETOF api.transactions as
 $$
 declare
     v_result record;
