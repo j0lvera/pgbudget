@@ -1729,12 +1729,30 @@ func TestDatabase(t *testing.T) {
 	// --- Balances Tracking Tests ---
 	t.Run(
 		"BalancesTracking", func(t *testing.T) {
-			// Note: Top-level 'is' for BalancesTracking group is not used directly in subtests.
-			// Each subtest creates its own 'is := is_.New(t)'.
-
-			if ledgerUUID == "" || ledgerID == 0 {
-				t.Skip("Skipping BalancesTracking tests because ledgerUUID/ledgerID is not available")
-			}
+			// Create a new is instance for this test group
+			is := is_.New(t)
+			
+			// Create a new ledger specifically for this test
+			var balancesLedgerUUID string
+			var balancesLedgerID int
+			
+			// Create a new ledger using the api.ledgers view
+			ledgerName := "BalancesTracking Test Ledger"
+			err := conn.QueryRow(
+				ctx,
+				"insert into api.ledgers (name) values ($1) returning uuid",
+				ledgerName,
+			).Scan(&balancesLedgerUUID)
+			is.NoErr(err) // should create ledger without error
+			
+			// Get the internal ID for verification
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.ledgers WHERE uuid = $1",
+				balancesLedgerUUID,
+			).Scan(&balancesLedgerID)
+			is.NoErr(err) // should find the ledger by UUID
+			is.True(balancesLedgerID > 0) // should have a valid internal ID
 
 			var (
 				btCheckingAccountUUID string
@@ -1775,7 +1793,7 @@ func TestDatabase(t *testing.T) {
 					err := conn.QueryRow(
 						ctx,
 						`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
-						ledgerUUID, checkingName,
+						balancesLedgerUUID, checkingName,
 					).Scan(&btCheckingAccountUUID)
 					is.NoErr(err)
 					is.True(btCheckingAccountUUID != "")
@@ -1795,7 +1813,7 @@ func TestDatabase(t *testing.T) {
 					err = conn.QueryRow(
 						ctx,
 						`SELECT uuid FROM api.add_category($1, $2)`,
-						ledgerUUID, groceriesName,
+						balancesLedgerUUID, groceriesName,
 					).Scan(&btGroceriesCategoryUUID)
 					is.NoErr(err)
 					is.True(btGroceriesCategoryUUID != "")
@@ -1817,7 +1835,7 @@ func TestDatabase(t *testing.T) {
 					err = conn.QueryRow(
 						ctx,
 						"SELECT utils.find_category($1, $2)", // find_category directly returns the UUID
-						ledgerUUID, "Income",
+						balancesLedgerUUID, "Income",
 					).Scan(&btIncomeCategoryUUID)
 					is.NoErr(err) // Should find the Income category for the ledger
 					is.True(btIncomeCategoryUUID != "")
@@ -1843,7 +1861,7 @@ func TestDatabase(t *testing.T) {
 						ctx,
 						`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
 				 VALUES ($1, $2, $3, 'inflow', $4, $5, $6) RETURNING uuid`,
-						ledgerUUID, incomeDate, incomeDesc, initialIncomeAmount,
+						balancesLedgerUUID, incomeDate, incomeDesc, initialIncomeAmount,
 						btCheckingAccountUUID, btIncomeCategoryUUID,
 					).Scan(&incomeTxUUID)
 					is.NoErr(err) // Should create income transaction
@@ -1859,7 +1877,7 @@ func TestDatabase(t *testing.T) {
 					err = conn.QueryRow(
 						ctx,
 						"SELECT uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
-						ledgerUUID, budgetAllocationDate, budgetAllocationDesc,
+						balancesLedgerUUID, budgetAllocationDate, budgetAllocationDesc,
 						budgetAllocationAmount, btGroceriesCategoryUUID,
 					).Scan(&budgetTxUUID)
 					is.NoErr(err) // Should assign money to category
@@ -1916,7 +1934,7 @@ func TestDatabase(t *testing.T) {
 						ctx,
 						`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
 				 VALUES ($1, $2, $3, 'outflow', $4, 'BT Outflow', $5) RETURNING uuid`,
-						ledgerUUID, btCheckingAccountUUID,
+						balancesLedgerUUID, btCheckingAccountUUID,
 						btGroceriesCategoryUUID, outflowTxAmount, txTime,
 					).Scan(&outflowTxUUID)
 					is.NoErr(err)
@@ -2075,7 +2093,7 @@ func TestDatabase(t *testing.T) {
 						ctx,
 						`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
 				 VALUES ($1, $2, $3, 'inflow', $4, 'BT Inflow', $5) RETURNING uuid`,
-						ledgerUUID, btCheckingAccountUUID,
+						balancesLedgerUUID, btCheckingAccountUUID,
 						btGroceriesCategoryUUID, inflowTxAmount, txTime,
 					).Scan(&inflowTxUUID)
 					is.NoErr(err)
