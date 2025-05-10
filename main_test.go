@@ -1374,23 +1374,36 @@ func TestDatabase(t *testing.T) {
 	// Test api.assign_to_category function
 	t.Run(
 		"AssignToCategory", func(t *testing.T) {
-			// Retrieve the categoryUUID created in the AddCategory test block
-			// This relies on test execution order or capturing the value at a higher scope.
-			// For simplicity here, we re-fetch it. A better approach might involve
-			// setting up a dedicated category within this test block or passing values.
+			// Create a ledger specifically for this test if one isn't available
+			if ledgerUUID == "" {
+				is := is_.New(t)
+				
+				// Create a new ledger using the api.ledgers view
+				ledgerName := "AssignToCategory Test Ledger"
+				err := conn.QueryRow(
+					ctx,
+					"insert into api.ledgers (name) values ($1) returning uuid",
+					ledgerName,
+				).Scan(&ledgerUUID)
+				is.NoErr(err) // should create ledger without error
+			}
+			
+			// Create a groceries category for this test
 			var groceriesCategoryUUID string
 			t.Run(
-				"Setup_FindGroceries", func(t *testing.T) {
+				"Setup_CreateGroceries", func(t *testing.T) {
 					is := is_.New(t)
 					if ledgerUUID == "" {
 						t.Skip("Skipping because ledger UUID is not available")
 					}
+					
+					// Create a new Groceries category using api.add_category
 					err := conn.QueryRow(
 						ctx,
-						"SELECT uuid FROM data.accounts WHERE ledger_id = $1 AND name = $2",
-						ledgerID, "Groceries",
+						"select uuid from api.add_category($1, $2)",
+						ledgerUUID, "Groceries",
 					).Scan(&groceriesCategoryUUID)
-					is.NoErr(err) // Should find Groceries category created in previous test
+					is.NoErr(err) // should create category without error
 					is.True(groceriesCategoryUUID != "")
 				},
 			)
@@ -1400,14 +1413,14 @@ func TestDatabase(t *testing.T) {
 				t.Skip("Skipping AssignToCategory tests because ledger or groceries category UUID is not available")
 			}
 
-			// Find Income category UUID
+			// Find Income category UUID (created automatically with ledger)
 			var incomeCategoryUUID string
 			err = conn.QueryRow(
 				ctx,
-				"SELECT uuid FROM data.accounts WHERE ledger_id = $1 AND name = $2",
-				ledgerID, "Income",
+				"select utils.find_category($1, $2)",
+				ledgerUUID, "Income",
 			).Scan(&incomeCategoryUUID)
-			is.NoErr(err) // Should find Income category
+			is.NoErr(err) // should find Income category
 			is.True(incomeCategoryUUID != "")
 
 			// --- Helper function to get balance ---
