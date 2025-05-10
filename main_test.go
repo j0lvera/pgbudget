@@ -1533,8 +1533,9 @@ func TestDatabase(t *testing.T) {
 							Int64("retAmount", retAmount).
 							Time("retDate", retDate).
 							Str("retLedgerUUID", retLedgerUUID).
-							Str("retDebitAccountUUID", retDebitAccountUUID).
-							Str("retCreditAccountUUID", retCreditAccountUUID).
+							Str("retType", retType.String).
+							Str("retAccountUUID", retAccountUUID).
+							Str("retCategoryUUID", retCategoryUUID).
 							Msg("api.assign_to_category result")
 					}
 					
