@@ -62,10 +62,11 @@ declare
     v_transaction_uuid text;
     v_metadata jsonb;
     v_account_uuid text;
+    v_type text;
 begin
     -- Call the utils function and store results in local variables
-    select u.uuid, u.metadata, u.account_uuid
-    into v_transaction_uuid, v_metadata, v_account_uuid
+    select u.uuid, u.metadata, u.account_uuid, u.type
+    into v_transaction_uuid, v_metadata, v_account_uuid, v_type
     from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
@@ -83,7 +84,7 @@ begin
         p_date,                 -- date
         v_metadata,             -- metadata
         p_ledger_uuid,          -- ledger_uuid
-        null::text,             -- type (null for direct assignments)
+        v_type,                 -- type (from utils function)
         v_account_uuid,         -- account_uuid (using Income account)
         p_category_uuid         -- category_uuid
     );
