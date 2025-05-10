@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -1500,14 +1501,15 @@ func TestDatabase(t *testing.T) {
 						retMetadata          *[]byte
 						retDate              time.Time
 						retLedgerUUID        string
-						retDebitAccountUUID  string
-						retCreditAccountUUID string
+						retType              sql.NullString
+						retAccountUUID       string
+						retCategoryUUID      string
 					)
 
 					// Since it returns SETOF, QueryRow works if exactly one row is expected
 					err = conn.QueryRow(
 						ctx,
-						"SELECT uuid, description, amount, metadata, date, ledger_uuid, debit_account_uuid, credit_account_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
+						"SELECT uuid, description, amount, metadata, date, ledger_uuid, type, account_uuid, category_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
 						ledgerUUID, assignDate, assignDesc, assignAmount,
 						groceriesCategoryUUID,
 					).Scan(
@@ -1517,8 +1519,9 @@ func TestDatabase(t *testing.T) {
 						&retMetadata,
 						&retDate,
 						&retLedgerUUID,
-						&retDebitAccountUUID,
-						&retCreditAccountUUID,
+						&retType,
+						&retAccountUUID,
+						&retCategoryUUID,
 					)
 					
 					if err != nil {
@@ -1548,12 +1551,13 @@ func TestDatabase(t *testing.T) {
 					is.Equal(
 						retLedgerUUID, ledgerUUID,
 					) // Ledger UUID should match
+					is.True(!retType.Valid) // Type should be null for budget assignments
 					is.Equal(
-						retDebitAccountUUID, incomeCategoryUUID,
-					) // Debit should be Income
+						retAccountUUID, incomeCategoryUUID,
+					) // Account should be Income
 					is.Equal(
-						retCreditAccountUUID, groceriesCategoryUUID,
-					)                           // Credit should be Groceries
+						retCategoryUUID, groceriesCategoryUUID,
+					)                           // Category should be Groceries
 					is.True(retMetadata == nil) // Metadata should be null initially
 
 					transactionUUID = retUUID // Store for verification

@@ -48,11 +48,12 @@ returns table (
     uuid text,
     description text,
     amount bigint,
-    metadata jsonb,
     date timestamptz,
+    metadata jsonb,
     ledger_uuid text,
-    debit_account_uuid text,
-    credit_account_uuid text
+    type text,
+    account_uuid text,
+    category_uuid text
 ) as
 $$
 declare
@@ -72,16 +73,18 @@ begin
     );
     
     -- Return a single row using the values clause to avoid column name ambiguity
+    -- Map the results to match api.transactions view columns
     return query
     values (
-        v_transaction_uuid,
-        p_description,
-        p_amount,
-        v_transaction_metadata,
-        p_date,
-        p_ledger_uuid,
-        v_income_account_uuid,
-        p_category_uuid
+        v_transaction_uuid,                -- uuid
+        p_description,                     -- description
+        p_amount,                          -- amount
+        p_date,                            -- date
+        v_transaction_metadata,            -- metadata
+        p_ledger_uuid,                     -- ledger_uuid
+        null::text,                        -- type (null for direct assignments)
+        v_income_account_uuid,             -- account_uuid (using Income account)
+        p_category_uuid                    -- category_uuid
     );
 end;
 $$ language plpgsql volatile security invoker;
