@@ -1663,7 +1663,7 @@ func TestDatabase(t *testing.T) {
 			var btIncomeCategoryID int // Not strictly needed for these inserts but good for completeness
 
 			err = conn.QueryRow(ctx,
-				"SELECT uuid FROM utils.find_category($1, $2)", // find_category returns the UUID
+				"SELECT utils.find_category($1, $2)", // find_category directly returns the UUID
 				ledgerUUID, "Income",
 			).Scan(&btIncomeCategoryUUID)
 			is.NoErr(err) // Should find the Income category for the ledger
