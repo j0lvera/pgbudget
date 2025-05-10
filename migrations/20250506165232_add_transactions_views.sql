@@ -58,26 +58,35 @@ returns table (
     category_uuid text
 ) as
 $$
+declare
+    v_transaction_uuid text;
+    v_metadata jsonb;
+    v_account_uuid text;
 begin
-    -- Explicitly select columns to avoid ambiguity with column names
-    return query
-    select 
-        u.uuid,
-        u.description,
-        u.amount,
-        u.date,
-        u.metadata,
-        u.ledger_uuid,
-        u.type,
-        u.account_uuid,
-        u.category_uuid
+    -- Call the utils function and store results in local variables
+    select u.uuid, u.metadata, u.account_uuid
+    into v_transaction_uuid, v_metadata, v_account_uuid
     from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
         p_description   := p_description,
         p_amount        := p_amount,
         p_category_uuid := p_category_uuid
-    ) as u; -- Add alias to avoid column name ambiguity
+    ) as u;
+    
+    -- Return a single row using the values clause to avoid column name ambiguity
+    return query
+    values (
+        v_transaction_uuid,     -- uuid
+        p_description,          -- description
+        p_amount,               -- amount
+        p_date,                 -- date
+        v_metadata,             -- metadata
+        p_ledger_uuid,          -- ledger_uuid
+        null::text,             -- type (null for direct assignments)
+        v_account_uuid,         -- account_uuid (using Income account)
+        p_category_uuid         -- category_uuid
+    );
 end;
 $$ language plpgsql volatile security invoker;
 
