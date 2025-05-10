@@ -58,11 +58,11 @@ $$
 declare
     v_transaction_uuid text;
     v_income_account_uuid text;
-    v_metadata jsonb;
+    v_transaction_metadata jsonb;
 begin
     -- Call the internal utility function and store results in separate variables
-    select transaction_uuid, income_account_uuid, metadata 
-    into v_transaction_uuid, v_income_account_uuid, v_metadata
+    select transaction_uuid, income_account_uuid, transaction_metadata 
+    into v_transaction_uuid, v_income_account_uuid, v_transaction_metadata
     from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
@@ -77,7 +77,7 @@ begin
         v_transaction_uuid,
         p_description,
         p_amount,
-        v_metadata,
+        v_transaction_metadata,
         p_date,
         p_ledger_uuid,
         v_income_account_uuid,

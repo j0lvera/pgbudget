@@ -128,7 +128,7 @@ create or replace function utils.assign_to_category(
     p_amount bigint,
     p_category_uuid text,
     p_user_data text = utils.get_user()
-) returns table(transaction_uuid text, income_account_uuid text, metadata jsonb) as
+) returns table(transaction_uuid text, income_account_uuid text, transaction_metadata jsonb) as
 $$
 declare
     v_ledger_id          int;
