@@ -56,35 +56,15 @@ returns table (
     category_uuid text
 ) as
 $$
-declare
-    v_transaction_uuid text;
-    v_income_account_uuid text;
-    v_transaction_metadata jsonb;
 begin
-    -- Call the internal utility function and store results in separate variables
-    select transaction_uuid, income_account_uuid, transaction_metadata 
-    into v_transaction_uuid, v_income_account_uuid, v_transaction_metadata
-    from utils.assign_to_category(
+    -- Simply pass through to the utils function which now returns the same structure
+    return query
+    select * from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
         p_description   := p_description,
         p_amount        := p_amount,
         p_category_uuid := p_category_uuid
-    );
-    
-    -- Return a single row using the values clause to avoid column name ambiguity
-    -- Map the results to match api.transactions view columns
-    return query
-    values (
-        v_transaction_uuid,                -- uuid
-        p_description,                     -- description
-        p_amount,                          -- amount
-        p_date,                            -- date
-        v_transaction_metadata,            -- metadata
-        p_ledger_uuid,                     -- ledger_uuid
-        null::text,                        -- type (null for direct assignments)
-        v_income_account_uuid,             -- account_uuid (using Income account)
-        p_category_uuid                    -- category_uuid
     );
 end;
 $$ language plpgsql volatile security invoker;

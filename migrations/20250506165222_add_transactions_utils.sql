@@ -120,7 +120,7 @@ $$ language plpgsql;
 
 -- function to assign money from Income to a category (internal utility)
 -- performs the core logic: finds accounts, validates, inserts transaction
--- returns necessary info for the API layer
+-- returns a record matching the api.transactions view structure
 create or replace function utils.assign_to_category(
     p_ledger_uuid text,
     p_date timestamptz,
@@ -128,7 +128,17 @@ create or replace function utils.assign_to_category(
     p_amount bigint,
     p_category_uuid text,
     p_user_data text = utils.get_user()
-) returns table(transaction_uuid text, income_account_uuid text, transaction_metadata jsonb) as
+) returns table(
+    uuid text,
+    description text,
+    amount bigint,
+    date timestamptz,
+    metadata jsonb,
+    ledger_uuid text,
+    type text,
+    account_uuid text,
+    category_uuid text
+) as
 $$
 declare
     v_ledger_id          int;
@@ -164,9 +174,19 @@ begin
     )
     select it.uuid, it.metadata into v_transaction_uuid_local, v_metadata_local from inserted_transaction as it;
 
-    -- Return the essential details
-    return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
-
+    -- Return the full record matching the api.transactions view structure
+    return query
+    values (
+        v_transaction_uuid_local,          -- uuid
+        p_description,                     -- description
+        p_amount,                          -- amount
+        p_date,                            -- date
+        v_metadata_local,                  -- metadata
+        p_ledger_uuid,                     -- ledger_uuid
+        null::text,                        -- type (null for direct assignments)
+        v_income_account_uuid_local,       -- account_uuid (using Income account)
+        p_category_uuid                    -- category_uuid
+    );
 end;
 $$ language plpgsql volatile security definer; -- Security definer for controlled execution
 
