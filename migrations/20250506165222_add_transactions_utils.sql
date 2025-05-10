@@ -141,51 +141,74 @@ create or replace function utils.assign_to_category(
 ) as
 $$
 declare
-    v_ledger_id          int;
-    v_income_account_id  int;
-    v_income_account_uuid_local text; -- Renamed to avoid conflict with return column name
+    v_ledger_id int;
+    v_income_account_id int;
+    v_income_account_uuid text;
     v_category_account_id int;
-    v_transaction_uuid_local text; -- Renamed
-    v_metadata_local jsonb; -- Renamed
+    v_transaction_uuid text;
+    v_metadata jsonb;
 begin
-    -- find the ledger ID for the specified UUID and user
-    select l.id into v_ledger_id from data.ledgers l where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
-    if v_ledger_id is null then raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; end if;
+    -- Validate input parameters
+    if p_amount <= 0 then 
+        raise exception 'Assignment amount must be positive: %', p_amount; 
+    end if;
 
-    -- validate amount is positive
-    if p_amount <= 0 then raise exception 'Assignment amount must be positive: %', p_amount; end if;
+    -- Find ledger ID and validate ownership in a single query
+    select l.id into v_ledger_id 
+    from data.ledgers l 
+    where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
+    
+    if v_ledger_id is null then 
+        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; 
+    end if;
 
-    -- find the Income account ID and UUID
-    select a.id, a.uuid into v_income_account_id, v_income_account_uuid_local from data.accounts a
-     where a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.name = 'Income' and a.type = 'equity';
-    if v_income_account_id is null then raise exception 'Income account not found for ledger %', v_ledger_id; end if;
-
-    -- find the target category account ID
-    select a.id into v_category_account_id from data.accounts a
-     where a.uuid = p_category_uuid and a.ledger_id = v_ledger_id and a.user_data = p_user_data and a.type = 'equity';
-    if v_category_account_id is null then raise exception 'Category with UUID % not found or does not belong to ledger % for current user', p_category_uuid, v_ledger_id; end if;
-
-    -- create the transaction (debit Income, credit Category)
-    -- use a table alias for the insert and explicitly reference the metadata column
-    with inserted_transaction as (
-       insert into data.transactions as t (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
-       values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
-       returning t.uuid, t.metadata
+    -- Find Income account and target category in a more efficient way
+    -- Get both Income account and target category in one query if possible
+    with account_data as (
+        select a.id, a.uuid, a.name, a.type
+        from data.accounts a
+        where a.ledger_id = v_ledger_id 
+          and a.user_data = p_user_data
+          and ((a.name = 'Income' and a.type = 'equity') or a.uuid = p_category_uuid)
     )
-    select it.uuid, it.metadata into v_transaction_uuid_local, v_metadata_local from inserted_transaction as it;
+    select 
+        (select id from account_data where name = 'Income' and type = 'equity'),
+        (select uuid from account_data where name = 'Income' and type = 'equity'),
+        (select id from account_data where uuid = p_category_uuid)
+    into v_income_account_id, v_income_account_uuid, v_category_account_id;
+
+    -- Validate accounts were found
+    if v_income_account_id is null then 
+        raise exception 'Income account not found for ledger %', v_ledger_id; 
+    end if;
+    
+    if v_category_account_id is null then 
+        raise exception 'Category with UUID % not found or does not belong to ledger % for current user', 
+                        p_category_uuid, v_ledger_id; 
+    end if;
+
+    -- Create the transaction (debit Income, credit Category) with a simpler approach
+    insert into data.transactions (
+        ledger_id, description, date, amount, 
+        debit_account_id, credit_account_id, user_data
+    ) values (
+        v_ledger_id, p_description, p_date, p_amount, 
+        v_income_account_id, v_category_account_id, p_user_data
+    ) returning uuid, metadata into v_transaction_uuid, v_metadata;
 
     -- Return the full record matching the api.transactions view structure
+    -- Using a single VALUES expression is more efficient than a subquery
     return query
     values (
-        v_transaction_uuid_local,          -- uuid
-        p_description,                     -- description
-        p_amount,                          -- amount
-        p_date,                            -- date
-        v_metadata_local,                  -- metadata
-        p_ledger_uuid,                     -- ledger_uuid
-        null::text,                        -- type (null for direct assignments)
-        v_income_account_uuid_local,       -- account_uuid (using Income account)
-        p_category_uuid                    -- category_uuid
+        v_transaction_uuid,     -- uuid
+        p_description,          -- description
+        p_amount,               -- amount
+        p_date,                 -- date
+        v_metadata,             -- metadata
+        p_ledger_uuid,          -- ledger_uuid
+        null::text,             -- type (null for direct assignments)
+        v_income_account_uuid,  -- account_uuid (using Income account)
+        p_category_uuid         -- category_uuid
     );
 end;
 $$ language plpgsql volatile security definer; -- Security definer for controlled execution

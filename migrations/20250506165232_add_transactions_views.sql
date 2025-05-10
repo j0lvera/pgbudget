@@ -37,6 +37,8 @@ grant select, insert, update, delete on api.transactions to pgb_web_user;
 
 
 -- function to assign money from Income to a category (public API)
+-- This function provides a public interface for budget allocations
+-- It simply passes through to the utils function which handles all the logic
 create or replace function api.assign_to_category(
     p_ledger_uuid text,
     p_date timestamptz,
@@ -57,7 +59,8 @@ returns table (
 ) as
 $$
 begin
-    -- Simply pass through to the utils function which now returns the same structure
+    -- Pass through to the utils function which returns the same structure
+    -- This maintains separation between the API layer and the implementation
     return query
     select * from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
