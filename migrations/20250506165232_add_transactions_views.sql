@@ -60,20 +60,18 @@ begin
         p_category_uuid := p_category_uuid
     );
     
-    -- Return a single row using the values clause with explicit mapping
-    -- using the values returned by the utils function
+    -- Return a single row with explicit column aliases to match the api.transactions view structure
     return query
-    values (
-        v_result.result_uuid,                -- uuid
-        v_result.result_description,         -- description
-        v_result.result_amount,              -- amount
-        v_result.result_metadata,            -- metadata
-        v_result.result_date,                -- date
-        v_result.result_ledger_uuid,         -- ledger_uuid
-        v_result.result_transaction_type,    -- type
-        v_result.result_account_uuid,        -- account_uuid (Income account)
-        v_result.result_category_uuid        -- category_uuid
-    );
+    select 
+        v_result.result_uuid as uuid,
+        v_result.result_description as description,
+        v_result.result_amount as amount,
+        v_result.result_metadata as metadata,
+        v_result.result_date as date,
+        v_result.result_ledger_uuid as ledger_uuid,
+        v_result.result_transaction_type as type,
+        v_result.result_account_uuid as account_uuid,
+        v_result.result_category_uuid as category_uuid;
 end;
 $$ language plpgsql volatile security invoker;
 
