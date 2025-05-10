@@ -59,34 +59,30 @@ returns table (
 ) as
 $$
 declare
-    v_transaction_uuid text;
-    v_metadata jsonb;
-    v_account_uuid text;
-    v_type text;
+    v_result record;
 begin
-    -- Call the utils function and store results in local variables
-    select u.uuid, u.metadata, u.account_uuid, u.transaction_type
-    into v_transaction_uuid, v_metadata, v_account_uuid, v_type
-    from utils.assign_to_category(
+    -- Call the utils function and store the entire result in a record variable
+    select * into v_result from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
         p_description   := p_description,
         p_amount        := p_amount,
         p_category_uuid := p_category_uuid
-    ) as u;
+    );
     
-    -- Return a single row using the values clause to avoid column name ambiguity
+    -- Return a single row using the values clause with explicit mapping
+    -- from the utils function's result columns to the API function's return columns
     return query
     values (
-        v_transaction_uuid,     -- uuid
-        p_description,          -- description
-        p_amount,               -- amount
-        p_date,                 -- date
-        v_metadata,             -- metadata
-        p_ledger_uuid,          -- ledger_uuid
-        v_type,                 -- type (from utils function)
-        v_account_uuid,         -- account_uuid (using Income account)
-        p_category_uuid         -- category_uuid
+        v_result.result_uuid,              -- uuid
+        v_result.result_description,       -- description
+        v_result.result_amount,            -- amount
+        v_result.result_date,              -- date
+        v_result.result_metadata,          -- metadata
+        v_result.result_ledger_uuid,       -- ledger_uuid
+        v_result.result_transaction_type,  -- type
+        v_result.result_account_uuid,      -- account_uuid
+        v_result.result_category_uuid      -- category_uuid
     );
 end;
 $$ language plpgsql volatile security invoker;

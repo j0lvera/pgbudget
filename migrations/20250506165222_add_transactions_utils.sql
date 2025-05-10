@@ -129,15 +129,15 @@ create or replace function utils.assign_to_category(
     p_category_uuid text,
     p_user_data text = utils.get_user()
 ) returns table(
-    uuid text,
-    description text,
-    amount bigint,
-    date timestamptz,
-    metadata jsonb,
-    ledger_uuid text,
-    transaction_type text,
-    account_uuid text,
-    category_uuid text
+    result_uuid text,                  -- Renamed from 'uuid' to avoid ambiguity
+    result_description text,           -- Renamed from 'description' to avoid ambiguity
+    result_amount bigint,              -- Renamed from 'amount' to avoid ambiguity
+    result_date timestamptz,           -- Renamed from 'date' to avoid ambiguity
+    result_metadata jsonb,             -- Renamed from 'metadata' to avoid ambiguity
+    result_ledger_uuid text,           -- Renamed from 'ledger_uuid' to avoid ambiguity
+    result_transaction_type text,      -- Renamed from 'transaction_type' to avoid ambiguity
+    result_account_uuid text,          -- Renamed from 'account_uuid' to avoid ambiguity
+    result_category_uuid text          -- Renamed from 'category_uuid' to avoid ambiguity
 ) as
 $$
 declare
@@ -200,15 +200,15 @@ begin
     -- Using a single VALUES expression is more efficient than a subquery
     return query
     values (
-        v_transaction_uuid,     -- uuid
-        p_description,          -- description
-        p_amount,               -- amount
-        p_date,                 -- date
-        v_metadata,             -- metadata
-        p_ledger_uuid,          -- ledger_uuid
-        null::text,             -- transaction_type (null for direct assignments)
-        v_income_account_uuid,  -- account_uuid (using Income account)
-        p_category_uuid         -- category_uuid
+        v_transaction_uuid,     -- result_uuid
+        p_description,          -- result_description
+        p_amount,               -- result_amount
+        p_date,                 -- result_date
+        v_metadata,             -- result_metadata
+        p_ledger_uuid,          -- result_ledger_uuid
+        null::text,             -- result_transaction_type (null for direct assignments)
+        v_income_account_uuid,  -- result_account_uuid (using Income account)
+        p_category_uuid         -- result_category_uuid
     );
 end;
 $$ language plpgsql volatile security definer; -- Security definer for controlled execution
