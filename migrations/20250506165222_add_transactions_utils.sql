@@ -162,7 +162,7 @@ begin
        values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
        returning t.uuid, t.metadata
     )
-    select uuid, metadata into v_transaction_uuid_local, v_metadata_local from inserted_transaction;
+    select it.uuid, it.metadata into v_transaction_uuid_local, v_metadata_local from inserted_transaction as it;
 
     -- Return the essential details
     return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
