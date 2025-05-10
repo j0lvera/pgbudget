@@ -56,28 +56,33 @@ returns table (
 ) as
 $$
 declare
-    v_util_result record; -- To store the result from utils.assign_to_category (transaction_uuid, income_account_uuid, metadata)
+    v_transaction_uuid text;
+    v_income_account_uuid text;
+    v_metadata jsonb;
 begin
-    -- Call the internal utility function
-    select * into v_util_result from utils.assign_to_category(
-            p_ledger_uuid   := p_ledger_uuid,
-            p_date          := p_date,
-            p_description   := p_description,
-            p_amount        := p_amount,
-            p_category_uuid := p_category_uuid
-                                     );
+    -- Call the internal utility function and store results in separate variables
+    select transaction_uuid, income_account_uuid, metadata 
+    into v_transaction_uuid, v_income_account_uuid, v_metadata
+    from utils.assign_to_category(
+        p_ledger_uuid   := p_ledger_uuid,
+        p_date          := p_date,
+        p_description   := p_description,
+        p_amount        := p_amount,
+        p_category_uuid := p_category_uuid
+    );
     
-    -- Directly select columns to avoid ambiguity
+    -- Return a single row using the values clause to avoid column name ambiguity
     return query
-    select
-        v_util_result.transaction_uuid::text as uuid,
-        p_description::text as description,
-        p_amount::bigint as amount,
-        v_util_result.metadata::jsonb as metadata,
-        p_date::timestamptz as date,
-        p_ledger_uuid::text as ledger_uuid,
-        v_util_result.income_account_uuid::text as debit_account_uuid,
-        p_category_uuid::text as credit_account_uuid;
+    values (
+        v_transaction_uuid,
+        p_description,
+        p_amount,
+        v_metadata,
+        p_date,
+        p_ledger_uuid,
+        v_income_account_uuid,
+        p_category_uuid
+    );
 end;
 $$ language plpgsql volatile security invoker;
 
