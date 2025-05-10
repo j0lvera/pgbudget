@@ -50,6 +50,7 @@ returns SETOF api.transactions as
 $$
 declare
     v_result record;
+    v_transaction_row api.transactions%ROWTYPE;
 begin
     -- Call the utils function and store the entire result in a record variable
     select * into v_result from utils.assign_to_category(
@@ -60,19 +61,22 @@ begin
         p_category_uuid := p_category_uuid
     );
     
-    -- Return a single row with explicit column aliases to match the api.transactions view's column order
-    -- Order must match the order in the view: uuid, description, amount, date, metadata, ledger_uuid, type, account_uuid, category_uuid
-    return query
+    -- Construct a single row of api.transactions type
     select 
-        v_result.result_uuid::text as uuid,
-        v_result.result_description::text as description,
-        v_result.result_amount::bigint as amount,
-        v_result.result_date::timestamptz as date,
-        v_result.result_metadata::jsonb as metadata,
-        v_result.result_ledger_uuid::text as ledger_uuid,
-        v_result.result_transaction_type::text as type,
-        v_result.result_account_uuid::text as account_uuid,
-        v_result.result_category_uuid::text as category_uuid;
+        v_result.result_uuid::text,
+        v_result.result_description::text,
+        v_result.result_amount::bigint,
+        v_result.result_date::timestamptz,
+        v_result.result_metadata::jsonb,
+        v_result.result_ledger_uuid::text,
+        v_result.result_transaction_type::text,
+        v_result.result_account_uuid::text,
+        v_result.result_category_uuid::text
+    into v_transaction_row;
+    
+    -- Return the single row
+    return next v_transaction_row;
+    return;
 end;
 $$ language plpgsql volatile security invoker;
 
