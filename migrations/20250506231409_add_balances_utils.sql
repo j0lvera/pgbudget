@@ -369,7 +369,8 @@ begin
                         ), 0) into v_balance
           from data.transactions
          where ledger_id = p_ledger_id
-           and (debit_account_id = p_account_id or credit_account_id = p_account_id);
+           and (debit_account_id = p_account_id or credit_account_id = p_account_id)
+           and deleted_at is null; -- Exclude soft-deleted transactions
     else -- liability_like
         select coalesce(sum(
                                 case
@@ -380,10 +381,28 @@ begin
                         ), 0) into v_balance
           from data.transactions
          where ledger_id = p_ledger_id
-           and (debit_account_id = p_account_id or credit_account_id = p_account_id);
+           and (debit_account_id = p_account_id or credit_account_id = p_account_id)
+           and deleted_at is null; -- Exclude soft-deleted transactions
     end if;
 
     return v_balance;
+end;
+$$ language plpgsql;
+
+-- function to get the latest balance from the balances table
+create or replace function utils.get_latest_account_balance(
+    p_account_id integer
+) returns bigint as $$
+declare
+    v_balance bigint;
+begin
+    select balance into v_balance
+      from data.balances
+     where account_id = p_account_id
+     order by created_at desc, id desc
+     limit 1;
+    
+    return coalesce(v_balance, 0);
 end;
 $$ language plpgsql;
 
