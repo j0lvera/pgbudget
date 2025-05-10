@@ -50,6 +50,10 @@ returns SETOF api.transactions as
 $$
 declare
     v_result record;
+    
+    -- Using %ROWTYPE ensures the returned row exactly matches the structure of the api.transactions view.
+    -- This guarantees type compatibility and prevents structure mismatch errors when the function
+    -- is called with a SELECT statement that expects specific columns in a specific order.
     v_transaction_row api.transactions%ROWTYPE;
 begin
     -- Call the utils function and store the entire result in a record variable
