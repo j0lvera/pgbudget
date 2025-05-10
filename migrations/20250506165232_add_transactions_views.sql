@@ -67,15 +67,15 @@ begin
     
     -- Construct a single row of api.transactions type
     select 
-        v_result.result_uuid::text,
-        v_result.result_description::text,
-        v_result.result_amount::bigint,
-        v_result.result_date::timestamptz,
-        v_result.result_metadata::jsonb,
-        v_result.result_ledger_uuid::text,
-        v_result.result_transaction_type::text,
-        v_result.result_account_uuid::text,
-        v_result.result_category_uuid::text
+        v_result.r_uuid::text,
+        v_result.r_description::text,
+        v_result.r_amount::bigint,
+        v_result.r_date::timestamptz,
+        v_result.r_metadata::jsonb,
+        v_result.r_ledger_uuid::text,
+        v_result.r_transaction_type::text,
+        v_result.r_account_uuid::text,
+        v_result.r_category_uuid::text
     into v_transaction_row;
     
     -- Return the single row
