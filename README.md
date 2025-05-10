@@ -107,7 +107,7 @@ The insert operation will return the UUID of the newly created account.
 
 ### Add Income
 
-Income is typically recorded as an "inflow" transaction using the `api.simple_transactions` view. This transaction increases the balance of an asset account (e.g., 'Checking') and credits the special 'Income' category.
+Income is typically recorded as an "inflow" transaction using the `api.transactions` view by specifying the `type` as 'inflow'. This transaction increases the balance of an asset account (e.g., 'Checking') and credits the special 'Income' category.
 
 ```sql
 -- Add income of $1000 from "Paycheck" (100000 cents)
@@ -197,7 +197,7 @@ It takes these parameters:
 
 ### Spend Money
 
-Spending is recorded as an "outflow" transaction using the `api.simple_transactions` view. This decreases the balance of an asset account (e.g., 'Checking') and debits the relevant budget category.
+Spending is recorded as an "outflow" transaction using the `api.transactions` view by specifying the `type` as 'outflow'. This decreases the balance of an asset account (e.g., 'Checking') and debits the relevant budget category.
 
 ```sql
 -- Spend $15 on Milk from Groceries category (1500 cents)
@@ -345,13 +345,14 @@ This query directly accesses the `data.balances` table, which is assumed to stor
 
 ## Transaction Entry Options
 
-pgbudget provides two methods for entering transactions, catering to different user preferences and knowledge levels:
+The `api.transactions` view is the primary way to record financial activities. It supports two modes of operation, catering to different user preferences and knowledge levels:
 
-### 1. Simple Transactions View (Recommended for Most Users)
+### 1. Using `type` for Simplified Entry (Recommended for Most Users)
+When you provide `type` ('inflow' or 'outflow'), `account_uuid` (the bank/credit card account involved in the real-world transaction), and `category_uuid` (the budget category or income source), the system automatically handles the underlying double-entry accounting.
 
 ```sql
--- Add a transaction using the simplified view
-INSERT INTO api.simple_transactions (
+-- Add a transaction using the type-based simplified entry
+INSERT INTO api.transactions (
     ledger_uuid,
     date,
     description,
@@ -370,7 +371,7 @@ INSERT INTO api.simple_transactions (
 ) RETURNING uuid;
 
 -- Update a transaction
-UPDATE api.simple_transactions
+UPDATE api.transactions
    SET amount = 6000,          -- 6000 cents = $60.00
        description = 'Updated grocery shopping'
  WHERE uuid = 'your-transaction-uuid'; -- Use the UUID of the transaction to update
@@ -378,12 +379,13 @@ UPDATE api.simple_transactions
 
 This approach:
 - Uses intuitive concepts like "inflow" and "outflow"
-- Automatically determines which accounts to debit and credit
+- Automatically determines which internal accounts to debit and credit based on the `type`, `account_uuid`, and `category_uuid` provided.
 - Shields users from needing to understand double-entry accounting details
-- Supports full CRUD operations (insert, update, delete) with the same simplified interface
+- Supports full CRUD operations (insert, update, delete). For updates, changing `amount`, `description`, or `date` is straightforward. Modifying `type`, `account_uuid`, or `category_uuid` can be more complex as it might change the fundamental nature of the transaction and the accounts debited/credited.
 - Is exposed via PostgREST as a standard RESTful resource
 
-### 2. Direct Transactions View (For Accounting Professionals)
+### 2. Specifying Debit and Credit Accounts Directly (For Accounting Professionals or Complex Transactions)
+For complete control over the double-entry process, you can directly specify `debit_account_uuid` and `credit_account_uuid`. When using this mode, you should not provide `type`, `account_uuid`, or `category_uuid` (or they will be ignored if the system prioritizes explicit debit/credit accounts).
 
 ```sql
 -- Add a transaction by directly specifying debit and credit accounts
@@ -406,11 +408,11 @@ INSERT INTO api.transactions (
 
 This approach:
 - Gives complete control over the double-entry accounting process
-- Requires understanding which account to debit and which to credit
+- Requires understanding which account to debit and which to credit according to double-entry principles.
 - Is useful for complex transactions or for users familiar with accounting principles
 - Follows standard PostgreSQL table operations
 
-Both methods maintain the integrity of your double-entry accounting system while offering flexibility based on your comfort level with accounting concepts. The `simple_transactions` view is particularly useful for applications where users shouldn't need to understand accounting principles to manage their budget effectively.
+Both modes of using the `api.transactions` view maintain the integrity of your double-entry accounting system while offering flexibility. Using the `type`, `account_uuid`, and `category_uuid` parameters is particularly useful for applications where users shouldn't need to understand detailed accounting principles to manage their budget effectively.
 
 ### View Account Transactions
 
