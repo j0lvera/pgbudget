@@ -80,7 +80,16 @@ begin
             v_util_result.income_account_uuid::text as debit_account_uuid,
             p_category_uuid::text as credit_account_uuid
     )
-    select * from result_data;
+    select 
+        uuid,
+        description,
+        amount,
+        metadata,
+        date,
+        ledger_uuid,
+        debit_account_uuid,
+        credit_account_uuid
+    from result_data;
 end;
 $$ language plpgsql volatile security invoker;
 
