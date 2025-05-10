@@ -60,18 +60,19 @@ begin
         p_category_uuid := p_category_uuid
     );
     
-    -- Return a single row with explicit column aliases to match the api.transactions view structure
+    -- Return a single row with explicit column aliases to match the test's expected order
+    -- Order must match the order in the test: uuid, description, amount, metadata, date, ledger_uuid, type, account_uuid, category_uuid
     return query
     select 
-        v_result.result_uuid as uuid,
-        v_result.result_description as description,
-        v_result.result_amount as amount,
-        v_result.result_metadata as metadata,
-        v_result.result_date as date,
-        v_result.result_ledger_uuid as ledger_uuid,
-        v_result.result_transaction_type as type,
-        v_result.result_account_uuid as account_uuid,
-        v_result.result_category_uuid as category_uuid;
+        v_result.result_uuid::text as uuid,
+        v_result.result_description::text as description,
+        v_result.result_amount::bigint as amount,
+        v_result.result_metadata::jsonb as metadata,
+        v_result.result_date::timestamptz as date,
+        v_result.result_ledger_uuid::text as ledger_uuid,
+        v_result.result_transaction_type::text as type,
+        v_result.result_account_uuid::text as account_uuid,
+        v_result.result_category_uuid::text as category_uuid;
 end;
 $$ language plpgsql volatile security invoker;
 
