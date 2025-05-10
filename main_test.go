@@ -2509,12 +2509,333 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 
-	// // Test the get_account_balance function
-	// t.Run(
-	// 	"GetAccountBalance", func(t *testing.T) {
-	// 		t.Skip("Skipping until implementation is ready")
-	// 	},
-	// )
+	// Test the get_account_balance function
+	t.Run(
+		"GetAccountBalance", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Create a new ledger specifically for this test
+			var balanceTestLedgerUUID string
+			var balanceTestLedgerID int
+			
+			// Create a new ledger using the api.ledgers view
+			ledgerName := "GetAccountBalance Test Ledger"
+			err := conn.QueryRow(
+				ctx,
+				"insert into api.ledgers (name) values ($1) returning uuid",
+				ledgerName,
+			).Scan(&balanceTestLedgerUUID)
+			is.NoErr(err) // should create ledger without error
+			
+			// Get the internal ID for verification
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.ledgers WHERE uuid = $1",
+				balanceTestLedgerUUID,
+			).Scan(&balanceTestLedgerID)
+			is.NoErr(err) // should find the ledger by UUID
+			is.True(balanceTestLedgerID > 0) // should have a valid internal ID
+			
+			// Setup accounts for testing
+			var (
+				checkingAccountUUID string
+				checkingAccountID   int
+				groceriesCategoryUUID string
+				groceriesCategoryID   int
+				incomeAccountUUID string
+				incomeAccountID int
+			)
+			
+			// Create checking account
+			err = conn.QueryRow(
+				ctx,
+				`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+				balanceTestLedgerUUID, "Balance-Checking",
+			).Scan(&checkingAccountUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				checkingAccountUUID,
+			).Scan(&checkingAccountID)
+			is.NoErr(err)
+			
+			// Create groceries category
+			err = conn.QueryRow(
+				ctx,
+				"SELECT uuid FROM api.add_category($1, $2)",
+				balanceTestLedgerUUID, "Balance-Groceries",
+			).Scan(&groceriesCategoryUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				groceriesCategoryUUID,
+			).Scan(&groceriesCategoryID)
+			is.NoErr(err)
+			
+			// Get Income account UUID and ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT utils.find_category($1, $2)",
+				balanceTestLedgerUUID, "Income",
+			).Scan(&incomeAccountUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				incomeAccountUUID,
+			).Scan(&incomeAccountID)
+			is.NoErr(err)
+			
+			// Test initial balances (should be zero)
+			t.Run("InitialBalances", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// Check initial balance for checking account
+				var checkingBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&checkingBalance)
+				is.NoErr(err)
+				is.Equal(checkingBalance, int64(0)) // Initial balance should be zero
+				
+				// Check initial balance for groceries category
+				var groceriesBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, groceriesCategoryID,
+				).Scan(&groceriesBalance)
+				is.NoErr(err)
+				is.Equal(groceriesBalance, int64(0)) // Initial balance should be zero
+			})
+			
+			// Add transactions and test balances
+			t.Run("TransactionsAndBalances", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// 1. Add income transaction (inflow to checking from income)
+				incomeAmount := int64(100000) // $1000.00
+				var incomeTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'inflow', $4, $5, $6) RETURNING uuid`,
+					balanceTestLedgerUUID, time.Now(), "Initial Income", incomeAmount,
+					checkingAccountUUID, incomeAccountUUID,
+				).Scan(&incomeTxUUID)
+				is.NoErr(err)
+				
+				// Check balances after income
+				var checkingBalance, incomeBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&checkingBalance)
+				is.NoErr(err)
+				is.Equal(checkingBalance, incomeAmount) // Checking should have the income amount
+				
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, incomeAccountID,
+				).Scan(&incomeBalance)
+				is.NoErr(err)
+				is.Equal(incomeBalance, incomeAmount) // Income should have the income amount
+				
+				// 2. Add spending transaction (outflow from checking to groceries)
+				spendAmount := int64(25000) // $250.00
+				var spendTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+					balanceTestLedgerUUID, time.Now(), "Grocery Shopping", spendAmount,
+					checkingAccountUUID, groceriesCategoryUUID,
+				).Scan(&spendTxUUID)
+				is.NoErr(err)
+				
+				// Check balances after spending
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&checkingBalance)
+				is.NoErr(err)
+				is.Equal(checkingBalance, incomeAmount - spendAmount) // Checking should be reduced by spend amount
+				
+				var groceriesBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, groceriesCategoryID,
+				).Scan(&groceriesBalance)
+				is.NoErr(err)
+				is.Equal(groceriesBalance, -spendAmount) // Groceries should be negative spend amount
+				
+				// 3. Add another spending transaction that will be soft-deleted
+				deletedSpendAmount := int64(15000) // $150.00
+				var deletedTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+					balanceTestLedgerUUID, time.Now(), "To Be Deleted", deletedSpendAmount,
+					checkingAccountUUID, groceriesCategoryUUID,
+				).Scan(&deletedTxUUID)
+				is.NoErr(err)
+				
+				// Check balances after second spending
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&checkingBalance)
+				is.NoErr(err)
+				is.Equal(checkingBalance, incomeAmount - spendAmount - deletedSpendAmount) // Checking further reduced
+				
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, groceriesCategoryID,
+				).Scan(&groceriesBalance)
+				is.NoErr(err)
+				is.Equal(groceriesBalance, -(spendAmount + deletedSpendAmount)) // Groceries further reduced
+				
+				// 4. Soft-delete the second transaction
+				_, err = conn.Exec(
+					ctx,
+					`DELETE FROM api.transactions WHERE uuid = $1`,
+					deletedTxUUID,
+				)
+				is.NoErr(err)
+				
+				// Verify transaction is soft-deleted (deleted_at is set)
+				var deletedAt pgtype.Timestamptz
+				err = conn.QueryRow(
+					ctx,
+					"SELECT deleted_at FROM data.transactions WHERE uuid = $1",
+					deletedTxUUID,
+				).Scan(&deletedAt)
+				is.NoErr(err)
+				is.True(deletedAt.Valid) // deleted_at should be set
+				
+				// Check balances after soft-delete - should exclude the deleted transaction
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&checkingBalance)
+				is.NoErr(err)
+				is.Equal(checkingBalance, incomeAmount - spendAmount) // Should be back to balance after first spend
+				
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, groceriesCategoryID,
+				).Scan(&groceriesBalance)
+				is.NoErr(err)
+				is.Equal(groceriesBalance, -spendAmount) // Should be back to balance after first spend
+			})
+			
+			// Test error cases
+			t.Run("ErrorCases", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// Test with invalid account ID
+				var invalidBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, 999999, // Invalid account ID
+				).Scan(&invalidBalance)
+				is.True(err != nil) // Should return an error
+				
+				// Test with account from different ledger
+				// First create a different ledger and account
+				var otherLedgerUUID string
+				var otherLedgerID int
+				err = conn.QueryRow(
+					ctx,
+					"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+					"Other Test Ledger",
+				).Scan(&otherLedgerUUID)
+				is.NoErr(err)
+				
+				err = conn.QueryRow(
+					ctx,
+					"SELECT id FROM data.ledgers WHERE uuid = $1",
+					otherLedgerUUID,
+				).Scan(&otherLedgerID)
+				is.NoErr(err)
+				
+				var otherAccountUUID string
+				var otherAccountID int
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+					otherLedgerUUID, "Other Checking",
+				).Scan(&otherAccountUUID)
+				is.NoErr(err)
+				
+				err = conn.QueryRow(
+					ctx,
+					"SELECT id FROM data.accounts WHERE uuid = $1",
+					otherAccountUUID,
+				).Scan(&otherAccountID)
+				is.NoErr(err)
+				
+				// Try to get balance of account from one ledger using another ledger's ID
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, otherAccountID,
+				).Scan(&invalidBalance)
+				is.True(err != nil) // Should return an error
+				
+				// Check error message
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr))
+				is.True(strings.Contains(pgErr.Message, "account not found or does not belong to the specified ledger"))
+			})
+			
+			// Compare with balances table
+			t.Run("CompareWithBalancesTable", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// Get balance using get_account_balance function
+				var fnBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_account_balance($1, $2)",
+					balanceTestLedgerID, checkingAccountID,
+				).Scan(&fnBalance)
+				is.NoErr(err)
+				
+				// Get latest balance from balances table using get_latest_account_balance function
+				var tableBalance int64
+				err = conn.QueryRow(
+					ctx,
+					"SELECT utils.get_latest_account_balance($1)",
+					checkingAccountID,
+				).Scan(&tableBalance)
+				is.NoErr(err)
+				
+				// Balances should match
+				is.Equal(fnBalance, tableBalance)
+			})
+		},
+	)
 
 	// // Test the balances table and trigger functionality
 	// t.Run(
