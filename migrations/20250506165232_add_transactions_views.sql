@@ -59,16 +59,25 @@ returns table (
 ) as
 $$
 begin
-    -- Pass through to the utils function which returns the same structure
-    -- This maintains separation between the API layer and the implementation
+    -- Explicitly select columns to avoid ambiguity with column names
     return query
-    select * from utils.assign_to_category(
+    select 
+        u.uuid,
+        u.description,
+        u.amount,
+        u.date,
+        u.metadata,
+        u.ledger_uuid,
+        u.type,
+        u.account_uuid,
+        u.category_uuid
+    from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
         p_date          := p_date,
         p_description   := p_description,
         p_amount        := p_amount,
         p_category_uuid := p_category_uuid
-    );
+    ) as u; -- Add alias to avoid column name ambiguity
 end;
 $$ language plpgsql volatile security invoker;
 
