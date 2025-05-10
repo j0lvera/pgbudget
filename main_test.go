@@ -1498,8 +1498,8 @@ func TestDatabase(t *testing.T) {
 						retUUID              string
 						retDescription       string
 						retAmount            int64
-						retMetadata          *[]byte
 						retDate              time.Time
+						retMetadata          *[]byte
 						retLedgerUUID        string
 						retType              sql.NullString
 						retAccountUUID       string
@@ -1509,15 +1509,15 @@ func TestDatabase(t *testing.T) {
 					// Since it returns SETOF, QueryRow works if exactly one row is expected
 					err = conn.QueryRow(
 						ctx,
-						"SELECT uuid, description, amount, metadata, date, ledger_uuid, type, account_uuid, category_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
+						"SELECT uuid, description, amount, date, metadata, ledger_uuid, type, account_uuid, category_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
 						ledgerUUID, assignDate, assignDesc, assignAmount,
 						groceriesCategoryUUID,
 					).Scan(
 						&retUUID,
 						&retDescription,
 						&retAmount,
-						&retMetadata,
 						&retDate,
+						&retMetadata,
 						&retLedgerUUID,
 						&retType,
 						&retAccountUUID,

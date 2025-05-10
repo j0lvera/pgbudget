@@ -60,15 +60,15 @@ begin
         p_category_uuid := p_category_uuid
     );
     
-    -- Return a single row with explicit column aliases to match the test's expected order
-    -- Order must match the order in the test: uuid, description, amount, metadata, date, ledger_uuid, type, account_uuid, category_uuid
+    -- Return a single row with explicit column aliases to match the api.transactions view's column order
+    -- Order must match the order in the view: uuid, description, amount, date, metadata, ledger_uuid, type, account_uuid, category_uuid
     return query
     select 
         v_result.result_uuid::text as uuid,
         v_result.result_description::text as description,
         v_result.result_amount::bigint as amount,
-        v_result.result_metadata::jsonb as metadata,
         v_result.result_date::timestamptz as date,
+        v_result.result_metadata::jsonb as metadata,
         v_result.result_ledger_uuid::text as ledger_uuid,
         v_result.result_transaction_type::text as type,
         v_result.result_account_uuid::text as account_uuid,
