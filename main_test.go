@@ -1476,24 +1476,6 @@ func TestDatabase(t *testing.T) {
 				"Success", func(t *testing.T) {
 					is := is_.New(t)
 					
-					// Log the parameters for debugging
-					log.Info().
-						Str("ledgerUUID", ledgerUUID).
-						Time("assignDate", assignDate).
-						Str("assignDesc", assignDesc).
-						Int64("assignAmount", assignAmount).
-						Str("groceriesCategoryUUID", groceriesCategoryUUID).
-						Msg("Calling api.assign_to_category with parameters")
-					
-					// Try a simpler query first to see if it works
-					var testResult string
-					err := conn.QueryRow(
-						ctx,
-						"SELECT 'test'::text",
-					).Scan(&testResult)
-					is.NoErr(err)
-					log.Info().Str("testResult", testResult).Msg("Simple query test")
-					
 					var (
 						retUUID              string
 						retDescription       string
@@ -1507,7 +1489,7 @@ func TestDatabase(t *testing.T) {
 					)
 
 					// Since it returns SETOF, QueryRow works if exactly one row is expected
-					err = conn.QueryRow(
+					err := conn.QueryRow(
 						ctx,
 						"SELECT uuid, description, amount, date, metadata, ledger_uuid, type, account_uuid, category_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
 						ledgerUUID, assignDate, assignDesc, assignAmount,
@@ -1523,21 +1505,6 @@ func TestDatabase(t *testing.T) {
 						&retAccountUUID,
 						&retCategoryUUID,
 					)
-					
-					if err != nil {
-						log.Error().Err(err).Msg("Error calling api.assign_to_category")
-					} else {
-						log.Info().
-							Str("retUUID", retUUID).
-							Str("retDescription", retDescription).
-							Int64("retAmount", retAmount).
-							Time("retDate", retDate).
-							Str("retLedgerUUID", retLedgerUUID).
-							Str("retType", retType.String).
-							Str("retAccountUUID", retAccountUUID).
-							Str("retCategoryUUID", retCategoryUUID).
-							Msg("api.assign_to_category result")
-					}
 					
 					is.NoErr(err) // Should execute function without error
 
@@ -1645,19 +1612,6 @@ func TestDatabase(t *testing.T) {
 					finalGroceriesBalance, err := getBalance(groceriesCategoryUUID)
 					is.NoErr(err)
 
-					log.Info().Int64(
-						"initialIncome", initialIncomeBalance,
-					).Int64("finalIncome", finalIncomeBalance).Int64(
-						"assigned", assignAmount,
-					).Msg("Income Balance Check")
-					log.Info().Int64(
-						"initialGroceries", initialGroceriesBalance,
-					).Int64(
-						"finalGroceries", finalGroceriesBalance,
-					).Int64(
-						"assigned", assignAmount,
-					).Msg("Groceries Balance Check")
-
 					is.Equal(
 						finalIncomeBalance, initialIncomeBalance-assignAmount,
 					) // Income balance should decrease
@@ -1684,15 +1638,7 @@ func TestDatabase(t *testing.T) {
 					var pgErr *pgconn.PgError
 					is.True(errors.As(err, &pgErr)) // Error should be a PgError
 
-					// --- ADD LOGGING ---
-					log.Error().Err(err).Str("Code", pgErr.Code).Str(
-						"Message", pgErr.Message,
-					).Str("Detail", pgErr.Detail).Str(
-						"Hint", pgErr.Hint,
-					).Msg("InvalidLedgerError details")
-					// --- END LOGGING ---
-
-					// Check message from utils function (keep existing check for now, will adjust after seeing log)
+					// Check message from utils function
 					is.True(
 						strings.Contains(
 							pgErr.Message, "not found for current user",
