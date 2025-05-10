@@ -1657,6 +1657,55 @@ func TestDatabase(t *testing.T) {
 			is.True(btGroceriesCategoryID > 0)
 			is.Equal(groceriesIntType, "liability_like")
 			// btGroceriesCategoryIntType = groceriesIntType // Store if needed elsewhere
+
+			// 3. Fetch Income Category UUID and ID for this ledger
+			var btIncomeCategoryUUID string
+			var btIncomeCategoryID int // Not strictly needed for these inserts but good for completeness
+
+			err = conn.QueryRow(ctx,
+				"SELECT uuid FROM utils.find_category($1, $2)", // find_category returns the UUID
+				ledgerUUID, "Income",
+			).Scan(&btIncomeCategoryUUID)
+			is.NoErr(err) // Should find the Income category for the ledger
+			is.True(btIncomeCategoryUUID != "")
+
+			// Optionally, get internal ID if needed for other checks, though not used in inserts below
+			err = conn.QueryRow(ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				btIncomeCategoryUUID,
+			).Scan(&btIncomeCategoryID)
+			is.NoErr(err)
+			is.True(btIncomeCategoryID > 0)
+
+			// 4. Add Income Transaction to BT Checking, categorized as Income
+			initialIncomeAmount := int64(100000) // $1000.00
+			incomeDesc := "BT Initial Income Deposit"
+			incomeDate := time.Now().Add(-2 * time.Minute) // Ensure this is before budget allocation
+			var incomeTxUUID string
+
+			// Insert via api.transactions: type 'inflow', account_uuid is checking, category_uuid is Income
+			// This should debit Checking (Asset +) and credit Income (Equity +)
+			err = conn.QueryRow(ctx,
+				`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+				 VALUES ($1, $2, $3, 'inflow', $4, $5, $6) RETURNING uuid`,
+				ledgerUUID, incomeDate, incomeDesc, initialIncomeAmount, btCheckingAccountUUID, btIncomeCategoryUUID,
+			).Scan(&incomeTxUUID)
+			is.NoErr(err) // Should create income transaction
+			is.True(incomeTxUUID != "")
+
+			// 5. Assign Money from Income to BT Groceries Category
+			budgetAllocationAmount := int64(20000) // $200.00
+			budgetAllocationDesc := "BT Budget Allocation for Groceries"
+			budgetAllocationDate := time.Now().Add(-1 * time.Minute) // After income, before spending
+			var budgetTxUUID string
+
+			// This function debits Income category and credits the target category (BT Groceries)
+			err = conn.QueryRow(ctx,
+				"SELECT uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
+				ledgerUUID, budgetAllocationDate, budgetAllocationDesc, budgetAllocationAmount, btGroceriesCategoryUUID,
+			).Scan(&budgetTxUUID)
+			is.NoErr(err) // Should assign money to category
+			is.True(budgetTxUUID != "")
 		})
 
 		if btCheckingAccountUUID == "" || btGroceriesCategoryUUID == "" {
@@ -1672,14 +1721,22 @@ func TestDatabase(t *testing.T) {
 			is := is_.New(t)
 			txTime := time.Now()
 
-			// Initial balances (should be 0 for new accounts, and no entry found)
-			initialCheckingBal, _, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
-			is.Equal(initialCheckingBal, int64(0))
-			is.Equal(checkingFound, false) // Expect no balance entry yet
+			// Expected balances after setup transactions
+			// BT Checking received initialIncomeAmount.
+			// BT Groceries received budgetAllocationAmount from Income.
+			expectedCheckingBalanceAfterSetup := int64(100000) // Matches initialIncomeAmount from setup
+			expectedGroceriesBalanceAfterSetup := int64(20000) // Matches budgetAllocationAmount from setup
 
-			initialGroceriesBal, _, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
-			is.Equal(initialGroceriesBal, int64(0))
-			is.Equal(groceriesFound, false) // Expect no balance entry yet
+			// Get current balances (these are the "initial" balances for this outflow test)
+			// Note: getLatestBalanceEntry returns (prevBal, currentBal, opType, found)
+			// We are interested in currentBal here.
+			_, initialCheckingBal, _, checkingFound := getLatestBalanceEntry(t, btCheckingAccountID)
+			is.True(checkingFound) // Expect balance entry to exist now due to setup transactions
+			is.Equal(initialCheckingBal, expectedCheckingBalanceAfterSetup)
+
+			_, initialGroceriesBal, _, groceriesFound := getLatestBalanceEntry(t, btGroceriesCategoryID)
+			is.True(groceriesFound) // Expect balance entry to exist now due to setup transactions
+			is.Equal(initialGroceriesBal, expectedGroceriesBalanceAfterSetup)
 
 			// Insert outflow transaction: Spend from Checking for Groceries
 			// api.transactions: account_uuid is Checking, category_uuid is Groceries, type is outflow
