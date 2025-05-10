@@ -135,7 +135,7 @@ create or replace function utils.assign_to_category(
     date timestamptz,
     metadata jsonb,
     ledger_uuid text,
-    type text,
+    transaction_type text,
     account_uuid text,
     category_uuid text
 ) as
@@ -206,7 +206,7 @@ begin
         p_date,                 -- date
         v_metadata,             -- metadata
         p_ledger_uuid,          -- ledger_uuid
-        null::text,             -- type (null for direct assignments)
+        null::text,             -- transaction_type (null for direct assignments)
         v_income_account_uuid,  -- account_uuid (using Income account)
         p_category_uuid         -- category_uuid
     );

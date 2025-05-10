@@ -65,7 +65,7 @@ declare
     v_type text;
 begin
     -- Call the utils function and store results in local variables
-    select u.uuid, u.metadata, u.account_uuid, u.type
+    select u.uuid, u.metadata, u.account_uuid, u.transaction_type
     into v_transaction_uuid, v_metadata, v_account_uuid, v_type
     from utils.assign_to_category(
         p_ledger_uuid   := p_ledger_uuid,
