@@ -41,7 +41,8 @@ begin
         limit 1;
         
         -- reverse the delta (apply with opposite sign)
-        v_current_balance := v_previous_balance + v_delta; -- add the original delta to reverse it
+        v_delta := -v_delta; -- negate the original delta
+        v_current_balance := v_previous_balance + v_delta;
         
         -- insert reversal balance entry
         insert into data.balances (
