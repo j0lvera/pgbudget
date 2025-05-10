@@ -1569,43 +1569,32 @@ func TestDatabase(t *testing.T) {
 					}
 
 					var (
-						dbLedgerID        int
+						dbLedgerUUID      string
 						dbDescription     string
 						dbDate            time.Time
 						dbAmount          int64
-						dbDebitAccountID  int
-						dbCreditAccountID int
+						dbDebitAccountUUID  string
+						dbCreditAccountUUID string
 						dbUserData        string
 					)
-					// Fetch internal IDs for comparison
-					var incomeAccountID, groceriesAccountID int
-					err = conn.QueryRow(
-						ctx, "SELECT id FROM data.accounts WHERE uuid = $1",
-						incomeCategoryUUID,
-					).Scan(&incomeAccountID)
-					is.NoErr(err)
-					err = conn.QueryRow(
-						ctx, "SELECT id FROM data.accounts WHERE uuid = $1",
-						groceriesCategoryUUID,
-					).Scan(&groceriesAccountID)
-					is.NoErr(err)
 
+					// Query the transaction using the API view to get UUIDs instead of internal IDs
 					err = conn.QueryRow(
 						ctx,
-						`SELECT ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data
-                 FROM data.transactions WHERE uuid = $1`, transactionUUID,
+						`SELECT ledger_uuid, description, date, amount, debit_account_uuid, credit_account_uuid, user_data
+                 FROM api.transactions WHERE uuid = $1`, transactionUUID,
 					).Scan(
-						&dbLedgerID,
+						&dbLedgerUUID,
 						&dbDescription,
 						&dbDate,
 						&dbAmount,
-						&dbDebitAccountID,
-						&dbCreditAccountID,
+						&dbDebitAccountUUID,
+						&dbCreditAccountUUID,
 						&dbUserData,
 					)
 					is.NoErr(err) // Should find transaction
 
-					is.Equal(dbLedgerID, ledgerID) // Ledger ID should match
+					is.Equal(dbLedgerUUID, ledgerUUID) // Ledger UUID should match
 					is.Equal(
 						dbDescription, assignDesc,
 					) // Description should match
@@ -1613,11 +1602,11 @@ func TestDatabase(t *testing.T) {
 						dbAmount, assignAmount,
 					) // Amount should match
 					is.Equal(
-						dbDebitAccountID, incomeAccountID,
-					) // Debit ID should be Income
+						dbDebitAccountUUID, incomeCategoryUUID,
+					) // Debit UUID should be Income
 					is.Equal(
-						dbCreditAccountID, groceriesAccountID,
-					) // Credit ID should be Groceries
+						dbCreditAccountUUID, groceriesCategoryUUID,
+					) // Credit UUID should be Groceries
 					is.Equal(
 						dbUserData, testUserID,
 					)                                            // User data should match
