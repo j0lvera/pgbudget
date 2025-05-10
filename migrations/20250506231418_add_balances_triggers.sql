@@ -81,16 +81,8 @@ begin
     limit 1;
     
     -- For outflow transactions, both accounts should have negative deltas
-    if v_is_outflow then
-        v_delta := -new.amount; -- For outflow, both debit and credit have negative deltas
-    else
-        -- Standard accounting rules for other transaction types
-        if v_internal_type = 'asset_like' then
-            v_delta := new.amount; -- debit increases asset-like accounts
-        else
-            v_delta := -new.amount; -- debit decreases liability-like accounts
-        end if;
-    end if;
+    -- Always use negative amount for outflow transactions
+    v_delta := -new.amount;
     
     v_current_balance := v_previous_balance + v_delta;
     
@@ -114,16 +106,8 @@ begin
     limit 1;
     
     -- For outflow transactions, both accounts should have negative deltas
-    if v_is_outflow then
-        v_delta := -new.amount; -- For outflow, both debit and credit have negative deltas
-    else
-        -- Standard accounting rules for other transaction types
-        if v_internal_type = 'asset_like' then
-            v_delta := -new.amount; -- credit decreases asset-like accounts
-        else
-            v_delta := new.amount; -- credit increases liability-like accounts
-        end if;
-    end if;
+    -- Always use negative amount for outflow transactions
+    v_delta := -new.amount;
     
     v_current_balance := v_previous_balance + v_delta;
     
