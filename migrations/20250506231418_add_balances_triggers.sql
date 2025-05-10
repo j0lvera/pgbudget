@@ -10,7 +10,11 @@ declare
     v_current_balance bigint;
     v_delta bigint;
     v_internal_type text;
+    v_ledger_id int;
 begin
+    -- get the ledger_id from the transaction
+    v_ledger_id := new.ledger_id;
+    
     -- first, reverse the effects of the original transaction
     -- for each account affected by the original transaction
     for v_account_id in 
@@ -41,9 +45,9 @@ begin
         
         -- insert reversal balance entry
         insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data
+            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
         ) values (
-            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_reversal', new.user_data
+            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_reversal', new.user_data, v_ledger_id
         );
     end loop;
     
@@ -71,9 +75,9 @@ begin
     
     -- insert application balance entry for debit account
     insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data
+        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
     ) values (
-        new.debit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data
+        new.debit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data, v_ledger_id
     );
     
     -- for credit account
@@ -99,9 +103,9 @@ begin
     
     -- insert application balance entry for credit account
     insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data
+        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
     ) values (
-        new.credit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data
+        new.credit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data, v_ledger_id
     );
     
     return new;
@@ -116,7 +120,11 @@ declare
     v_previous_balance bigint;
     v_current_balance bigint;
     v_delta bigint;
+    v_ledger_id int;
 begin
+    -- get the ledger_id from the transaction
+    v_ledger_id := old.ledger_id;
+    
     -- for each account affected by the original transaction
     for v_account_id in 
         select distinct account_id 
@@ -142,9 +150,9 @@ begin
         
         -- insert delete balance entry
         insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data
+            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
         ) values (
-            v_account_id, old.id, v_previous_balance, v_delta, v_current_balance, 'transaction_delete', old.user_data
+            v_account_id, old.id, v_previous_balance, v_delta, v_current_balance, 'transaction_delete', old.user_data, v_ledger_id
         );
     end loop;
     
@@ -160,7 +168,11 @@ declare
     v_previous_balance bigint;
     v_current_balance bigint;
     v_delta bigint;
+    v_ledger_id int;
 begin
+    -- get the ledger_id from the transaction
+    v_ledger_id := new.ledger_id;
+    
     -- for each account affected by the original transaction
     for v_account_id in 
         select distinct account_id 
@@ -186,9 +198,9 @@ begin
         
         -- insert soft delete balance entry
         insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data
+            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
         ) values (
-            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_soft_delete', new.user_data
+            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_soft_delete', new.user_data, v_ledger_id
         );
     end loop;
     
