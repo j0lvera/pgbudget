@@ -67,29 +67,17 @@ begin
             p_category_uuid := p_category_uuid
                                      );
     
-    -- Use a CTE to avoid column ambiguity
+    -- Directly select columns to avoid ambiguity
     return query
-    with result_data as (
-        select
-            v_util_result.transaction_uuid::text as uuid,
-            p_description::text as description,
-            p_amount::bigint as amount,
-            v_util_result.metadata::jsonb as metadata,
-            p_date::timestamptz as date,
-            p_ledger_uuid::text as ledger_uuid,
-            v_util_result.income_account_uuid::text as debit_account_uuid,
-            p_category_uuid::text as credit_account_uuid
-    )
-    select 
-        uuid,
-        description,
-        amount,
-        metadata,
-        date,
-        ledger_uuid,
-        debit_account_uuid,
-        credit_account_uuid
-    from result_data;
+    select
+        v_util_result.transaction_uuid::text as uuid,
+        p_description::text as description,
+        p_amount::bigint as amount,
+        v_util_result.metadata::jsonb as metadata,
+        p_date::timestamptz as date,
+        p_ledger_uuid::text as ledger_uuid,
+        v_util_result.income_account_uuid::text as debit_account_uuid,
+        p_category_uuid::text as credit_account_uuid;
 end;
 $$ language plpgsql volatile security invoker;
 

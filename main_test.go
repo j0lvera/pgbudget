@@ -1474,6 +1474,25 @@ func TestDatabase(t *testing.T) {
 			t.Run(
 				"Success", func(t *testing.T) {
 					is := is_.New(t)
+					
+					// Log the parameters for debugging
+					log.Info().
+						Str("ledgerUUID", ledgerUUID).
+						Time("assignDate", assignDate).
+						Str("assignDesc", assignDesc).
+						Int64("assignAmount", assignAmount).
+						Str("groceriesCategoryUUID", groceriesCategoryUUID).
+						Msg("Calling api.assign_to_category with parameters")
+					
+					// Try a simpler query first to see if it works
+					var testResult string
+					err := conn.QueryRow(
+						ctx,
+						"SELECT 'test'::text",
+					).Scan(&testResult)
+					is.NoErr(err)
+					log.Info().Str("testResult", testResult).Msg("Simple query test")
+					
 					var (
 						retUUID              string
 						retDescription       string
@@ -1486,9 +1505,9 @@ func TestDatabase(t *testing.T) {
 					)
 
 					// Since it returns SETOF, QueryRow works if exactly one row is expected
-					err := conn.QueryRow(
+					err = conn.QueryRow(
 						ctx,
-						"SELECT * FROM api.assign_to_category($1, $2, $3, $4, $5)",
+						"SELECT uuid, description, amount, metadata, date, ledger_uuid, debit_account_uuid, credit_account_uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
 						ledgerUUID, assignDate, assignDesc, assignAmount,
 						groceriesCategoryUUID,
 					).Scan(
@@ -1501,6 +1520,21 @@ func TestDatabase(t *testing.T) {
 						&retDebitAccountUUID,
 						&retCreditAccountUUID,
 					)
+					
+					if err != nil {
+						log.Error().Err(err).Msg("Error calling api.assign_to_category")
+					} else {
+						log.Info().
+							Str("retUUID", retUUID).
+							Str("retDescription", retDescription).
+							Int64("retAmount", retAmount).
+							Time("retDate", retDate).
+							Str("retLedgerUUID", retLedgerUUID).
+							Str("retDebitAccountUUID", retDebitAccountUUID).
+							Str("retCreditAccountUUID", retCreditAccountUUID).
+							Msg("api.assign_to_category result")
+					}
+					
 					is.NoErr(err) // Should execute function without error
 
 					// Assert Return Values
