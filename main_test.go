@@ -2237,8 +2237,10 @@ func TestDatabase(t *testing.T) {
 					) // 2 reversal, 2 application
 
 					// Verify Reversal Entries (original outflowTxAmount = $75.00)
-					// Original outflow: Debit Groceries(L), Credit Checking(A). Deltas were -7500 for both.
-					// Reversal deltas should be +7500 for both.
+					// Original outflow: Debit Groceries(L), Credit Checking(A).
+					// For Groceries (liability-like): Debit decreases balance, so delta was -7500
+					// For Checking (asset-like): Credit decreases balance, so delta was -7500
+					// Reversal deltas should be +7500 for both (opposite of original).
 					is.Equal(
 						updateBalanceEntries[0].OperationType,
 						"transaction_update_reversal",
@@ -2258,7 +2260,7 @@ func TestDatabase(t *testing.T) {
 							)
 							is.Equal(
 								entry.Delta, outflowTxAmount,
-							) // Reversing original delta of -outflowTxAmount
+							) // Reversing original delta of -outflowTxAmount by adding the amount
 							is.Equal(
 								entry.Balance,
 								prevCheckingBalBeforeUpdate+outflowTxAmount,
@@ -2271,7 +2273,7 @@ func TestDatabase(t *testing.T) {
 							)
 							is.Equal(
 								entry.Delta, outflowTxAmount,
-							) // Reversing original delta of -outflowTxAmount
+							) // Reversing original delta of -outflowTxAmount by adding the amount
 							is.Equal(
 								entry.Balance,
 								prevGroceriesBalBeforeUpdate+outflowTxAmount,
@@ -2292,7 +2294,9 @@ func TestDatabase(t *testing.T) {
 					balanceGroceriesAfterReversal := prevGroceriesBalBeforeUpdate + outflowTxAmount
 
 					// Verify Application Entries (newOutflowTxAmount = $100.00)
-					// New outflow: Debit Groceries(L), Credit Checking(A). Deltas should be -10000 for both.
+					// New outflow: Debit Groceries(L), Credit Checking(A).
+					// For Groceries (liability-like): Debit decreases balance, so delta should be -10000
+					// For Checking (asset-like): Credit decreases balance, so delta should be -10000
 					is.Equal(
 						updateBalanceEntries[2].OperationType,
 						"transaction_update_application",
