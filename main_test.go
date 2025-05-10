@@ -1374,7 +1374,6 @@ func TestDatabase(t *testing.T) {
 	// Test api.assign_to_category function
 	t.Run(
 		"AssignToCategory", func(t *testing.T) {
-			t.Skip("For now") // This test can remain skipped
 			// Retrieve the categoryUUID created in the AddCategory test block
 			// This relies on test execution order or capturing the value at a higher scope.
 			// For simplicity here, we re-fetch it. A better approach might involve
