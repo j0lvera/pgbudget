@@ -61,18 +61,18 @@ begin
     );
     
     -- Return a single row using the values clause with explicit mapping
-    -- from the utils function's result columns to the API function's return columns
+    -- using the values returned by the utils function
     return query
     values (
-        v_result.transaction_uuid,              -- uuid
-        p_description,                          -- description
-        p_amount,                               -- amount
-        v_result.metadata,                      -- metadata
-        p_date,                                 -- date
-        p_ledger_uuid,                          -- ledger_uuid
-        null::text,                             -- type (null for budget assignments)
-        v_result.income_account_uuid,           -- account_uuid (Income account)
-        p_category_uuid                         -- category_uuid
+        v_result.result_uuid,                -- uuid
+        v_result.result_description,         -- description
+        v_result.result_amount,              -- amount
+        v_result.result_metadata,            -- metadata
+        v_result.result_date,                -- date
+        v_result.result_ledger_uuid,         -- ledger_uuid
+        v_result.result_transaction_type,    -- type
+        v_result.result_account_uuid,        -- account_uuid (Income account)
+        v_result.result_category_uuid        -- category_uuid
     );
 end;
 $$ language plpgsql volatile security invoker;
