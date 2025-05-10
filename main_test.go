@@ -1376,19 +1376,17 @@ func TestDatabase(t *testing.T) {
 	t.Run(
 		"AssignToCategory", func(t *testing.T) {
 			// Create a ledger specifically for this test if one isn't available
-			if ledgerUUID == "" {
-				is := is_.New(t)
-				
-				// Create a new ledger using the api.ledgers view
-				ledgerName := "AssignToCategory Test Ledger"
-				err := conn.QueryRow(
-					ctx,
-					"insert into api.ledgers (name) values ($1) returning uuid",
-					ledgerName,
-				).Scan(&ledgerUUID)
-				is.NoErr(err) // should create ledger without error
-			}
-			
+			is := is_.New(t)
+
+			// Create a new ledger using the api.ledgers view
+			ledgerName := "AssignToCategory Test Ledger"
+			err := conn.QueryRow(
+				ctx,
+				"insert into api.ledgers (name) values ($1) returning uuid",
+				ledgerName,
+			).Scan(&ledgerUUID)
+			is.NoErr(err) // should create ledger without error
+
 			// Create a groceries category for this test
 			var groceriesCategoryUUID string
 			t.Run(
@@ -1397,7 +1395,7 @@ func TestDatabase(t *testing.T) {
 					if ledgerUUID == "" {
 						t.Skip("Skipping because ledger UUID is not available")
 					}
-					
+
 					// Create a new Groceries category using api.add_category
 					err := conn.QueryRow(
 						ctx,
@@ -1475,17 +1473,17 @@ func TestDatabase(t *testing.T) {
 			t.Run(
 				"Success", func(t *testing.T) {
 					is := is_.New(t)
-					
+
 					var (
-						retUUID              string
-						retDescription       string
-						retAmount            int64
-						retDate              time.Time
-						retMetadata          *[]byte
-						retLedgerUUID        string
-						retType              sql.NullString
-						retAccountUUID       string
-						retCategoryUUID      string
+						retUUID         string
+						retDescription  string
+						retAmount       int64
+						retDate         time.Time
+						retMetadata     *[]byte
+						retLedgerUUID   string
+						retType         sql.NullString
+						retAccountUUID  string
+						retCategoryUUID string
 					)
 
 					// Since it returns SETOF, QueryRow works if exactly one row is expected
@@ -1505,7 +1503,7 @@ func TestDatabase(t *testing.T) {
 						&retAccountUUID,
 						&retCategoryUUID,
 					)
-					
+
 					is.NoErr(err) // Should execute function without error
 
 					// Assert Return Values
@@ -1518,7 +1516,7 @@ func TestDatabase(t *testing.T) {
 					is.True(retDate.Unix()-assignDate.Unix() < 2) // Check if times are very close (within a second)
 					is.Equal(
 						retLedgerUUID, ledgerUUID,
-					) // Ledger UUID should match
+					)                       // Ledger UUID should match
 					is.True(!retType.Valid) // Type should be null for budget assignments
 					is.Equal(
 						retAccountUUID, incomeCategoryUUID,
@@ -1571,12 +1569,20 @@ func TestDatabase(t *testing.T) {
 					)
 					is.NoErr(err) // Should find transaction
 
-					is.Equal(dbLedgerUUID, ledgerUUID) // Ledger UUID should match
-					is.Equal(dbDescription, assignDesc) // Description should match
-					is.Equal(dbAmount, assignAmount) // Amount should match
-					is.Equal(dbUserData, testUserID) // User data should match
+					is.Equal(
+						dbLedgerUUID, ledgerUUID,
+					) // Ledger UUID should match
+					is.Equal(
+						dbDescription, assignDesc,
+					) // Description should match
+					is.Equal(
+						dbAmount, assignAmount,
+					) // Amount should match
+					is.Equal(
+						dbUserData, testUserID,
+					)                                            // User data should match
 					is.True(dbDate.Unix()-assignDate.Unix() < 2) // Check time
-					
+
 					// Verify that the transaction debits Income and credits the target category
 					// We need to get the account IDs for Income and the target category
 					var incomeAccountID, groceriesCategoryID int
@@ -1586,16 +1592,20 @@ func TestDatabase(t *testing.T) {
 						incomeCategoryUUID,
 					).Scan(&incomeAccountID)
 					is.NoErr(err) // Should find Income account
-					
+
 					err = conn.QueryRow(
 						ctx,
 						"SELECT id FROM data.accounts WHERE uuid = $1",
 						groceriesCategoryUUID,
 					).Scan(&groceriesCategoryID)
 					is.NoErr(err) // Should find Groceries category
-					
-					is.Equal(dbDebitAccountID, incomeAccountID) // Debit should be Income
-					is.Equal(dbCreditAccountID, groceriesCategoryID) // Credit should be Groceries
+
+					is.Equal(
+						dbDebitAccountID, incomeAccountID,
+					) // Debit should be Income
+					is.Equal(
+						dbCreditAccountID, groceriesCategoryID,
+					) // Credit should be Groceries
 				},
 			)
 
