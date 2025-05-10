@@ -1568,49 +1568,62 @@ func TestDatabase(t *testing.T) {
 						t.Skip("Skipping VerifyTransaction because transaction UUID was not captured")
 					}
 
+					// Since api.assign_to_category creates a transaction directly in data.transactions,
+					// we need to query it directly to verify the details
 					var (
 						dbLedgerUUID      string
 						dbDescription     string
 						dbDate            time.Time
 						dbAmount          int64
-						dbDebitAccountUUID  string
-						dbCreditAccountUUID string
+						dbDebitAccountID  int
+						dbCreditAccountID int
 						dbUserData        string
 					)
 
-					// Query the transaction using the API view to get UUIDs instead of internal IDs
+					// Query the transaction from data.transactions
 					err = conn.QueryRow(
 						ctx,
-						`SELECT ledger_uuid, description, date, amount, debit_account_uuid, credit_account_uuid, user_data
-                 FROM api.transactions WHERE uuid = $1`, transactionUUID,
+						`SELECT l.uuid, t.description, t.date, t.amount, t.debit_account_id, t.credit_account_id, t.user_data
+						 FROM data.transactions t
+						 JOIN data.ledgers l ON t.ledger_id = l.id
+						 WHERE t.uuid = $1`,
+						transactionUUID,
 					).Scan(
 						&dbLedgerUUID,
 						&dbDescription,
 						&dbDate,
 						&dbAmount,
-						&dbDebitAccountUUID,
-						&dbCreditAccountUUID,
+						&dbDebitAccountID,
+						&dbCreditAccountID,
 						&dbUserData,
 					)
 					is.NoErr(err) // Should find transaction
 
 					is.Equal(dbLedgerUUID, ledgerUUID) // Ledger UUID should match
-					is.Equal(
-						dbDescription, assignDesc,
-					) // Description should match
-					is.Equal(
-						dbAmount, assignAmount,
-					) // Amount should match
-					is.Equal(
-						dbDebitAccountUUID, incomeCategoryUUID,
-					) // Debit UUID should be Income
-					is.Equal(
-						dbCreditAccountUUID, groceriesCategoryUUID,
-					) // Credit UUID should be Groceries
-					is.Equal(
-						dbUserData, testUserID,
-					)                                            // User data should match
+					is.Equal(dbDescription, assignDesc) // Description should match
+					is.Equal(dbAmount, assignAmount) // Amount should match
+					is.Equal(dbUserData, testUserID) // User data should match
 					is.True(dbDate.Unix()-assignDate.Unix() < 2) // Check time
+					
+					// Verify that the transaction debits Income and credits the target category
+					// We need to get the account IDs for Income and the target category
+					var incomeAccountID, groceriesCategoryID int
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.accounts WHERE uuid = $1",
+						incomeCategoryUUID,
+					).Scan(&incomeAccountID)
+					is.NoErr(err) // Should find Income account
+					
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.accounts WHERE uuid = $1",
+						groceriesCategoryUUID,
+					).Scan(&groceriesCategoryID)
+					is.NoErr(err) // Should find Groceries category
+					
+					is.Equal(dbDebitAccountID, incomeAccountID) // Debit should be Income
+					is.Equal(dbCreditAccountID, groceriesCategoryID) // Credit should be Groceries
 				},
 			)
 
