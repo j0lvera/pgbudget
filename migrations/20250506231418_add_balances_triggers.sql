@@ -21,7 +21,7 @@ create trigger transactions_after_update_balance_trigger
     when (old.amount is distinct from new.amount or
           old.debit_account_id is distinct from new.debit_account_id or
           old.credit_account_id is distinct from new.credit_account_id)
-execute function utils.handle_transaction_update_balance();
+execute function utils.transactions_after_update_fn();
 
 -- create the trigger on transactions table for deletes
 create trigger transactions_after_delete_balance_trigger
