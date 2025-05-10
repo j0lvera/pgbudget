@@ -11,6 +11,9 @@ declare
     v_delta bigint;
     v_internal_type text;
     v_ledger_id int;
+    v_debit_internal_type text;
+    v_credit_internal_type text;
+    v_is_outflow boolean;
 begin
     -- get the ledger_id from the transaction
     v_ledger_id := new.ledger_id;
@@ -52,6 +55,18 @@ begin
         );
     end loop;
     
+    -- Determine if this is an outflow transaction by checking account types
+    select internal_type into v_debit_internal_type
+    from data.accounts
+    where id = new.debit_account_id;
+    
+    select internal_type into v_credit_internal_type
+    from data.accounts
+    where id = new.credit_account_id;
+    
+    -- If debit is liability-like (category) and credit is asset-like (account), it's an outflow
+    v_is_outflow := (v_debit_internal_type = 'liability_like' and v_credit_internal_type = 'asset_like');
+    
     -- now apply the updated transaction
     -- for debit account
     select internal_type into v_internal_type
@@ -65,11 +80,16 @@ begin
     order by created_at desc, id desc
     limit 1;
     
-    -- calculate delta based on internal_type
-    if v_internal_type = 'asset_like' then
-        v_delta := new.amount; -- debit increases asset-like accounts
+    -- For outflow transactions, both accounts should have negative deltas
+    if v_is_outflow then
+        v_delta := -new.amount; -- For outflow, both debit and credit have negative deltas
     else
-        v_delta := -new.amount; -- debit decreases liability-like accounts
+        -- Standard accounting rules for other transaction types
+        if v_internal_type = 'asset_like' then
+            v_delta := new.amount; -- debit increases asset-like accounts
+        else
+            v_delta := -new.amount; -- debit decreases liability-like accounts
+        end if;
     end if;
     
     v_current_balance := v_previous_balance + v_delta;
@@ -93,11 +113,16 @@ begin
     order by created_at desc, id desc
     limit 1;
     
-    -- calculate delta based on internal_type
-    if v_internal_type = 'asset_like' then
-        v_delta := -new.amount; -- credit decreases asset-like accounts
+    -- For outflow transactions, both accounts should have negative deltas
+    if v_is_outflow then
+        v_delta := -new.amount; -- For outflow, both debit and credit have negative deltas
     else
-        v_delta := new.amount; -- credit increases liability-like accounts
+        -- Standard accounting rules for other transaction types
+        if v_internal_type = 'asset_like' then
+            v_delta := -new.amount; -- credit decreases asset-like accounts
+        else
+            v_delta := new.amount; -- credit increases liability-like accounts
+        end if;
     end if;
     
     v_current_balance := v_previous_balance + v_delta;
