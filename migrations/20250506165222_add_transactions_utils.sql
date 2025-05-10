@@ -156,9 +156,13 @@ begin
     if v_category_account_id is null then raise exception 'Category with UUID % not found or does not belong to ledger % for current user', p_category_uuid, v_ledger_id; end if;
 
     -- create the transaction (debit Income, credit Category)
-       insert into data.transactions (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
+    -- use a table alias for the insert and explicitly reference the metadata column
+    with inserted_transaction as (
+       insert into data.transactions as t (ledger_id, description, date, amount, debit_account_id, credit_account_id, user_data)
        values (v_ledger_id, p_description, p_date, p_amount, v_income_account_id, v_category_account_id, p_user_data)
-    returning uuid, metadata into v_transaction_uuid_local, v_metadata_local;
+       returning t.uuid, t.metadata
+    )
+    select uuid, metadata into v_transaction_uuid_local, v_metadata_local from inserted_transaction;
 
     -- Return the essential details
     return query select v_transaction_uuid_local, v_income_account_uuid_local, v_metadata_local;
