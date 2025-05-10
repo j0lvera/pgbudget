@@ -66,9 +66,10 @@ begin
             p_amount        := p_amount,
             p_category_uuid := p_category_uuid
                                      );
-    -- Return the result by selecting directly from the utils function output
-    -- and combining with input parameters.
+    
+    -- Use a CTE to avoid column ambiguity
     return query
+    with result_data as (
         select
             v_util_result.transaction_uuid::text as uuid,
             p_description::text as description,
@@ -77,7 +78,9 @@ begin
             p_date::timestamptz as date,
             p_ledger_uuid::text as ledger_uuid,
             v_util_result.income_account_uuid::text as debit_account_uuid,
-            p_category_uuid::text as credit_account_uuid;
+            p_category_uuid::text as credit_account_uuid
+    )
+    select * from result_data;
 end;
 $$ language plpgsql volatile security invoker;
 
