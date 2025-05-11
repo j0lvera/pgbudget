@@ -3321,6 +3321,239 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 
+	// Test the api.add_categories function
+	t.Run("AddCategories", func(t *testing.T) {
+		is := is_.New(t)
+		
+		// Create a new ledger specifically for this test
+		var batchCategoriesLedgerUUID string
+		var batchCategoriesLedgerID int
+		
+		// Create a new ledger using the api.ledgers view
+		ledgerName := "Batch Categories Test Ledger"
+		err := conn.QueryRow(
+			ctx,
+			"insert into api.ledgers (name) values ($1) returning uuid",
+			ledgerName,
+		).Scan(&batchCategoriesLedgerUUID)
+		is.NoErr(err) // should create ledger without error
+		
+		// Get the internal ID for verification
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.ledgers WHERE uuid = $1",
+			batchCategoriesLedgerUUID,
+		).Scan(&batchCategoriesLedgerID)
+		is.NoErr(err) // should find the ledger by UUID
+		is.True(batchCategoriesLedgerID > 0) // should have a valid internal ID
+		
+		// Test successful batch category creation
+		t.Run("Success", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Define category names to create
+			categoryNames := []string{"Food", "Entertainment", "Transportation"}
+			
+			// Convert Go slice to PostgreSQL array
+			pgCategoryNames := "{" + strings.Join(categoryNames, ",") + "}"
+			
+			// Call the api.add_categories function
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.add_categories($1, $2)",
+				batchCategoriesLedgerUUID, pgCategoryNames,
+			)
+			is.NoErr(err) // should execute function without error
+			defer rows.Close()
+			
+			// Collect the returned categories
+			var createdCategories []struct {
+				UUID        string
+				Name        string
+				Type        string
+				Description pgtype.Text
+				Metadata    *[]byte
+				UserData    string
+				LedgerUUID  string
+			}
+			
+			for rows.Next() {
+				var cat struct {
+					UUID        string
+					Name        string
+					Type        string
+					Description pgtype.Text
+					Metadata    *[]byte
+					UserData    string
+					LedgerUUID  string
+				}
+				err := rows.Scan(
+					&cat.UUID,
+					&cat.Name,
+					&cat.Type,
+					&cat.Description,
+					&cat.Metadata,
+					&cat.UserData,
+					&cat.LedgerUUID,
+				)
+				is.NoErr(err)
+				createdCategories = append(createdCategories, cat)
+			}
+			is.NoErr(rows.Err())
+			
+			// Should have created all categories
+			is.Equal(len(createdCategories), len(categoryNames))
+			
+			// Verify each category was created correctly
+			for i, cat := range createdCategories {
+				is.True(cat.UUID != "") // Should have a valid UUID
+				is.Equal(cat.Name, categoryNames[i]) // Name should match input
+				is.Equal(cat.Type, "equity") // Type should be equity
+				is.Equal(cat.LedgerUUID, batchCategoriesLedgerUUID) // Ledger UUID should match
+				is.Equal(cat.UserData, testUserID) // User data should match
+				is.True(!cat.Description.Valid) // Description should be null
+				is.True(cat.Metadata == nil) // Metadata should be null
+				
+				// Verify the category exists in the database
+				var exists bool
+				err := conn.QueryRow(
+					ctx,
+					"SELECT EXISTS(SELECT 1 FROM data.accounts WHERE uuid = $1 AND name = $2)",
+					cat.UUID, cat.Name,
+				).Scan(&exists)
+				is.NoErr(err)
+				is.True(exists) // Category should exist in database
+			}
+		})
+		
+		// Test with empty array (should return empty result)
+		t.Run("EmptyArray", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Call with empty array
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.add_categories($1, $2)",
+				batchCategoriesLedgerUUID, "{}"::text[],
+			)
+			is.NoErr(err) // should execute without error
+			defer rows.Close()
+			
+			// Should return no rows
+			var count int
+			for rows.Next() {
+				count++
+			}
+			is.NoErr(rows.Err())
+			is.Equal(count, 0) // Should have no results
+		})
+		
+		// Test with array containing empty strings (should skip them)
+		t.Run("EmptyStrings", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Call with array containing empty strings
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.add_categories($1, $2)",
+				batchCategoriesLedgerUUID, "{Valid,\"\",\" \",Valid2}"::text[],
+			)
+			is.NoErr(err) // should execute without error
+			defer rows.Close()
+			
+			// Collect the returned categories
+			var createdCategories []struct {
+				UUID string
+				Name string
+			}
+			
+			for rows.Next() {
+				var cat struct {
+					UUID        string
+					Name        string
+					Type        string
+					Description pgtype.Text
+					Metadata    *[]byte
+					UserData    string
+					LedgerUUID  string
+				}
+				err := rows.Scan(
+					&cat.UUID,
+					&cat.Name,
+					&cat.Type,
+					&cat.Description,
+					&cat.Metadata,
+					&cat.UserData,
+					&cat.LedgerUUID,
+				)
+				is.NoErr(err)
+				createdCategories = append(createdCategories, struct {
+					UUID string
+					Name string
+				}{
+					UUID: cat.UUID,
+					Name: cat.Name,
+				})
+			}
+			is.NoErr(rows.Err())
+			
+			// Should have created only the valid categories
+			is.Equal(len(createdCategories), 2)
+			
+			// Verify the names
+			validNames := []string{"Valid", "Valid2"}
+			for i, cat := range createdCategories {
+				is.Equal(cat.Name, validNames[i])
+			}
+		})
+		
+		// Test with duplicate category names (should fail)
+		t.Run("DuplicateNames", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// First create a category
+			var singleCatUUID string
+			err := conn.QueryRow(
+				ctx,
+				"SELECT uuid FROM api.add_category($1, $2)",
+				batchCategoriesLedgerUUID, "Unique",
+			).Scan(&singleCatUUID)
+			is.NoErr(err) // should create category without error
+			
+			// Now try to create a batch with the same name
+			_, err = conn.Exec(
+				ctx,
+				"SELECT * FROM api.add_categories($1, $2)",
+				batchCategoriesLedgerUUID, "{New,Unique,Another}"::text[],
+			)
+			is.True(err != nil) // should return an error
+			
+			// Check for specific error message
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr)) // Error should be a PgError
+			is.True(strings.Contains(pgErr.Message, "Category with name \"Unique\" already exists in this ledger"))
+		})
+		
+		// Test with invalid ledger UUID
+		t.Run("InvalidLedger", func(t *testing.T) {
+			is := is_.New(t)
+			
+			invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
+			
+			_, err := conn.Exec(
+				ctx,
+				"SELECT * FROM api.add_categories($1, $2)",
+				invalidLedgerUUID, "{Test1,Test2}"::text[],
+			)
+			is.True(err != nil) // should return an error
+			
+			// Check for specific error message
+			var pgErr *pgconn.PgError
+			is.True(errors.As(err, &pgErr)) // Error should be a PgError
+			is.True(strings.Contains(pgErr.Message, "not found for current user"))
+		})
+	})
+
 	// Test the api.get_account_transactions function
 	t.Run("AccountTransactions", func(t *testing.T) {
 		is := is_.New(t)
