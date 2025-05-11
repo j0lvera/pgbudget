@@ -2428,7 +2428,6 @@ func TestDatabase(t *testing.T) {
 					
 					var reversalCount, applicationCount int
 					var checkingApplicationDone, groceriesApplicationDone bool
-					var checkingReversalDone, groceriesReversalDone bool
 					
 					for _, entry := range updateBalanceEntries {
 						if entry.OperationType == "transaction_update_reversal" {
@@ -2445,7 +2444,6 @@ func TestDatabase(t *testing.T) {
 									entry.Balance,
 									prevCheckingBalBeforeUpdate+outflowTxAmount,
 								)
-								checkingReversalDone = true
 							} else if entry.AccountID == btGroceriesCategoryID {
 								is.Equal(
 									entry.PreviousBalance,
@@ -2458,7 +2456,6 @@ func TestDatabase(t *testing.T) {
 									entry.Balance,
 									prevGroceriesBalBeforeUpdate+outflowTxAmount,
 								)
-								groceriesReversalDone = true
 							} else {
 								t.Fatalf(
 									"Unexpected account_id %d in reversal balance entry",
