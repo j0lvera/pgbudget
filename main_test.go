@@ -380,116 +380,8 @@ func TestDatabase(t *testing.T) {
 				},
 			)
 			
-			// New subtest for deleting a regular account
-			t.Run(
-				"DeleteRegularAccount", func(t *testing.T) {
-					is := is_.New(t)
-					
-					if accountsLedgerUUID == "" {
-						t.Skip("Skipping DeleteRegularAccount because accountsLedgerUUID is not available")
-					}
-					
-					// Create another account specifically for deletion
-					var deleteAccountUUID string
-					accountName := "Account To Delete"
-					accountType := "asset"
-					
-					err := conn.QueryRow(
-						ctx,
-						`INSERT INTO api.accounts (ledger_uuid, name, type) 
-						 VALUES ($1, $2, $3) RETURNING uuid`,
-						accountsLedgerUUID, accountName, accountType,
-					).Scan(&deleteAccountUUID)
-					is.NoErr(err) // Should create account without error
-					is.True(deleteAccountUUID != "") // Should return a valid UUID
-					
-					// Verify account exists before deletion
-					var exists bool
-					err = conn.QueryRow(
-						ctx,
-						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
-						deleteAccountUUID,
-					).Scan(&exists)
-					is.NoErr(err)
-					is.True(exists) // Account should exist before deletion
-					
-					// Delete the account via api.accounts view
-					_, err = conn.Exec(
-						ctx,
-						"DELETE FROM api.accounts WHERE uuid = $1",
-						deleteAccountUUID,
-					)
-					is.NoErr(err) // Should delete account without error
-					
-					// Verify account no longer exists in api.accounts view
-					err = conn.QueryRow(
-						ctx,
-						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
-						deleteAccountUUID,
-					).Scan(&exists)
-					is.NoErr(err)
-					is.True(!exists) // Account should no longer exist
-					
-					// Verify account no longer exists in data.accounts table
-					err = conn.QueryRow(
-						ctx,
-						"SELECT EXISTS(SELECT 1 FROM data.accounts WHERE uuid = $1)",
-						deleteAccountUUID,
-					).Scan(&exists)
-					is.NoErr(err)
-					is.True(!exists) // Account should no longer exist in data table
-				},
-			)
-			
-			// Test attempting to delete a special account (should fail)
-			t.Run(
-				"DeleteSpecialAccount", func(t *testing.T) {
-					is := is_.New(t)
-					
-					if accountsLedgerUUID == "" {
-						t.Skip("Skipping DeleteSpecialAccount because accountsLedgerUUID is not available")
-					}
-					
-					// Find the Income account UUID (created automatically with ledger)
-					var incomeAccountUUID string
-					err := conn.QueryRow(
-						ctx,
-						"SELECT utils.find_category($1, $2)",
-						accountsLedgerUUID, "Income",
-					).Scan(&incomeAccountUUID)
-					is.NoErr(err) // Should find Income category
-					is.True(incomeAccountUUID != "") // Should have a valid UUID
-					
-					// Attempt to delete the Income account (should fail)
-					_, err = conn.Exec(
-						ctx,
-						"DELETE FROM api.accounts WHERE uuid = $1",
-						incomeAccountUUID,
-					)
-					is.True(err != nil) // Should return an error
-					
-					// Check for specific error message
-					var pgErr *pgconn.PgError
-					is.True(errors.As(err, &pgErr)) // Error should be a PgError
-					is.True(strings.Contains(pgErr.Message, "Cannot delete special account")) // Check error message
-					
-					// Verify Income account still exists
-					var exists bool
-					err = conn.QueryRow(
-						ctx,
-						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
-						incomeAccountUUID,
-					).Scan(&exists)
-					is.NoErr(err)
-					is.True(exists) // Income account should still exist
-				},
-			)
 		},
 	)
-
-	// Test account creation and update via api.accounts view
-	var accountUUID string // To be set by CreateAccount and used by UpdateAccount
-	var accountID int      // Internal ID for data.accounts verification
 
 	// --- Account Tests ---
 	t.Run(
@@ -696,6 +588,111 @@ func TestDatabase(t *testing.T) {
 					is.Equal(
 						nameFromDataTable, newAccountName,
 					) // Name in data table should be the new name
+				},
+			)
+			
+			// New subtest for deleting a regular account
+			t.Run(
+				"DeleteRegularAccount", func(t *testing.T) {
+					is := is_.New(t)
+					
+					if accountsLedgerUUID == "" {
+						t.Skip("Skipping DeleteRegularAccount because accountsLedgerUUID is not available")
+					}
+					
+					// Create another account specifically for deletion
+					var deleteAccountUUID string
+					accountName := "Account To Delete"
+					accountType := "asset"
+					
+					err := conn.QueryRow(
+						ctx,
+						`INSERT INTO api.accounts (ledger_uuid, name, type) 
+						 VALUES ($1, $2, $3) RETURNING uuid`,
+						accountsLedgerUUID, accountName, accountType,
+					).Scan(&deleteAccountUUID)
+					is.NoErr(err) // Should create account without error
+					is.True(deleteAccountUUID != "") // Should return a valid UUID
+					
+					// Verify account exists before deletion
+					var exists bool
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(exists) // Account should exist before deletion
+					
+					// Delete the account via api.accounts view
+					_, err = conn.Exec(
+						ctx,
+						"DELETE FROM api.accounts WHERE uuid = $1",
+						deleteAccountUUID,
+					)
+					is.NoErr(err) // Should delete account without error
+					
+					// Verify account no longer exists in api.accounts view
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(!exists) // Account should no longer exist
+					
+					// Verify account no longer exists in data.accounts table
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM data.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(!exists) // Account should no longer exist in data table
+				},
+			)
+			
+			// Test attempting to delete a special account (should fail)
+			t.Run(
+				"DeleteSpecialAccount", func(t *testing.T) {
+					is := is_.New(t)
+					
+					if accountsLedgerUUID == "" {
+						t.Skip("Skipping DeleteSpecialAccount because accountsLedgerUUID is not available")
+					}
+					
+					// Find the Income account UUID (created automatically with ledger)
+					var incomeAccountUUID string
+					err := conn.QueryRow(
+						ctx,
+						"SELECT utils.find_category($1, $2)",
+						accountsLedgerUUID, "Income",
+					).Scan(&incomeAccountUUID)
+					is.NoErr(err) // Should find Income category
+					is.True(incomeAccountUUID != "") // Should have a valid UUID
+					
+					// Attempt to delete the Income account (should fail)
+					_, err = conn.Exec(
+						ctx,
+						"DELETE FROM api.accounts WHERE uuid = $1",
+						incomeAccountUUID,
+					)
+					is.True(err != nil) // Should return an error
+					
+					// Check for specific error message
+					var pgErr *pgconn.PgError
+					is.True(errors.As(err, &pgErr)) // Error should be a PgError
+					is.True(strings.Contains(pgErr.Message, "Cannot delete special account")) // Check error message
+					
+					// Verify Income account still exists
+					var exists bool
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						incomeAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(exists) // Income account should still exist
 				},
 			)
 		},
