@@ -242,27 +242,117 @@ INSERT INTO api.simple_transactions (
 
 ### Check Budget Status
 
-```sql
--- View budget status for all categories in a specific ledger.
--- This example uses the utils.get_budget_status function.
--- Example direct query using the function (for ledger_id corresponding to ledger_uuid 'd3pOOf6t'):
-SELECT * FROM utils.get_budget_status(
-    (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
-);
+To get a comprehensive view of your budget categories and their statuses, you can use the `api.get_budget_status` function:
 
--- Alternatively, if an API function is available:
--- SELECT * FROM api.get_budget_status('d3pOOf6t'); -- Use your ledger_uuid
+```sql
+-- Get budget status for all categories in a specific ledger
+SELECT * FROM api.get_budget_status('your-ledger-uuid');
 ```
 
 Example Result:
 ```
- id |     account_name     | budgeted | activity | balance 
-----+----------------------+----------+----------+---------
-  5 | Groceries            |   20000  |   -1500  |  18500
-  6 | Internet bill        |    7500  |   -7500  |      0
+ category_uuid |     category_name     | budgeted | activity | balance 
+--------------+----------------------+----------+----------+---------
+ aK9sLp0Q     | Groceries            |   20000  |   -1500  |  18500
+ zKHL0bud     | Internet bill        |    7500  |   -7500  |      0
 ```
-(Assuming `id` here refers to an internal account ID; an API view might expose account UUIDs instead).
 Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.).
+
+#### Understanding Budget Status
+
+The budget status provides a snapshot of your financial plan and its execution. Each column has a specific meaning:
+
+- **budgeted**: The total amount you've assigned to this category from your Income account. This represents your financial plan or intention.
+- **activity**: The total spending (negative) or income (positive) in this category involving real-world accounts (assets or liabilities). This shows your actual financial behavior.
+- **balance**: The current available amount in the category (effectively budgeted + activity). This is what you have left to spend.
+
+#### How Budget Status is Calculated
+
+1. **budgeted**: Sum of all transactions where money moves from 'Income' to this category
+2. **activity**: Sum of all transactions between this category and any asset/liability account
+3. **balance**: Net sum of all transactions involving this category (from any account)
+
+#### Example Scenario
+
+Let's follow a simple budget through several transactions:
+
+1. **Receive Income**: $1000 paycheck
+   ```sql
+   -- Add income of $1000 to checking account
+   INSERT INTO api.transactions (
+       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
+   ) VALUES (
+       'your-ledger-uuid', NOW(), 'Paycheck', 'inflow', 100000, 
+       'your-checking-account-uuid', 'your-income-category-uuid'
+   );
+   ```
+   - Increases your checking account by $1000
+   - Increases your Income category by $1000
+   - Budget status: Income has $1000 available to assign
+
+2. **Budget Money**: Assign $200 to Groceries
+   ```sql
+   SELECT uuid FROM api.assign_to_category(
+       'your-ledger-uuid', NOW(), 'Budget: Groceries', 20000, 'your-groceries-category-uuid'
+   );
+   ```
+   - Decreases Income by $200
+   - Increases Groceries by $200
+   - Budget status: Groceries shows $200 budgeted, $0 activity, $200 balance
+
+3. **Spend Money**: Spend $50 on groceries
+   ```sql
+   INSERT INTO api.transactions (
+       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
+   ) VALUES (
+       'your-ledger-uuid', NOW(), 'Grocery shopping', 'outflow', 5000,
+       'your-checking-account-uuid', 'your-groceries-category-uuid'
+   );
+   ```
+   - Decreases your checking account by $50
+   - Decreases your Groceries category by $50
+   - Budget status: Groceries now shows $200 budgeted, -$50 activity, $150 balance
+
+Your budget status would now show:
+```
+ category_uuid |     category_name     | budgeted | activity | balance 
+--------------+----------------------+----------+----------+---------
+ aK9sLp0Q     | Groceries            |   20000  |   -5000  |  15000
+ zKHL0bud     | Income               |       0  |       0  |  80000
+```
+
+This shows you've assigned $200 to Groceries, spent $50, and have $150 left to spend. Your Income category shows $800 remaining to be assigned to other categories.
+
+#### Budget Status Flow Diagram
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│             │         │             │         │             │
+│   Income    │         │  Category   │         │   Asset     │
+│  (Equity)   │         │  (Equity)   │         │  Account    │
+│             │         │             │         │             │
+└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+       │                        │                       │
+       │                        │                       │
+       │    Budget Money        │      Spend Money      │
+       │  ────────────────>     │  ────────────────>    │
+       │                        │                       │
+       │                        │                       │
+       │                        │                       │
+       │                        │                       │
+       │       Receive Income   │                       │
+       │  <────────────────     │                       │
+       │                        │                       │
+       │                        │                       │
+       ▼                        ▼                       ▼
+  Decreases when          Increases when          Decreases when
+  budgeting money         budgeting money         spending money
+  
+  Increases when          Decreases when          Increases when
+  receiving income        spending money          receiving income
+```
+
+This diagram illustrates how money flows between accounts and affects your budget status.
 
 #### Understanding Budget Status
 
@@ -433,6 +523,58 @@ Result (example):
 Note: Balance amount is in cents (91000 = $910.00).
 
 This query directly accesses the `data.balances` table, which is assumed to store historical or current balances, ensuring you get the most up-to-date figure.
+
+### View Account Transactions
+
+To view the transaction history for a specific account, use the `api.get_account_transactions` function:
+
+```sql
+-- View transactions for a specific account
+SELECT * FROM api.get_account_transactions('your-account-uuid');
+```
+
+Example Result:
+```
+    date    |   category    |   description    |   type   | amount | balance
+------------+---------------+------------------+----------+--------+--------
+ 2025-04-06 | Groceries     | Buy Groceries    | outflow  |   5000 | 492000
+ 2025-04-06 | Income        | Commission Income| inflow   |  10000 | 497000
+ 2025-04-05 | Internet      | Pay Internet Bill| outflow  |   9000 | 487000
+ 2025-04-05 | Groceries     | Buy Milk         | outflow  |   4000 | 496000
+ 2025-04-05 | Income        | Paycheck         | inflow   | 500000 | 500000
+```
+
+Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.).
+
+#### Understanding Account Transactions
+
+The transaction view provides a complete history of all transactions affecting a specific account, with user-friendly labels:
+
+- **date**: The date when the transaction occurred
+- **category**: For asset/liability accounts, this shows the budget category. For category accounts, this shows the asset/liability account involved.
+- **description**: The transaction description you provided
+- **type**: Simplified transaction type:
+  - For asset accounts: "inflow" means money coming in, "outflow" means money going out
+  - For liability accounts: "inflow" means debt increasing, "outflow" means debt decreasing
+  - For category accounts: "inflow" means budget increasing, "outflow" means budget decreasing
+- **amount**: The transaction amount (always positive, with the direction indicated by the type)
+- **balance**: The account balance after this transaction (running balance)
+
+Transactions are ordered by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
+
+#### How Transaction Types Are Determined
+
+The system automatically determines the appropriate transaction type based on:
+1. The account's internal type (asset-like or liability-like)
+2. Whether the account was debited or credited in the transaction
+
+For example:
+- A debit to an asset account (like checking) is shown as "inflow"
+- A credit to an asset account is shown as "outflow"
+- A debit to a liability/equity account (like a credit card or budget category) is shown as "outflow"
+- A credit to a liability/equity account is shown as "inflow"
+
+This approach ensures that transactions are displayed in an intuitive way regardless of the underlying accounting mechanics.
 
 ## Transaction Entry Options
 

@@ -235,6 +235,70 @@ create trigger transactions_instead_of_insert_trigger
 
 This approach allows clients to interact with the API using user-friendly UUIDs for all entities, while the database internally manages relationships with `bigint` foreign keys. It's important to remember that when using the `utils` schema functions directly (bypassing the `api` views/triggers), the caller is responsible for providing correct internal IDs and adhering to double-entry patterns.
 
+### 3.3.2. Budget Status and Account Transactions API Functions
+
+Two key API functions that provide essential information to users are `api.get_budget_status` and `api.get_account_transactions`. These functions follow the architecture principles by:
+
+1. Keeping complex business logic in the `utils` schema
+2. Providing a simplified, user-friendly interface in the `api` schema
+3. Maintaining proper data isolation with user context filtering
+
+#### `get_budget_status` Implementation
+
+The budget status functionality is implemented in two layers:
+
+1. **Utils Layer (`utils.get_budget_status`)**:
+   - Takes a ledger UUID and user context as parameters
+   - Validates that the ledger exists and belongs to the user
+   - Performs complex SQL queries to calculate:
+     - Budgeted amounts (transactions from Income to categories)
+     - Activity amounts (transactions between categories and asset/liability accounts)
+     - Balance amounts (net effect of all transactions on each category)
+   - Returns a table with account UUIDs, names, and calculated amounts
+   - Handles all error cases and validation
+
+2. **API Layer (`api.get_budget_status`)**:
+   - Takes only a ledger UUID as parameter (user context is derived from session)
+   - Simply passes through to the utils function
+   - Returns the same structure as the utils function
+   - Runs with `security invoker` to ensure proper RLS enforcement
+
+This separation allows the complex calculation logic to be encapsulated in the utils function while keeping the API interface simple. The API function doesn't need to know how the calculations are performed; it just needs to pass the parameters and return the results.
+
+#### `get_account_transactions` Implementation
+
+The account transactions functionality follows a similar pattern:
+
+1. **Utils Layer (`utils.get_account_transactions`)**:
+   - Takes an account UUID and user context as parameters
+   - Validates that the account exists and belongs to the user
+   - Determines the account's internal type (asset-like or liability-like)
+   - Uses a complex query with a UNION to combine:
+     - Transactions where the account is debited
+     - Transactions where the account is credited
+   - Translates debits/credits into user-friendly "inflow"/"outflow" based on account type
+   - Joins with the balances table to include running balance information
+   - Orders transactions by date and creation time
+   - Returns a table with transaction details and running balances
+
+2. **API Layer (`api.get_account_transactions`)**:
+   - Takes only an account UUID as parameter
+   - Simply passes through to the utils function
+   - Returns the same structure as the utils function
+   - Runs with `security invoker` to ensure proper RLS enforcement
+
+This implementation ensures that users see transactions in a consistent, intuitive format regardless of the underlying accounting mechanics. The complex logic of determining transaction types and calculating running balances is hidden in the utils function, while the API function provides a clean, simple interface.
+
+#### Security Considerations
+
+Both functions follow these security practices:
+
+1. **User Context Validation**: The utils functions explicitly check that the requested ledger/account belongs to the current user.
+2. **Security Invoker**: The API functions run with the permissions of the calling user, ensuring that RLS policies are enforced.
+3. **Error Handling**: Clear error messages are provided when resources are not found or don't belong to the user.
+
+This approach ensures that users can only access their own data, even if they attempt to provide UUIDs for resources belonging to other users.
+
 **Examples:**
 
 -   A view for accessing ledgers (from `migrations/20250503172238_add_ledgers_api_fns.sql`):
