@@ -5,7 +5,7 @@
 create or replace function utils.transactions_after_update_fn()
 returns trigger as $$
 declare
-    v_accounts_info record;
+    v_accounts_info jsonb;
     v_balances record;
     v_ledger_id bigint := NEW.ledger_id;
     v_user_data text := NEW.user_data;
@@ -38,7 +38,7 @@ begin
             a.id in (OLD.debit_account_id, OLD.credit_account_id, NEW.debit_account_id, NEW.credit_account_id)
     )
     select 
-        json_object_agg(id, json_build_object(
+        jsonb_object_agg(id::text, jsonb_build_object(
             'type', internal_type,
             'balance', coalesce(current_balance, 0)
         )) into v_accounts_info
@@ -49,7 +49,7 @@ begin
     -- 1. If debit account changed, reverse effect on old debit account
     if v_debit_account_changed then
         -- Calculate reversal delta for old debit account
-        if v_accounts_info->(OLD.debit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->OLD.debit_account_id::text->>'type' = 'asset_like' then
             v_debit_delta := -OLD.amount; -- Reverse the debit
         else
             v_debit_delta := OLD.amount; -- Reverse the debit
@@ -63,14 +63,14 @@ begin
         )
         values (
             OLD.debit_account_id, NEW.id, v_ledger_id,
-            (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint,
+            (v_accounts_info->OLD.debit_account_id::text->>'balance')::bigint,
             v_debit_delta,
-            (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint + v_debit_delta,
+            (v_accounts_info->OLD.debit_account_id::text->>'balance')::bigint + v_debit_delta,
             'transaction_update_reversal', v_user_data
         );
         
         -- Apply effect to new debit account
-        if v_accounts_info->(NEW.debit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->NEW.debit_account_id::text->>'type' = 'asset_like' then
             v_debit_delta := NEW.amount;
         else
             v_debit_delta := -NEW.amount;
@@ -99,7 +99,7 @@ begin
     -- If only amount changed, update the debit account
     elsif v_amount_changed then
         -- Calculate net delta (difference between old and new amounts)
-        if v_accounts_info->(NEW.debit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->NEW.debit_account_id::text->>'type' = 'asset_like' then
             v_debit_delta := NEW.amount - OLD.amount;
         else
             v_debit_delta := OLD.amount - NEW.amount;
@@ -133,7 +133,7 @@ begin
     -- 2. If credit account changed, reverse effect on old credit account
     if v_credit_account_changed then
         -- Calculate reversal delta for old credit account
-        if v_accounts_info->(OLD.credit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->OLD.credit_account_id::text->>'type' = 'asset_like' then
             v_credit_delta := OLD.amount; -- Reverse the credit
         else
             v_credit_delta := -OLD.amount; -- Reverse the credit
@@ -147,14 +147,14 @@ begin
         )
         values (
             OLD.credit_account_id, NEW.id, v_ledger_id,
-            (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint,
+            (v_accounts_info->OLD.credit_account_id::text->>'balance')::bigint,
             v_credit_delta,
-            (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint + v_credit_delta,
+            (v_accounts_info->OLD.credit_account_id::text->>'balance')::bigint + v_credit_delta,
             'transaction_update_reversal', v_user_data
         );
         
         -- Apply effect to new credit account
-        if v_accounts_info->(NEW.credit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->NEW.credit_account_id::text->>'type' = 'asset_like' then
             v_credit_delta := -NEW.amount;
         else
             v_credit_delta := NEW.amount;
@@ -183,7 +183,7 @@ begin
     -- If only amount changed, update the credit account
     elsif v_amount_changed then
         -- Calculate net delta (difference between old and new amounts)
-        if v_accounts_info->(NEW.credit_account_id::text)->>'type' = 'asset_like' then
+        if v_accounts_info->NEW.credit_account_id::text->>'type' = 'asset_like' then
             v_credit_delta := OLD.amount - NEW.amount;
         else
             v_credit_delta := NEW.amount - OLD.amount;
@@ -222,7 +222,7 @@ $$ language plpgsql;
 create or replace function utils.handle_transaction_delete_balance()
 returns trigger as $$
 declare
-    v_accounts_info record;
+    v_accounts_info jsonb;
     v_ledger_id bigint := OLD.ledger_id;
     v_user_data text := OLD.user_data;
 begin
@@ -242,7 +242,7 @@ begin
             a.id in (OLD.debit_account_id, OLD.credit_account_id)
     )
     select 
-        json_object_agg(id, json_build_object(
+        jsonb_object_agg(id::text, jsonb_build_object(
             'type', internal_type,
             'balance', coalesce(current_balance, 0),
             'original_delta', original_delta
@@ -256,18 +256,18 @@ begin
     values 
     (
         OLD.debit_account_id, OLD.id, v_ledger_id,
-        (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint,
-        -(v_accounts_info->(OLD.debit_account_id::text)->>'original_delta')::bigint,
-        (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint - 
-        (v_accounts_info->(OLD.debit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->OLD.debit_account_id::text->>'balance')::bigint,
+        -(v_accounts_info->OLD.debit_account_id::text->>'original_delta')::bigint,
+        (v_accounts_info->OLD.debit_account_id::text->>'balance')::bigint - 
+        (v_accounts_info->OLD.debit_account_id::text->>'original_delta')::bigint,
         'transaction_delete', v_user_data
     ),
     (
         OLD.credit_account_id, OLD.id, v_ledger_id,
-        (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint,
-        -(v_accounts_info->(OLD.credit_account_id::text)->>'original_delta')::bigint,
-        (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint - 
-        (v_accounts_info->(OLD.credit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->OLD.credit_account_id::text->>'balance')::bigint,
+        -(v_accounts_info->OLD.credit_account_id::text->>'original_delta')::bigint,
+        (v_accounts_info->OLD.credit_account_id::text->>'balance')::bigint - 
+        (v_accounts_info->OLD.credit_account_id::text->>'original_delta')::bigint,
         'transaction_delete', v_user_data
     );
     
@@ -279,7 +279,7 @@ $$ language plpgsql security definer;
 create or replace function utils.transactions_after_soft_delete_fn()
 returns trigger as $$
 declare
-    v_accounts_info record;
+    v_accounts_info jsonb;
     v_ledger_id bigint := NEW.ledger_id;
     v_user_data text := NEW.user_data;
 begin
@@ -299,7 +299,7 @@ begin
             a.id in (NEW.debit_account_id, NEW.credit_account_id)
     )
     select 
-        json_object_agg(id, json_build_object(
+        jsonb_object_agg(id::text, jsonb_build_object(
             'type', internal_type,
             'balance', coalesce(current_balance, 0),
             'original_delta', original_delta
@@ -313,18 +313,18 @@ begin
     values 
     (
         NEW.debit_account_id, NEW.id, v_ledger_id,
-        (v_accounts_info->(NEW.debit_account_id::text)->>'balance')::bigint,
-        -(v_accounts_info->(NEW.debit_account_id::text)->>'original_delta')::bigint,
-        (v_accounts_info->(NEW.debit_account_id::text)->>'balance')::bigint - 
-        (v_accounts_info->(NEW.debit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->NEW.debit_account_id::text->>'balance')::bigint,
+        -(v_accounts_info->NEW.debit_account_id::text->>'original_delta')::bigint,
+        (v_accounts_info->NEW.debit_account_id::text->>'balance')::bigint - 
+        (v_accounts_info->NEW.debit_account_id::text->>'original_delta')::bigint,
         'transaction_soft_delete', v_user_data
     ),
     (
         NEW.credit_account_id, NEW.id, v_ledger_id,
-        (v_accounts_info->(NEW.credit_account_id::text)->>'balance')::bigint,
-        -(v_accounts_info->(NEW.credit_account_id::text)->>'original_delta')::bigint,
-        (v_accounts_info->(NEW.credit_account_id::text)->>'balance')::bigint - 
-        (v_accounts_info->(NEW.credit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->NEW.credit_account_id::text->>'balance')::bigint,
+        -(v_accounts_info->NEW.credit_account_id::text->>'original_delta')::bigint,
+        (v_accounts_info->NEW.credit_account_id::text->>'balance')::bigint - 
+        (v_accounts_info->NEW.credit_account_id::text->>'original_delta')::bigint,
         'transaction_soft_delete', v_user_data
     );
     
