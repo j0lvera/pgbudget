@@ -1945,6 +1945,8 @@ func TestDatabase(t *testing.T) {
 				btGroceriesCategoryUUID string
 				btGroceriesCategoryID   int
 				// btGroceriesCategoryIntType string // Not directly used
+				btIncomeCategoryUUID string
+				btIncomeCategoryID   int
 			)
 
 			// Helper to get latest balance details directly from data.balances
@@ -2013,9 +2015,6 @@ func TestDatabase(t *testing.T) {
 					// btGroceriesCategoryIntType = groceriesIntType // Store if needed elsewhere
 
 					// 3. Fetch Income Category UUID and ID for this ledger
-					var btIncomeCategoryUUID string
-					var btIncomeCategoryID int // Not strictly needed for these inserts but good for completeness
-
 					err = conn.QueryRow(
 						ctx,
 						"SELECT utils.find_category($1, $2)", // find_category directly returns the UUID
@@ -2024,7 +2023,7 @@ func TestDatabase(t *testing.T) {
 					is.NoErr(err) // Should find the Income category for the ledger
 					is.True(btIncomeCategoryUUID != "")
 
-					// Optionally, get internal ID if needed for other checks, though not used in inserts below
+					// Get internal ID for Income category
 					err = conn.QueryRow(
 						ctx,
 						"SELECT id FROM data.accounts WHERE uuid = $1",
