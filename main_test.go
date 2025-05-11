@@ -3354,14 +3354,11 @@ func TestDatabase(t *testing.T) {
 			// Define category names to create
 			categoryNames := []string{"Food", "Entertainment", "Transportation"}
 			
-			// Convert Go slice to PostgreSQL array
-			pgCategoryNames := "{" + strings.Join(categoryNames, ",") + "}"
-			
-			// Call the api.add_categories function
+			// Call the api.add_categories function with Go slice
 			rows, err := conn.Query(
 				ctx,
 				"SELECT * FROM api.add_categories($1, $2)",
-				batchCategoriesLedgerUUID, pgCategoryNames,
+				batchCategoriesLedgerUUID, categoryNames,
 			)
 			is.NoErr(err) // should execute function without error
 			defer rows.Close()
@@ -3431,10 +3428,11 @@ func TestDatabase(t *testing.T) {
 			is := is_.New(t)
 			
 			// Call with empty array
+			emptyArray := []string{} // Empty Go string slice
 			rows, err := conn.Query(
 				ctx,
 				"SELECT * FROM api.add_categories($1, $2)",
-				batchCategoriesLedgerUUID, "{}"::text[],
+				batchCategoriesLedgerUUID, emptyArray,
 			)
 			is.NoErr(err) // should execute without error
 			defer rows.Close()
@@ -3453,10 +3451,11 @@ func TestDatabase(t *testing.T) {
 			is := is_.New(t)
 			
 			// Call with array containing empty strings
+			mixedArray := []string{"Valid", "", " ", "Valid2"} // Go string slice
 			rows, err := conn.Query(
 				ctx,
 				"SELECT * FROM api.add_categories($1, $2)",
-				batchCategoriesLedgerUUID, "{Valid,\"\",\" \",Valid2}"::text[],
+				batchCategoriesLedgerUUID, mixedArray,
 			)
 			is.NoErr(err) // should execute without error
 			defer rows.Close()
@@ -3521,10 +3520,11 @@ func TestDatabase(t *testing.T) {
 			is.NoErr(err) // should create category without error
 			
 			// Now try to create a batch with the same name
+			duplicateArray := []string{"New", "Unique", "Another"} // Go string slice
 			_, err = conn.Exec(
 				ctx,
 				"SELECT * FROM api.add_categories($1, $2)",
-				batchCategoriesLedgerUUID, "{New,Unique,Another}"::text[],
+				batchCategoriesLedgerUUID, duplicateArray,
 			)
 			is.True(err != nil) // should return an error
 			
@@ -3540,10 +3540,11 @@ func TestDatabase(t *testing.T) {
 			
 			invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
 			
+			testArray := []string{"Test1", "Test2"} // Go string slice
 			_, err := conn.Exec(
 				ctx,
 				"SELECT * FROM api.add_categories($1, $2)",
-				invalidLedgerUUID, "{Test1,Test2}"::text[],
+				invalidLedgerUUID, testArray,
 			)
 			is.True(err != nil) // should return an error
 			
