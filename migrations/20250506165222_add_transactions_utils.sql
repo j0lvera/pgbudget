@@ -10,112 +10,131 @@ create or replace function utils.add_transaction(
     p_type text, -- 'inflow' or 'outflow'
     p_amount bigint,
     p_account_uuid text, -- the bank account or credit card
-    p_category_uuid text = null -- the category, now optional
+    p_category_uuid text = null, -- the category, now optional
+    p_user_data text = utils.get_user() -- Add user context parameter
 ) returns int as
 $$
 declare
     v_ledger_id             int;
     v_account_id            int;
+    v_account_internal_type text;
     v_category_id           int;
     v_transaction_id        int;
     v_debit_account_id      int;
     v_credit_account_id     int;
-    v_account_internal_type text;
 begin
-    -- find the ledger_id from uuid
-    select l.id into v_ledger_id
-      from data.ledgers l
-     where l.uuid = p_ledger_uuid;
-
-    if v_ledger_id is null then
-        raise exception 'Ledger with UUID % not found', p_ledger_uuid;
-    end if;
-
-    -- find the account_id from uuid
-    select a.id into v_account_id
-      from data.accounts a
-     where a.uuid = p_account_uuid and a.ledger_id = v_ledger_id;
-
-    if v_account_id is null then
-        raise exception 'Account with UUID % not found in ledger %', p_account_uuid, p_ledger_uuid;
-    end if;
-
-    -- validate transaction type
-    if p_type not in ('inflow', 'outflow') then
-        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', p_type;
-    end if;
-
-    -- validate amount is positive
+    -- validate inputs early for fast failure
     if p_amount <= 0 then
         raise exception 'Transaction amount must be positive: %', p_amount;
     end if;
 
-    -- handle null category by finding the "unassigned" category
-    if p_category_uuid is null then
-        v_category_id := utils.find_category(p_ledger_uuid, 'Unassigned');
-        if v_category_id is null then
-            raise exception 'Could not find "unassigned" category in ledger %', p_ledger_uuid;
-        end if;
-    else
-        -- find the category_id from uuid
-        select c.id into v_category_id
-          from data.accounts c
-         where c.uuid = p_category_uuid and c.ledger_id = v_ledger_id;
-
-        if v_category_id is null then
-            raise exception 'Category with UUID % not found in ledger %', p_category_uuid, p_ledger_uuid;
-        end if;
+    if p_type not in ('inflow', 'outflow') then
+        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', p_type;
     end if;
 
-    -- get the account internal_type (asset_like or liability_like)
-    select a.internal_type
-      into v_account_internal_type
+    -- find the ledger_id from uuid and validate ownership
+    select l.id into v_ledger_id
+      from data.ledgers l
+     where l.uuid = p_ledger_uuid
+       and l.user_data = p_user_data;
+
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
+    end if;
+
+    -- find the account_id and internal_type in one query
+    select a.id, a.internal_type 
+      into v_account_id, v_account_internal_type
       from data.accounts a
-     where a.id = v_account_id;
+     where a.uuid = p_account_uuid 
+       and a.ledger_id = v_ledger_id
+       and a.user_data = p_user_data;
 
-    -- determine debit and credit accounts based on account internal_type and transaction type
-    if v_account_internal_type = 'asset_like' then
-        if p_type = 'inflow' then
-            -- for inflow to asset_like: debit asset_like (increase), credit category (increase)
-            v_debit_account_id := v_account_id;
-            v_credit_account_id := v_category_id;
-        else
-            -- for outflow from asset_like: debit category (decrease), credit asset_like (decrease)
-            v_debit_account_id := v_category_id;
-            v_credit_account_id := v_account_id;
-        end if;
-    elsif v_account_internal_type = 'liability_like' then
-        if p_type = 'inflow' then
-            -- for inflow to liability_like: debit category (decrease), credit liability_like (increase)
-            v_debit_account_id := v_category_id;
-            v_credit_account_id := v_account_id;
-        else
-            -- for outflow from liability_like: debit liability_like (decrease), credit category (increase)
-            v_debit_account_id := v_account_id;
-            v_credit_account_id := v_category_id;
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found in ledger % for current user', 
+                       p_account_uuid, p_ledger_uuid;
+    end if;
+
+    -- handle category lookup
+    if p_category_uuid is null then
+        -- find the "Unassigned" category directly
+        select a.id into v_category_id
+          from data.accounts a
+         where a.ledger_id = v_ledger_id
+           and a.user_data = p_user_data
+           and a.name = 'Unassigned'
+           and a.type = 'equity';
+           
+        if v_category_id is null then
+            raise exception 'Could not find "Unassigned" category in ledger % for current user', 
+                           p_ledger_uuid;
         end if;
     else
-        raise exception 'Account internal_type % is not supported for transactions', v_account_internal_type;
+        -- find the specified category
+        select a.id into v_category_id
+          from data.accounts a
+         where a.uuid = p_category_uuid 
+           and a.ledger_id = v_ledger_id
+           and a.user_data = p_user_data;
+
+        if v_category_id is null then
+            raise exception 'Category with UUID % not found in ledger % for current user', 
+                           p_category_uuid, p_ledger_uuid;
+        end if;
     end if;
+
+    -- determine debit and credit accounts based on account type and transaction type
+    -- following double-entry accounting principles from SPEC.md
+    case 
+        when v_account_internal_type = 'asset_like' and p_type = 'inflow' then
+            -- inflow to asset: debit asset (increase), credit category (increase)
+            v_debit_account_id := v_account_id;
+            v_credit_account_id := v_category_id;
+            
+        when v_account_internal_type = 'asset_like' and p_type = 'outflow' then
+            -- outflow from asset: debit category (decrease), credit asset (decrease)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := v_account_id;
+            
+        when v_account_internal_type = 'liability_like' and p_type = 'inflow' then
+            -- inflow to liability: debit category (decrease), credit liability (increase)
+            v_debit_account_id := v_category_id;
+            v_credit_account_id := v_account_id;
+            
+        when v_account_internal_type = 'liability_like' and p_type = 'outflow' then
+            -- outflow from liability: debit liability (decrease), credit category (increase)
+            v_debit_account_id := v_account_id;
+            v_credit_account_id := v_category_id;
+            
+        else
+            raise exception 'Unsupported combination: account_type=% and transaction_type=%', 
+                           v_account_internal_type, p_type;
+    end case;
 
     -- insert the transaction and return the new id
-       insert into data.transactions (ledger_id,
-                                      date,
-                                      description,
-                                      debit_account_id,
-                                      credit_account_id,
-                                      amount)
-       values (v_ledger_id,
-               p_date,
-               p_description,
-               v_debit_account_id,
-               v_credit_account_id,
-               p_amount)
+    insert into data.transactions (
+        ledger_id,
+        date,
+        description,
+        debit_account_id,
+        credit_account_id,
+        amount,
+        user_data
+    )
+    values (
+        v_ledger_id,
+        p_date,
+        p_description,
+        v_debit_account_id,
+        v_credit_account_id,
+        p_amount,
+        p_user_data
+    )
     returning id into v_transaction_id;
 
     return v_transaction_id;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 
 -- function to assign money from Income to a category (internal utility)
@@ -149,12 +168,12 @@ declare
     v_transaction_uuid text;
     v_metadata jsonb;
 begin
-    -- Validate input parameters
+    -- validate input parameters early
     if p_amount <= 0 then 
         raise exception 'Assignment amount must be positive: %', p_amount; 
     end if;
 
-    -- Find ledger ID and validate ownership in a single query
+    -- find ledger ID and validate ownership in a single query
     select l.id into v_ledger_id 
     from data.ledgers l 
     where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
@@ -163,8 +182,7 @@ begin
         raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid; 
     end if;
 
-    -- Find Income account and target category in a more efficient way
-    -- Get both Income account and target category in one query if possible
+    -- find both Income account and target category in one efficient query
     with account_data as (
         select a.id, a.uuid, a.name, a.type
         from data.accounts a
@@ -178,9 +196,9 @@ begin
         (select id from account_data where uuid = p_category_uuid)
     into v_income_account_id, v_income_account_uuid, v_category_account_id;
 
-    -- Validate accounts were found
+    -- validate accounts were found
     if v_income_account_id is null then 
-        raise exception 'Income account not found for ledger %', v_ledger_id; 
+        raise exception 'Income account not found for ledger % and user %', v_ledger_id, p_user_data; 
     end if;
     
     if v_category_account_id is null then 
@@ -188,17 +206,27 @@ begin
                         p_category_uuid, v_ledger_id; 
     end if;
 
-    -- Create the transaction (debit Income, credit Category) with a simpler approach
+    -- create the transaction (debit Income, credit Category)
     insert into data.transactions (
-        ledger_id, description, date, amount, 
-        debit_account_id, credit_account_id, user_data
+        ledger_id, 
+        description, 
+        date, 
+        amount, 
+        debit_account_id, 
+        credit_account_id, 
+        user_data
     ) values (
-        v_ledger_id, p_description, p_date, p_amount, 
-        v_income_account_id, v_category_account_id, p_user_data
+        v_ledger_id, 
+        p_description, 
+        p_date, 
+        p_amount, 
+        v_income_account_id, 
+        v_category_account_id, 
+        p_user_data
     ) returning uuid, metadata into v_transaction_uuid, v_metadata;
 
-    -- Return the full record matching the api.transactions view structure
-    -- Using a single VALUES expression is more efficient than a subquery
+    -- return the full record matching the api.transactions view structure
+    -- using a single VALUES expression is more efficient than a subquery
     return query
     values (
         v_transaction_uuid,     -- r_uuid
@@ -212,7 +240,7 @@ begin
         p_category_uuid         -- r_category_uuid
     );
 end;
-$$ language plpgsql volatile security definer; -- Security definer for controlled execution
+$$ language plpgsql volatile security definer;
 
 
 -- Create a function to handle simple transaction insertion
@@ -226,101 +254,127 @@ declare
     v_credit_account_id     bigint;
     v_account_internal_type text;
     v_transaction_uuid      text;
+    v_user_data             text := utils.get_user();
 begin
-    -- get the ledger_id for denormalization
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = NEW.ledger_uuid;
-
-    if v_ledger_id is null then
-        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
-    end if;
-
-    -- find the account_id from uuid
-    select a.id, a.internal_type
-      into v_account_id, v_account_internal_type
-      from data.accounts a
-     where a.uuid = NEW.account_uuid
-       and a.ledger_id = v_ledger_id;
-
-    if v_account_id is null then
-        raise exception 'Account with UUID % not found in ledger %', NEW.account_uuid, NEW.ledger_uuid;
-    end if;
-
-    -- validate transaction type
-    if NEW.type not in ('inflow', 'outflow') then
-        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
-    end if;
-
-    -- validate amount is positive
+    -- validate inputs early
     if NEW.amount <= 0 then
         raise exception 'Transaction amount must be positive: %', NEW.amount;
     end if;
 
-    -- handle null category by finding the "unassigned" category
+    if NEW.type not in ('inflow', 'outflow') then
+        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
+    end if;
+
+    -- get the ledger_id and validate ownership
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = NEW.ledger_uuid
+       and l.user_data = v_user_data;
+
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
+    end if;
+
+    -- find the account details in one query
+    select a.id, a.internal_type
+      into v_account_id, v_account_internal_type
+      from data.accounts a
+     where a.uuid = NEW.account_uuid
+       and a.ledger_id = v_ledger_id
+       and a.user_data = v_user_data;
+
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found in ledger % for current user', 
+                       NEW.account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- handle category lookup
     if NEW.category_uuid is null then
-        v_category_id := utils.find_category(NEW.ledger_uuid, 'Unassigned');
+        -- find the "Unassigned" category directly
+        select a.id into v_category_id
+          from data.accounts a
+         where a.ledger_id = v_ledger_id
+           and a.user_data = v_user_data
+           and a.name = 'Unassigned'
+           and a.type = 'equity';
+           
         if v_category_id is null then
-            raise exception 'Could not find "unassigned" category in ledger %', NEW.ledger_uuid;
+            raise exception 'Could not find "Unassigned" category in ledger % for current user', 
+                           NEW.ledger_uuid;
         end if;
     else
-        -- find the category_id from uuid
-        select c.id into v_category_id
-          from data.accounts c
-         where c.uuid = NEW.category_uuid and c.ledger_id = v_ledger_id;
+        -- find the specified category
+        select a.id into v_category_id
+          from data.accounts a
+         where a.uuid = NEW.category_uuid 
+           and a.ledger_id = v_ledger_id
+           and a.user_data = v_user_data;
 
         if v_category_id is null then
-            raise exception 'Category with UUID % not found in ledger %', NEW.category_uuid, NEW.ledger_uuid;
+            raise exception 'Category with UUID % not found in ledger % for current user', 
+                           NEW.category_uuid, NEW.ledger_uuid;
         end if;
     end if;
 
-    -- determine debit and credit accounts based on account internal_type and transaction type
-    if v_account_internal_type = 'asset_like' then
-        if NEW.type = 'inflow' then
-            -- for inflow to asset_like: debit asset_like (increase), credit category (increase)
+    -- determine debit and credit accounts based on account type and transaction type
+    case 
+        when v_account_internal_type = 'asset_like' and NEW.type = 'inflow' then
+            -- inflow to asset: debit asset (increase), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
-        else
-            -- for outflow from asset_like: debit category (decrease), credit asset_like (decrease)
+            
+        when v_account_internal_type = 'asset_like' and NEW.type = 'outflow' then
+            -- outflow from asset: debit category (decrease), credit asset (decrease)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
-        end if;
-    elsif v_account_internal_type = 'liability_like' then
-        if NEW.type = 'inflow' then
-            -- for inflow to liability_like: debit category (decrease), credit liability_like (increase)
+            
+        when v_account_internal_type = 'liability_like' and NEW.type = 'inflow' then
+            -- inflow to liability: debit category (decrease), credit liability (increase)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
-        else
-            -- for outflow from liability_like: debit liability_like (decrease), credit category (increase)
+            
+        when v_account_internal_type = 'liability_like' and NEW.type = 'outflow' then
+            -- outflow from liability: debit liability (decrease), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
-        end if;
-    else
-        raise exception 'Account internal_type % is not supported for transactions', v_account_internal_type;
-    end if;
+            
+        else
+            raise exception 'Unsupported combination: account_type=% and transaction_type=%', 
+                           v_account_internal_type, NEW.type;
+    end case;
 
     -- insert the transaction into the transactions table
-       insert into data.transactions (description, date, amount, debit_account_id, credit_account_id, ledger_id, metadata)
-       values (NEW.description,
-               NEW.date,
-               NEW.amount,
-               v_debit_account_id,
-               v_credit_account_id,
-               v_ledger_id,
-               NEW.metadata)
+    insert into data.transactions (
+        description, 
+        date, 
+        amount, 
+        debit_account_id, 
+        credit_account_id, 
+        ledger_id, 
+        metadata,
+        user_data
+    )
+    values (
+        NEW.description,
+        NEW.date,
+        NEW.amount,
+        v_debit_account_id,
+        v_credit_account_id,
+        v_ledger_id,
+        NEW.metadata,
+        v_user_data
+    )
     returning uuid into v_transaction_uuid;
 
     -- Return the data for the new row
     -- The NEW record for an INSTEAD OF INSERT trigger should be populated with values
     -- that match the view's columns. PostgREST uses this to return the created resource.
-    -- NEW.ledger_uuid, NEW.account_uuid, NEW.category_uuid, NEW.type, NEW.description, NEW.date, NEW.amount, NEW.metadata
-    -- are already set from the input to the view. We need to set NEW.uuid.
     NEW.uuid := v_transaction_uuid;
 
     return NEW;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 
 -- Create a function to handle simple transaction updates
@@ -334,117 +388,147 @@ declare
     v_credit_account_id     bigint;
     v_account_internal_type text;
     v_transaction_id        bigint;
+    v_user_data             text := utils.get_user();
 begin
-    -- Get the transaction ID
-    select t.id
-      into v_transaction_id
-      from data.transactions t
-     where t.uuid = OLD.uuid; -- Use OLD.uuid to identify the transaction to update
-
-    if v_transaction_id is null then
-        raise exception 'Transaction with UUID % not found', OLD.uuid;
-    end if;
-
-    -- get the ledger_id using NEW.ledger_uuid as it might be part of the update
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = NEW.ledger_uuid;
-
-    if v_ledger_id is null then
-        raise exception 'ledger with uuid % not found', NEW.ledger_uuid;
-    end if;
-
-    -- find the account_id from NEW.account_uuid
-    select a.id, a.internal_type
-      into v_account_id, v_account_internal_type
-      from data.accounts a
-     where a.uuid = NEW.account_uuid
-       and a.ledger_id = v_ledger_id;
-
-    if v_account_id is null then
-        raise exception 'Account with UUID % not found in ledger %', NEW.account_uuid, NEW.ledger_uuid;
-    end if;
-
-    -- validate transaction type
-    if NEW.type not in ('inflow', 'outflow') then
-        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
-    end if;
-
-    -- validate amount is positive
+    -- validate inputs early
     if NEW.amount <= 0 then
         raise exception 'Transaction amount must be positive: %', NEW.amount;
     end if;
 
-    -- handle null category by finding the "unassigned" category
+    if NEW.type not in ('inflow', 'outflow') then
+        raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
+    end if;
+
+    -- get the transaction ID and verify ownership
+    select t.id
+      into v_transaction_id
+      from data.transactions t
+     where t.uuid = OLD.uuid
+       and t.user_data = v_user_data;
+
+    if v_transaction_id is null then
+        raise exception 'Transaction with UUID % not found for current user', OLD.uuid;
+    end if;
+
+    -- get the ledger_id and validate ownership
+    select l.id
+      into v_ledger_id
+      from data.ledgers l
+     where l.uuid = NEW.ledger_uuid
+       and l.user_data = v_user_data;
+
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
+    end if;
+
+    -- find the account details in one query
+    select a.id, a.internal_type
+      into v_account_id, v_account_internal_type
+      from data.accounts a
+     where a.uuid = NEW.account_uuid
+       and a.ledger_id = v_ledger_id
+       and a.user_data = v_user_data;
+
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found in ledger % for current user', 
+                       NEW.account_uuid, NEW.ledger_uuid;
+    end if;
+
+    -- handle category lookup
     if NEW.category_uuid is null then
-        v_category_id := utils.find_category(NEW.ledger_uuid, 'Unassigned');
+        -- find the "Unassigned" category directly
+        select a.id into v_category_id
+          from data.accounts a
+         where a.ledger_id = v_ledger_id
+           and a.user_data = v_user_data
+           and a.name = 'Unassigned'
+           and a.type = 'equity';
+           
         if v_category_id is null then
-            raise exception 'Could not find "unassigned" category in ledger %', NEW.ledger_uuid;
+            raise exception 'Could not find "Unassigned" category in ledger % for current user', 
+                           NEW.ledger_uuid;
         end if;
     else
-        -- find the category_id from uuid
-        select c.id into v_category_id
-          from data.accounts c
-         where c.uuid = NEW.category_uuid and c.ledger_id = v_ledger_id;
+        -- find the specified category
+        select a.id into v_category_id
+          from data.accounts a
+         where a.uuid = NEW.category_uuid 
+           and a.ledger_id = v_ledger_id
+           and a.user_data = v_user_data;
 
         if v_category_id is null then
-            raise exception 'Category with UUID % not found in ledger %', NEW.category_uuid, NEW.ledger_uuid;
+            raise exception 'Category with UUID % not found in ledger % for current user', 
+                           NEW.category_uuid, NEW.ledger_uuid;
         end if;
     end if;
 
-    -- determine debit and credit accounts based on account internal_type and transaction type
-    if v_account_internal_type = 'asset_like' then
-        if NEW.type = 'inflow' then
+    -- determine debit and credit accounts based on account type and transaction type
+    case 
+        when v_account_internal_type = 'asset_like' and NEW.type = 'inflow' then
+            -- inflow to asset: debit asset (increase), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
-        else
+            
+        when v_account_internal_type = 'asset_like' and NEW.type = 'outflow' then
+            -- outflow from asset: debit category (decrease), credit asset (decrease)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
-        end if;
-    elsif v_account_internal_type = 'liability_like' then
-        if NEW.type = 'inflow' then
+            
+        when v_account_internal_type = 'liability_like' and NEW.type = 'inflow' then
+            -- inflow to liability: debit category (decrease), credit liability (increase)
             v_debit_account_id := v_category_id;
             v_credit_account_id := v_account_id;
-        else
+            
+        when v_account_internal_type = 'liability_like' and NEW.type = 'outflow' then
+            -- outflow from liability: debit liability (decrease), credit category (increase)
             v_debit_account_id := v_account_id;
             v_credit_account_id := v_category_id;
-        end if;
-    else
-        raise exception 'Account internal_type % is not supported for transactions', v_account_internal_type;
-    end if;
+            
+        else
+            raise exception 'Unsupported combination: account_type=% and transaction_type=%', 
+                           v_account_internal_type, NEW.type;
+    end case;
 
-    -- Update the transaction in data.transactions
+    -- update the transaction in data.transactions
     update data.transactions
        set description = NEW.description,
            date = NEW.date,
            amount = NEW.amount,
            debit_account_id = v_debit_account_id,
            credit_account_id = v_credit_account_id,
-           ledger_id = v_ledger_id, -- Ensure ledger_id is updated if NEW.ledger_uuid changed
-           metadata = NEW.metadata
+           ledger_id = v_ledger_id,
+           metadata = NEW.metadata,
+           updated_at = current_timestamp
      where id = v_transaction_id;
 
-    -- NEW already contains the updated fields from the view's perspective.
-    -- NEW.uuid is OLD.uuid and should not change on update.
+    -- NEW already contains the updated fields from the view's perspective
     return NEW;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 
 -- Create a function to handle simple transaction deletions
 create or replace function utils.simple_transactions_delete_fn() returns trigger as
 $$
+declare
+    v_user_data text := utils.get_user();
+    v_affected_rows int;
 begin
-    -- Delete the transaction from data.transactions
+    -- delete the transaction from data.transactions with user context validation
     delete from data.transactions
-     where uuid = OLD.uuid;
+     where uuid = OLD.uuid
+       and user_data = v_user_data
+    returning 1 into v_affected_rows;
+    
+    -- verify the deletion was successful (row existed and belonged to user)
+    if v_affected_rows is null or v_affected_rows = 0 then
+        raise exception 'Transaction with UUID % not found for current user', OLD.uuid;
+    end if;
 
-    -- For INSTEAD OF DELETE, OLD contains the row to be deleted.
-    -- Returning OLD is standard practice.
+    -- for INSTEAD OF DELETE, returning OLD is standard practice
     return OLD;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 
 -- +goose StatementEnd
