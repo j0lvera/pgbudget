@@ -2794,31 +2794,6 @@ func TestDatabase(t *testing.T) {
 				// Test with invalid ledger UUID
 				invalidLedgerUUID := "invalid-uuid-that-does-not-exist"
 				
-				// Add debug logging
-				t.Logf("Testing with invalid ledger UUID: %s", invalidLedgerUUID)
-				
-				// Check if the ledger exists in the database
-				var ledgerExists bool
-				err = conn.QueryRow(
-					ctx,
-					"SELECT EXISTS(SELECT 1 FROM data.ledgers WHERE uuid = $1)",
-					invalidLedgerUUID,
-				).Scan(&ledgerExists)
-				is.NoErr(err)
-				t.Logf("Does ledger with UUID %s exist in database? %v", invalidLedgerUUID, ledgerExists)
-				
-				// Check the function implementation
-				var functionDef string
-				err = conn.QueryRow(
-					ctx,
-					"SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname = 'get_budget_status' AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'utils')",
-				).Scan(&functionDef)
-				if err == nil {
-					t.Logf("Function definition: %s", functionDef)
-				} else {
-					t.Logf("Error getting function definition: %v", err)
-				}
-				
 				// Use QueryRow instead of Query to force immediate execution
 				var (
 					categoryUUID string
@@ -2839,20 +2814,6 @@ func TestDatabase(t *testing.T) {
 					&activity,
 					&balance,
 				)
-				
-				// Log the result
-				if err != nil {
-					t.Logf("Got expected error: %v", err)
-					
-					var pgErr *pgconn.PgError
-					if errors.As(err, &pgErr) {
-						t.Logf("PostgreSQL error details - Code: %s, Message: %s", pgErr.Code, pgErr.Message)
-					}
-				} else {
-					t.Logf("No error returned when one was expected")
-					t.Logf("Row returned: category=%s, name=%s, budgeted=%d, activity=%d, balance=%d",
-						categoryUUID, categoryName, budgeted, activity, balance)
-				}
 				
 				// The actual test assertion
 				is.True(err != nil) // Should return an error
