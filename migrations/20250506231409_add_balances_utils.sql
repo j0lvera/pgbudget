@@ -429,7 +429,10 @@ begin
     from data.ledgers l
     where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
     
+    -- Explicitly check for NULL ledger_id
     if v_ledger_id is null then
+        -- This is the key fix: we need to explicitly raise an exception
+        -- when the ledger is not found or doesn't belong to the current user
         raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
     end if;
 

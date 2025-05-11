@@ -31,6 +31,7 @@ create or replace function api.get_budget_status(
 ) as $$
 begin
     -- Simply call the utils function and transform the results for the API
+    -- The exception from utils.get_budget_status will propagate up if ledger is not found
     return query
     select 
         bs.account_uuid as category_uuid,

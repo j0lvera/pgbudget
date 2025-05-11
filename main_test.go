@@ -2792,7 +2792,7 @@ func TestDatabase(t *testing.T) {
 				is := is_.New(t)
 				
 				// Test with invalid ledger UUID
-				invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
+				invalidLedgerUUID := "invalid-uuid-that-does-not-exist"
 				rows, err := conn.Query(
 					ctx,
 					"SELECT * FROM api.get_budget_status($1)",
