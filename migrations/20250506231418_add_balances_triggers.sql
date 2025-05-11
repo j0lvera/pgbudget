@@ -5,120 +5,216 @@
 create or replace function utils.transactions_after_update_fn()
 returns trigger as $$
 declare
-    v_account_id int;
-    v_previous_balance bigint;
-    v_current_balance bigint;
-    v_delta bigint;
-    v_internal_type text;
-    v_ledger_id int;
-    v_debit_internal_type text;
-    v_credit_internal_type text;
-    v_is_outflow boolean;
+    v_accounts_info record;
+    v_balances record;
+    v_ledger_id bigint := NEW.ledger_id;
+    v_user_data text := NEW.user_data;
+    v_debit_delta bigint;
+    v_credit_delta bigint;
+    v_debit_account_changed boolean;
+    v_credit_account_changed boolean;
+    v_amount_changed boolean;
 begin
-    -- get the ledger_id from the transaction
-    v_ledger_id := new.ledger_id;
+    -- Determine what changed
+    v_debit_account_changed := OLD.debit_account_id != NEW.debit_account_id;
+    v_credit_account_changed := OLD.credit_account_id != NEW.credit_account_id;
+    v_amount_changed := OLD.amount != NEW.amount;
     
-    -- first, reverse the effects of the original transaction
-    -- for each account affected by the original transaction
-    for v_account_id in 
-        select distinct account_id 
-        from data.balances 
-        where transaction_id = new.id and operation_type = 'transaction_insert'
-    loop
-        -- get the account's internal type
-        select internal_type into v_internal_type
-        from data.accounts
-        where id = v_account_id;
+    -- If nothing relevant changed, exit early
+    if not (v_debit_account_changed or v_credit_account_changed or v_amount_changed) then
+        return NEW;
+    end if;
+    
+    -- Get latest balances and account types in a single query
+    with account_data as (
+        select 
+            a.id, a.internal_type,
+            (select balance from data.balances 
+             where account_id = a.id 
+             order by created_at desc, id desc limit 1) as current_balance
+        from 
+            data.accounts a
+        where 
+            a.id in (OLD.debit_account_id, OLD.credit_account_id, NEW.debit_account_id, NEW.credit_account_id)
+    )
+    select 
+        json_object_agg(id, json_build_object(
+            'type', internal_type,
+            'balance', coalesce(current_balance, 0)
+        )) into v_accounts_info
+    from account_data;
+    
+    -- Handle accounts that changed
+    
+    -- 1. If debit account changed, reverse effect on old debit account
+    if v_debit_account_changed then
+        -- Calculate reversal delta for old debit account
+        if v_accounts_info->(OLD.debit_account_id::text)->>'type' = 'asset_like' then
+            v_debit_delta := -OLD.amount; -- Reverse the debit
+        else
+            v_debit_delta := OLD.amount; -- Reverse the debit
+        end if;
         
-        -- get the current balance
-        select balance into v_previous_balance
+        -- Insert reversal balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            OLD.debit_account_id, NEW.id, v_ledger_id,
+            (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint,
+            v_debit_delta,
+            (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint + v_debit_delta,
+            'transaction_update_reversal', v_user_data
+        );
+        
+        -- Apply effect to new debit account
+        if v_accounts_info->(NEW.debit_account_id::text)->>'type' = 'asset_like' then
+            v_debit_delta := NEW.amount;
+        else
+            v_debit_delta := -NEW.amount;
+        end if;
+        
+        -- Get updated balance for new debit account
+        select balance into v_balances
         from data.balances
-        where account_id = v_account_id
+        where account_id = NEW.debit_account_id
         order by created_at desc, id desc
         limit 1;
         
-        -- get the original delta (from the transaction_insert operation)
-        select delta into v_delta
+        -- Insert application balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.debit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balances, 0),
+            v_debit_delta,
+            coalesce(v_balances, 0) + v_debit_delta,
+            'transaction_update_application', v_user_data
+        );
+    -- If only amount changed, update the debit account
+    elsif v_amount_changed then
+        -- Calculate net delta (difference between old and new amounts)
+        if v_accounts_info->(NEW.debit_account_id::text)->>'type' = 'asset_like' then
+            v_debit_delta := NEW.amount - OLD.amount;
+        else
+            v_debit_delta := OLD.amount - NEW.amount;
+        end if;
+        
+        -- Only create entry if there's an actual change
+        if v_debit_delta != 0 then
+            -- Get updated balance
+            select balance into v_balances
+            from data.balances
+            where account_id = NEW.debit_account_id
+            order by created_at desc, id desc
+            limit 1;
+            
+            -- Insert update balance entry
+            insert into data.balances (
+                account_id, transaction_id, ledger_id, 
+                previous_balance, delta, balance, 
+                operation_type, user_data
+            )
+            values (
+                NEW.debit_account_id, NEW.id, v_ledger_id,
+                coalesce(v_balances, 0),
+                v_debit_delta,
+                coalesce(v_balances, 0) + v_debit_delta,
+                'transaction_update_net', v_user_data
+            );
+        end if;
+    end if;
+    
+    -- 2. If credit account changed, reverse effect on old credit account
+    if v_credit_account_changed then
+        -- Calculate reversal delta for old credit account
+        if v_accounts_info->(OLD.credit_account_id::text)->>'type' = 'asset_like' then
+            v_credit_delta := OLD.amount; -- Reverse the credit
+        else
+            v_credit_delta := -OLD.amount; -- Reverse the credit
+        end if;
+        
+        -- Insert reversal balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            OLD.credit_account_id, NEW.id, v_ledger_id,
+            (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint,
+            v_credit_delta,
+            (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint + v_credit_delta,
+            'transaction_update_reversal', v_user_data
+        );
+        
+        -- Apply effect to new credit account
+        if v_accounts_info->(NEW.credit_account_id::text)->>'type' = 'asset_like' then
+            v_credit_delta := -NEW.amount;
+        else
+            v_credit_delta := NEW.amount;
+        end if;
+        
+        -- Get updated balance for new credit account
+        select balance into v_balances
         from data.balances
-        where transaction_id = new.id and account_id = v_account_id and operation_type = 'transaction_insert'
+        where account_id = NEW.credit_account_id
+        order by created_at desc, id desc
         limit 1;
         
-        -- reverse the delta (apply with opposite sign)
-        v_delta := -v_delta; -- negate the original delta
-        v_current_balance := v_previous_balance + v_delta;
-        
-        -- insert reversal balance entry
+        -- Insert application balance entry
         insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
-        ) values (
-            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_reversal', new.user_data, v_ledger_id
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.credit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balances, 0),
+            v_credit_delta,
+            coalesce(v_balances, 0) + v_credit_delta,
+            'transaction_update_application', v_user_data
         );
-    end loop;
+    -- If only amount changed, update the credit account
+    elsif v_amount_changed then
+        -- Calculate net delta (difference between old and new amounts)
+        if v_accounts_info->(NEW.credit_account_id::text)->>'type' = 'asset_like' then
+            v_credit_delta := OLD.amount - NEW.amount;
+        else
+            v_credit_delta := NEW.amount - OLD.amount;
+        end if;
+        
+        -- Only create entry if there's an actual change
+        if v_credit_delta != 0 then
+            -- Get updated balance
+            select balance into v_balances
+            from data.balances
+            where account_id = NEW.credit_account_id
+            order by created_at desc, id desc
+            limit 1;
+            
+            -- Insert update balance entry
+            insert into data.balances (
+                account_id, transaction_id, ledger_id, 
+                previous_balance, delta, balance, 
+                operation_type, user_data
+            )
+            values (
+                NEW.credit_account_id, NEW.id, v_ledger_id,
+                coalesce(v_balances, 0),
+                v_credit_delta,
+                coalesce(v_balances, 0) + v_credit_delta,
+                'transaction_update_net', v_user_data
+            );
+        end if;
+    end if;
     
-    -- Determine if this is an outflow transaction by checking account types
-    select internal_type into v_debit_internal_type
-    from data.accounts
-    where id = new.debit_account_id;
-    
-    select internal_type into v_credit_internal_type
-    from data.accounts
-    where id = new.credit_account_id;
-    
-    -- If debit is liability-like (category) and credit is asset-like (account), it's an outflow
-    v_is_outflow := (v_debit_internal_type = 'liability_like' and v_credit_internal_type = 'asset_like');
-    
-    -- now apply the updated transaction
-    -- for debit account
-    select internal_type into v_internal_type
-    from data.accounts
-    where id = new.debit_account_id;
-    
-    -- get the current balance after reversal
-    select balance into v_previous_balance
-    from data.balances
-    where account_id = new.debit_account_id
-    order by created_at desc, id desc
-    limit 1;
-    
-    -- For outflow transactions, both accounts should have negative deltas
-    -- Always use negative amount for outflow transactions
-    v_delta := -new.amount;
-    
-    v_current_balance := v_previous_balance + v_delta;
-    
-    -- insert application balance entry for debit account
-    insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
-    ) values (
-        new.debit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data, v_ledger_id
-    );
-    
-    -- for credit account
-    select internal_type into v_internal_type
-    from data.accounts
-    where id = new.credit_account_id;
-    
-    -- get the current balance after reversal
-    select balance into v_previous_balance
-    from data.balances
-    where account_id = new.credit_account_id
-    order by created_at desc, id desc
-    limit 1;
-    
-    -- For outflow transactions, both accounts should have negative deltas
-    -- Always use negative amount for outflow transactions
-    v_delta := -new.amount;
-    
-    v_current_balance := v_previous_balance + v_delta;
-    
-    -- insert application balance entry for credit account
-    insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
-    ) values (
-        new.credit_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_update_application', new.user_data, v_ledger_id
-    );
-    
-    return new;
+    return NEW;
 end;
 $$ language plpgsql;
 
@@ -126,97 +222,115 @@ $$ language plpgsql;
 create or replace function utils.handle_transaction_delete_balance()
 returns trigger as $$
 declare
-    v_account_id int;
-    v_previous_balance bigint;
-    v_current_balance bigint;
-    v_delta bigint;
-    v_ledger_id int;
+    v_accounts_info record;
+    v_ledger_id bigint := OLD.ledger_id;
+    v_user_data text := OLD.user_data;
 begin
-    -- get the ledger_id from the transaction
-    v_ledger_id := old.ledger_id;
+    -- Get account information and current balances in a single query
+    with account_data as (
+        select 
+            a.id, a.internal_type,
+            (select balance from data.balances 
+             where account_id = a.id 
+             order by created_at desc, id desc limit 1) as current_balance,
+            (select delta from data.balances 
+             where transaction_id = OLD.id and account_id = a.id and operation_type = 'transaction_insert'
+             limit 1) as original_delta
+        from 
+            data.accounts a
+        where 
+            a.id in (OLD.debit_account_id, OLD.credit_account_id)
+    )
+    select 
+        json_object_agg(id, json_build_object(
+            'type', internal_type,
+            'balance', coalesce(current_balance, 0),
+            'original_delta', original_delta
+        )) into v_accounts_info
+    from account_data;
     
-    -- for each account affected by the original transaction
-    for v_account_id in 
-        select distinct account_id 
-        from data.balances 
-        where transaction_id = old.id and operation_type = 'transaction_insert'
-    loop
-        -- get the current balance
-        select balance into v_previous_balance
-        from data.balances
-        where account_id = v_account_id
-        order by created_at desc, id desc
-        limit 1;
-        
-        -- get the original delta (from the transaction_insert operation)
-        select delta into v_delta
-        from data.balances
-        where transaction_id = old.id and account_id = v_account_id and operation_type = 'transaction_insert'
-        limit 1;
-        
-        -- reverse the delta (apply with opposite sign)
-        v_delta := -v_delta; -- negate the original delta
-        v_current_balance := v_previous_balance + v_delta;
-        
-        -- insert delete balance entry
-        insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
-        ) values (
-            v_account_id, old.id, v_previous_balance, v_delta, v_current_balance, 'transaction_delete', old.user_data, v_ledger_id
-        );
-    end loop;
+    -- Insert reversal entries for both accounts in a single statement
+    insert into data.balances (
+        account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type, user_data
+    )
+    values 
+    (
+        OLD.debit_account_id, OLD.id, v_ledger_id,
+        (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint,
+        -(v_accounts_info->(OLD.debit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->(OLD.debit_account_id::text)->>'balance')::bigint - 
+        (v_accounts_info->(OLD.debit_account_id::text)->>'original_delta')::bigint,
+        'transaction_delete', v_user_data
+    ),
+    (
+        OLD.credit_account_id, OLD.id, v_ledger_id,
+        (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint,
+        -(v_accounts_info->(OLD.credit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->(OLD.credit_account_id::text)->>'balance')::bigint - 
+        (v_accounts_info->(OLD.credit_account_id::text)->>'original_delta')::bigint,
+        'transaction_delete', v_user_data
+    );
     
-    return old;
+    return OLD;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 -- function to handle transaction soft deletes and update balances accordingly
 create or replace function utils.transactions_after_soft_delete_fn()
 returns trigger as $$
 declare
-    v_account_id int;
-    v_previous_balance bigint;
-    v_current_balance bigint;
-    v_delta bigint;
-    v_ledger_id int;
+    v_accounts_info record;
+    v_ledger_id bigint := NEW.ledger_id;
+    v_user_data text := NEW.user_data;
 begin
-    -- get the ledger_id from the transaction
-    v_ledger_id := new.ledger_id;
+    -- Get account information and current balances in a single query
+    with account_data as (
+        select 
+            a.id, a.internal_type,
+            (select balance from data.balances 
+             where account_id = a.id 
+             order by created_at desc, id desc limit 1) as current_balance,
+            (select delta from data.balances 
+             where transaction_id = NEW.id and account_id = a.id and operation_type = 'transaction_insert'
+             limit 1) as original_delta
+        from 
+            data.accounts a
+        where 
+            a.id in (NEW.debit_account_id, NEW.credit_account_id)
+    )
+    select 
+        json_object_agg(id, json_build_object(
+            'type', internal_type,
+            'balance', coalesce(current_balance, 0),
+            'original_delta', original_delta
+        )) into v_accounts_info
+    from account_data;
     
-    -- for each account affected by the original transaction
-    for v_account_id in 
-        select distinct account_id 
-        from data.balances 
-        where transaction_id = new.id and operation_type = 'transaction_insert'
-    loop
-        -- get the current balance
-        select balance into v_previous_balance
-        from data.balances
-        where account_id = v_account_id
-        order by created_at desc, id desc
-        limit 1;
-        
-        -- get the original delta (from the transaction_insert operation)
-        select delta into v_delta
-        from data.balances
-        where transaction_id = new.id and account_id = v_account_id and operation_type = 'transaction_insert'
-        limit 1;
-        
-        -- reverse the delta (apply with opposite sign)
-        v_delta := -v_delta; -- negate the original delta
-        v_current_balance := v_previous_balance + v_delta;
-        
-        -- insert soft delete balance entry
-        insert into data.balances (
-            account_id, transaction_id, previous_balance, delta, balance, operation_type, user_data, ledger_id
-        ) values (
-            v_account_id, new.id, v_previous_balance, v_delta, v_current_balance, 'transaction_soft_delete', new.user_data, v_ledger_id
-        );
-    end loop;
+    -- Insert reversal entries for both accounts in a single statement
+    insert into data.balances (
+        account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type, user_data
+    )
+    values 
+    (
+        NEW.debit_account_id, NEW.id, v_ledger_id,
+        (v_accounts_info->(NEW.debit_account_id::text)->>'balance')::bigint,
+        -(v_accounts_info->(NEW.debit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->(NEW.debit_account_id::text)->>'balance')::bigint - 
+        (v_accounts_info->(NEW.debit_account_id::text)->>'original_delta')::bigint,
+        'transaction_soft_delete', v_user_data
+    ),
+    (
+        NEW.credit_account_id, NEW.id, v_ledger_id,
+        (v_accounts_info->(NEW.credit_account_id::text)->>'balance')::bigint,
+        -(v_accounts_info->(NEW.credit_account_id::text)->>'original_delta')::bigint,
+        (v_accounts_info->(NEW.credit_account_id::text)->>'balance')::bigint - 
+        (v_accounts_info->(NEW.credit_account_id::text)->>'original_delta')::bigint,
+        'transaction_soft_delete', v_user_data
+    );
     
-    return new;
+    return NEW;
 end;
-$$ language plpgsql;
+$$ language plpgsql security definer;
 
 -- create trigger for updated_at
 create trigger balances_updated_at_tg

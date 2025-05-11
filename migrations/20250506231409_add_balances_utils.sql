@@ -5,47 +5,27 @@
 create or replace function utils.update_account_balance()
     returns trigger as $$
 declare
-    v_debit_account_previous_balance  bigint;
-    v_debit_account_internal_type     text;
-    v_delta_debit                     bigint;
-    v_credit_account_previous_balance bigint;
-    v_credit_account_internal_type    text;
-    v_delta_credit                    bigint;
-    v_ledger_id                       bigint;
-    v_user_data                       text := utils.get_user();
-    v_accounts_info                   record;
+    v_accounts_info record;
+    v_ledger_id bigint := NEW.ledger_id;
+    v_user_data text := utils.get_user();
+    v_debit_delta bigint;
+    v_credit_delta bigint;
 begin
-    -- ledger ID is already in the transaction
-    v_ledger_id := NEW.ledger_id;
-
-    -- Get account information for both accounts in a single query
-    -- This reduces database roundtrips and improves performance
-    select 
-        d.internal_type as debit_account_internal_type,
-        c.internal_type as credit_account_internal_type
-    into v_accounts_info
-    from 
-        data.accounts d
-    cross join 
-        data.accounts c
-    where 
-        d.id = NEW.debit_account_id and
-        c.id = NEW.credit_account_id;
-
-    if v_accounts_info.debit_account_internal_type is null then
-        raise exception 'internal_type not found for debit account %', NEW.debit_account_id;
-    end if;
-
-    if v_accounts_info.credit_account_internal_type is null then
-        raise exception 'internal_type not found for credit account %', NEW.credit_account_id;
-    end if;
-
-    -- Store the internal types in local variables for clarity
-    v_debit_account_internal_type := v_accounts_info.debit_account_internal_type;
-    v_credit_account_internal_type := v_accounts_info.credit_account_internal_type;
-
-    -- Get previous balances for both accounts in a single CTE
-    with previous_balances as (
+    -- Get account information and previous balances in a single query
+    -- This reduces database roundtrips even further
+    with account_data as (
+        select 
+            d.id as debit_id, d.internal_type as debit_type,
+            c.id as credit_id, c.internal_type as credit_type
+        from 
+            data.accounts d
+        cross join 
+            data.accounts c
+        where 
+            d.id = NEW.debit_account_id and
+            c.id = NEW.credit_account_id
+    ),
+    balance_data as (
         select 
             account_id, 
             balance
@@ -63,56 +43,55 @@ begin
             rn = 1
     )
     select 
-        (select balance from previous_balances where account_id = NEW.debit_account_id),
-        (select balance from previous_balances where account_id = NEW.credit_account_id)
-    into 
-        v_debit_account_previous_balance,
-        v_credit_account_previous_balance;
+        ad.debit_type, ad.credit_type,
+        coalesce((select balance from balance_data where account_id = NEW.debit_account_id), 0) as debit_balance,
+        coalesce((select balance from balance_data where account_id = NEW.credit_account_id), 0) as credit_balance
+    into v_accounts_info
+    from account_data ad;
 
-    -- Default to 0 if no previous balance
-    v_debit_account_previous_balance := coalesce(v_debit_account_previous_balance, 0);
-    v_credit_account_previous_balance := coalesce(v_credit_account_previous_balance, 0);
-
-    -- Calculate deltas based on account types
-    -- For asset-like accounts: debits increase, credits decrease
-    -- For liability-like accounts: debits decrease, credits increase
-    
-    -- Calculate delta for debit account
-    if v_debit_account_internal_type = 'asset_like' then
-        v_delta_debit := NEW.amount;
-    elsif v_debit_account_internal_type = 'liability_like' then
-        v_delta_debit := -NEW.amount;
-    else
-        raise exception 'unknown internal_type % for debit account %', 
-                        v_debit_account_internal_type, NEW.debit_account_id;
+    -- Validate account types
+    if v_accounts_info.debit_type is null then
+        raise exception 'internal_type not found for debit account %', NEW.debit_account_id;
     end if;
 
-    -- Calculate delta for credit account
-    if v_credit_account_internal_type = 'asset_like' then
-        v_delta_credit := -NEW.amount;
-    elsif v_credit_account_internal_type = 'liability_like' then
-        v_delta_credit := NEW.amount;
+    if v_accounts_info.credit_type is null then
+        raise exception 'internal_type not found for credit account %', NEW.credit_account_id;
+    end if;
+
+    -- Calculate deltas based on account types
+    if v_accounts_info.debit_type = 'asset_like' then
+        v_debit_delta := NEW.amount;
+    elsif v_accounts_info.debit_type = 'liability_like' then
+        v_debit_delta := -NEW.amount;
+    else
+        raise exception 'unknown internal_type % for debit account %', 
+                        v_accounts_info.debit_type, NEW.debit_account_id;
+    end if;
+
+    if v_accounts_info.credit_type = 'asset_like' then
+        v_credit_delta := -NEW.amount;
+    elsif v_accounts_info.credit_type = 'liability_like' then
+        v_credit_delta := NEW.amount;
     else
         raise exception 'unknown internal_type % for credit account %', 
-                        v_credit_account_internal_type, NEW.credit_account_id;
+                        v_accounts_info.credit_type, NEW.credit_account_id;
     end if;
 
     -- Insert new balances for both accounts in a single transaction
-    -- This ensures atomicity and consistency
     insert into data.balances (
         account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type, user_data
     )
     values 
     (
         NEW.debit_account_id, NEW.id, v_ledger_id, 
-        v_debit_account_previous_balance, v_delta_debit,
-        v_debit_account_previous_balance + v_delta_debit, 
+        v_accounts_info.debit_balance, v_debit_delta,
+        v_accounts_info.debit_balance + v_debit_delta, 
         'transaction_insert', v_user_data
     ),
     (
         NEW.credit_account_id, NEW.id, v_ledger_id, 
-        v_credit_account_previous_balance, v_delta_credit,
-        v_credit_account_previous_balance + v_delta_credit, 
+        v_accounts_info.credit_balance, v_credit_delta,
+        v_accounts_info.credit_balance + v_credit_delta, 
         'transaction_insert', v_user_data
     );
 
