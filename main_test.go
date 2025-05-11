@@ -2265,20 +2265,44 @@ func TestDatabase(t *testing.T) {
 						t, btCheckingAccountID,
 					)
 					is.True(checkingFound) // Should exist now
-					_, prevGroceriesBal, _, groceriesFound := getLatestBalanceEntry(
-						t, btGroceriesCategoryID,
-					)
-					is.True(groceriesFound) // Should exist now
-
-					// Insert inflow transaction: Income to Checking, sourced from Groceries category for this test
-					// api.transactions: account_uuid is Checking, category_uuid is Groceries, type is inflow
-					// data.transactions: debit=Checking(A), credit=Groceries(L)
+					
+					// Find Income account UUID and ID for this ledger
+					var btIncomeCategoryUUID string
+					var btIncomeCategoryID int
+					
 					err := conn.QueryRow(
+						ctx,
+						"SELECT utils.find_category($1, $2)",
+						balancesLedgerUUID, "Income",
+					).Scan(&btIncomeCategoryUUID)
+					is.NoErr(err) // Should find the Income category
+					is.True(btIncomeCategoryUUID != "")
+					
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.accounts WHERE uuid = $1",
+						btIncomeCategoryUUID,
+					).Scan(&btIncomeCategoryID)
+					is.NoErr(err)
+					is.True(btIncomeCategoryID > 0)
+					
+					// Get current balance for Income category
+					_, prevIncomeBal, _, incomeFound := getLatestBalanceEntry(
+						t, btIncomeCategoryID,
+					)
+					if !incomeFound {
+						prevIncomeBal = 0 // Default to 0 if no balance entry found
+					}
+
+					// Insert inflow transaction: Income to Checking
+					// api.transactions: account_uuid is Checking, category_uuid is Income, type is inflow
+					// data.transactions: debit=Checking(A), credit=Income(L)
+					err = conn.QueryRow(
 						ctx,
 						`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
 				 VALUES ($1, $2, $3, 'inflow', $4, 'BT Inflow', $5) RETURNING uuid`,
 						balancesLedgerUUID, btCheckingAccountUUID,
-						btGroceriesCategoryUUID, inflowTxAmount, txTime,
+						btIncomeCategoryUUID, inflowTxAmount, txTime,
 					).Scan(&inflowTxUUID)
 					is.NoErr(err)
 					is.True(inflowTxUUID != "")
@@ -2334,13 +2358,13 @@ func TestDatabase(t *testing.T) {
 							is.Equal(
 								entry.Balance, prevCheckingBal+inflowTxAmount,
 							)
-						} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/Liability-like, credited by inflow)
-							is.Equal(entry.PreviousBalance, prevGroceriesBal)
+						} else if entry.AccountID == btIncomeCategoryID { // Income (Equity/Liability-like, credited by inflow)
+							is.Equal(entry.PreviousBalance, prevIncomeBal)
 							is.Equal(
 								entry.Delta, inflowTxAmount,
 							) // Credit to liability_like increases balance
 							is.Equal(
-								entry.Balance, prevGroceriesBal+inflowTxAmount,
+								entry.Balance, prevIncomeBal+inflowTxAmount,
 							)
 						} else {
 							t.Fatalf(
@@ -2504,10 +2528,10 @@ func TestDatabase(t *testing.T) {
 						t, btCheckingAccountID,
 					)
 					is.True(checkingFound)
-					_, prevGroceriesBalBeforeDelete, _, groceriesFound := getLatestBalanceEntry(
-						t, btGroceriesCategoryID,
+					_, prevIncomeBalBeforeDelete, _, incomeFound := getLatestBalanceEntry(
+						t, btIncomeCategoryID,
 					)
-					is.True(groceriesFound)
+					is.True(incomeFound)
 
 					// Delete the inflow transaction (original inflowTxAmount = $300.00)
 					// Original inflow: Debit Checking(A), Credit Groceries(L). Deltas were +30000 for both.
@@ -2592,7 +2616,7 @@ func TestDatabase(t *testing.T) {
 					is.NoErr(rows.Err())
 					is.Equal(len(deleteBalanceEntries), 2)
 
-					var checkingDeleteDone, groceriesDeleteDone bool
+					var checkingDeleteDone, incomeDeleteDone bool
 					for _, entry := range deleteBalanceEntries {
 						is.Equal(entry.OperationType, "transaction_soft_delete")
 						if entry.AccountID == btCheckingAccountID { // Checking (Asset)
@@ -2608,19 +2632,19 @@ func TestDatabase(t *testing.T) {
 								prevCheckingBalBeforeDelete-inflowTxAmount,
 							)
 							checkingDeleteDone = true
-						} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/L)
+						} else if entry.AccountID == btIncomeCategoryID { // Income (Equity/L)
 							is.Equal(
 								entry.PreviousBalance,
-								prevGroceriesBalBeforeDelete,
+								prevIncomeBalBeforeDelete,
 							)
 							is.Equal(
 								entry.Delta, -inflowTxAmount,
 							) // Reversing original delta of +inflowTxAmount
 							is.Equal(
 								entry.Balance,
-								prevGroceriesBalBeforeDelete-inflowTxAmount,
+								prevIncomeBalBeforeDelete-inflowTxAmount,
 							)
-							groceriesDeleteDone = true
+							incomeDeleteDone = true
 						} else {
 							t.Fatalf(
 								"Unexpected account_id %d in delete balance entry",
@@ -2629,7 +2653,7 @@ func TestDatabase(t *testing.T) {
 						}
 					}
 					is.True(checkingDeleteDone)  // Checking account delete missing or incorrect
-					is.True(groceriesDeleteDone) // Groceries account delete missing or incorrect
+					is.True(incomeDeleteDone) // Income account delete missing or incorrect
 				},
 			)
 
