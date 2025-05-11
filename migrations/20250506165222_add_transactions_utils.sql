@@ -167,6 +167,7 @@ declare
     v_category_account_id int;
     v_transaction_uuid text;
     v_metadata jsonb;
+    v_transaction_record data.transactions;
 begin
     -- validate input parameters early
     if p_amount <= 0 then 
@@ -183,6 +184,7 @@ begin
     end if;
 
     -- find both Income account and target category in one efficient query
+    -- using a CTE to avoid duplicate scans of the accounts table
     with account_data as (
         select a.id, a.uuid, a.name, a.type
         from data.accounts a
@@ -207,6 +209,7 @@ begin
     end if;
 
     -- create the transaction (debit Income, credit Category)
+    -- and get the full record in one operation
     insert into data.transactions (
         ledger_id, 
         description, 
@@ -223,21 +226,21 @@ begin
         v_income_account_id, 
         v_category_account_id, 
         p_user_data
-    ) returning uuid, metadata into v_transaction_uuid, v_metadata;
+    ) returning * into v_transaction_record;
 
     -- return the full record matching the api.transactions view structure
     -- using a single VALUES expression is more efficient than a subquery
     return query
     values (
-        v_transaction_uuid,     -- r_uuid
-        p_description,          -- r_description
-        p_amount,               -- r_amount
-        p_date,                 -- r_date
-        v_metadata,             -- r_metadata
-        p_ledger_uuid,          -- r_ledger_uuid
-        null::text,             -- r_transaction_type (null for direct assignments)
-        v_income_account_uuid,  -- r_account_uuid (using Income account)
-        p_category_uuid         -- r_category_uuid
+        v_transaction_record.uuid,  -- r_uuid
+        p_description,              -- r_description
+        p_amount,                   -- r_amount
+        p_date,                     -- r_date
+        v_transaction_record.metadata, -- r_metadata
+        p_ledger_uuid,              -- r_ledger_uuid
+        null::text,                 -- r_transaction_type (null for direct assignments)
+        v_income_account_uuid,      -- r_account_uuid (using Income account)
+        p_category_uuid             -- r_category_uuid
     );
 end;
 $$ language plpgsql volatile security definer;
