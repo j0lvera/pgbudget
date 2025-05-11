@@ -209,7 +209,7 @@ begin
     elsif v_amount_changed then
         -- First add reversal entry
         if v_accounts_info->NEW.credit_account_id::text->>'type' = 'asset_like' then
-            v_credit_delta := -OLD.amount; -- Reverse the old credit (asset-like: credit decreases balance)
+            v_credit_delta := OLD.amount; -- Reverse the old credit (asset-like: credit decreases balance)
         else
             v_credit_delta := -OLD.amount; -- Reverse the old credit (liability-like: credit increases balance)
         end if;
