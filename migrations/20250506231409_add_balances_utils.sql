@@ -76,19 +76,26 @@ begin
     -- Calculate deltas based on account types
     -- For asset-like accounts: debits increase, credits decrease
     -- For liability-like accounts: debits decrease, credits increase
-    v_delta_debit := case 
-        when v_debit_account_internal_type = 'asset_like' then NEW.amount
-        when v_debit_account_internal_type = 'liability_like' then -NEW.amount
-        else raise exception 'unknown internal_type % for debit account %', 
-                            v_debit_account_internal_type, NEW.debit_account_id
-    end;
+    
+    -- Calculate delta for debit account
+    if v_debit_account_internal_type = 'asset_like' then
+        v_delta_debit := NEW.amount;
+    elsif v_debit_account_internal_type = 'liability_like' then
+        v_delta_debit := -NEW.amount;
+    else
+        raise exception 'unknown internal_type % for debit account %', 
+                        v_debit_account_internal_type, NEW.debit_account_id;
+    end if;
 
-    v_delta_credit := case 
-        when v_credit_account_internal_type = 'asset_like' then -NEW.amount
-        when v_credit_account_internal_type = 'liability_like' then NEW.amount
-        else raise exception 'unknown internal_type % for credit account %', 
-                            v_credit_account_internal_type, NEW.credit_account_id
-    end;
+    -- Calculate delta for credit account
+    if v_credit_account_internal_type = 'asset_like' then
+        v_delta_credit := -NEW.amount;
+    elsif v_credit_account_internal_type = 'liability_like' then
+        v_delta_credit := NEW.amount;
+    else
+        raise exception 'unknown internal_type % for credit account %', 
+                        v_credit_account_internal_type, NEW.credit_account_id;
+    end if;
 
     -- Insert new balances for both accounts in a single transaction
     -- This ensures atomicity and consistency
