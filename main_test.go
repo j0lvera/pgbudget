@@ -1315,15 +1315,15 @@ func TestDatabase(t *testing.T) {
 									err, &pgErr,
 								),
 							) // Error should be a PgError
-							// The expected message from utils.simple_transactions_insert_fn is 'ledger with uuid % not found'
+							// The expected message from utils.simple_transactions_insert_fn is 'Ledger with UUID % not found for current user'
 							is.True(
 								strings.Contains(
-									pgErr.Message, "ledger with uuid",
+									strings.ToLower(pgErr.Message), "ledger with uuid",
 								),
 							)
 							is.True(
 								strings.Contains(
-									pgErr.Message, "not found",
+									pgErr.Message, "not found for current user",
 								),
 							)
 						},
