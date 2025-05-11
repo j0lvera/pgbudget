@@ -3162,10 +3162,363 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 
-	// // Test the get_account_transactions function with the new balance column
-	// t.Run(
-	// 	"GetAccountTransactions", func(t *testing.T) {
-	// 		t.Skip("Skipping until implementation is ready")
-	// 	},
-	// )
+	// Test the api.get_account_transactions function
+	t.Run("AccountTransactions", func(t *testing.T) {
+		is := is_.New(t)
+		
+		// Create a new ledger specifically for this test
+		var txLedgerUUID string
+		var txLedgerID int
+		
+		// Create a new ledger using the api.ledgers view
+		ledgerName := "AccountTransactions Test Ledger"
+		err := conn.QueryRow(
+			ctx,
+			"insert into api.ledgers (name) values ($1) returning uuid",
+			ledgerName,
+		).Scan(&txLedgerUUID)
+		is.NoErr(err) // should create ledger without error
+		
+		// Get the internal ID for verification
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.ledgers WHERE uuid = $1",
+			txLedgerUUID,
+		).Scan(&txLedgerID)
+		is.NoErr(err) // should find the ledger by UUID
+		is.True(txLedgerID > 0) // should have a valid internal ID
+		
+		// Setup accounts for testing
+		var (
+			checkingAccountUUID string
+			checkingAccountID   int
+			groceriesCategoryUUID string
+			groceriesCategoryID   int
+			rentCategoryUUID string
+			rentCategoryID   int
+			incomeAccountUUID string
+			incomeAccountID int
+		)
+		
+		// Create checking account
+		err = conn.QueryRow(
+			ctx,
+			`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+			txLedgerUUID, "Tx-Checking",
+		).Scan(&checkingAccountUUID)
+		is.NoErr(err)
+		
+		// Get internal ID
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE uuid = $1",
+			checkingAccountUUID,
+		).Scan(&checkingAccountID)
+		is.NoErr(err)
+		
+		// Create groceries category
+		err = conn.QueryRow(
+			ctx,
+			"SELECT uuid FROM api.add_category($1, $2)",
+			txLedgerUUID, "Tx-Groceries",
+		).Scan(&groceriesCategoryUUID)
+		is.NoErr(err)
+		
+		// Get internal ID
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE uuid = $1",
+			groceriesCategoryUUID,
+		).Scan(&groceriesCategoryID)
+		is.NoErr(err)
+		
+		// Create rent category
+		err = conn.QueryRow(
+			ctx,
+			"SELECT uuid FROM api.add_category($1, $2)",
+			txLedgerUUID, "Tx-Rent",
+		).Scan(&rentCategoryUUID)
+		is.NoErr(err)
+		
+		// Get internal ID
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE uuid = $1",
+			rentCategoryUUID,
+		).Scan(&rentCategoryID)
+		is.NoErr(err)
+		
+		// Get Income account UUID and ID
+		err = conn.QueryRow(
+			ctx,
+			"SELECT utils.find_category($1, $2)",
+			txLedgerUUID, "Income",
+		).Scan(&incomeAccountUUID)
+		is.NoErr(err)
+		
+		// Get internal ID
+		err = conn.QueryRow(
+			ctx,
+			"SELECT id FROM data.accounts WHERE uuid = $1",
+			incomeAccountUUID,
+		).Scan(&incomeAccountID)
+		is.NoErr(err)
+		
+		// Test initial account transactions (should be empty)
+		t.Run("InitialAccountTransactions", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Query the api.get_account_transactions function
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1)",
+				checkingAccountUUID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			
+			// Should have no transactions initially
+			var transactions []struct {
+				Date        time.Time
+				Category    string
+				Description string
+				Type        string
+				Amount      int64
+				Balance     int64
+			}
+			
+			for rows.Next() {
+				var tx struct {
+					Date        time.Time
+					Category    string
+					Description string
+					Type        string
+					Amount      int64
+					Balance     int64
+				}
+				err := rows.Scan(
+					&tx.Date,
+					&tx.Category,
+					&tx.Description,
+					&tx.Type,
+					&tx.Amount,
+					&tx.Balance,
+				)
+				is.NoErr(err)
+				transactions = append(transactions, tx)
+			}
+			is.NoErr(rows.Err())
+			
+			// Should have no transactions initially
+			is.Equal(len(transactions), 0)
+		})
+		
+		// Add transactions and test account transactions
+		t.Run("TransactionsAndAccountHistory", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Create a series of transactions with different dates to test ordering
+			
+			// 1. Add income transaction (inflow to checking from income) - oldest
+			incomeAmount := int64(100000) // $1000.00
+			incomeDate := time.Now().Add(-48 * time.Hour) // 2 days ago
+			var incomeTxUUID string
+			err = conn.QueryRow(
+				ctx,
+				`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+				 VALUES ($1, $2, $3, 'inflow', $4, $5, $6) RETURNING uuid`,
+				txLedgerUUID, incomeDate, "Initial Paycheck", incomeAmount,
+				checkingAccountUUID, incomeAccountUUID,
+			).Scan(&incomeTxUUID)
+			is.NoErr(err)
+			
+			// 2. Add rent payment (outflow from checking to rent) - middle date
+			rentAmount := int64(50000) // $500.00
+			rentDate := time.Now().Add(-24 * time.Hour) // 1 day ago
+			var rentTxUUID string
+			err = conn.QueryRow(
+				ctx,
+				`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+				 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+				txLedgerUUID, rentDate, "Rent Payment", rentAmount,
+				checkingAccountUUID, rentCategoryUUID,
+			).Scan(&rentTxUUID)
+			is.NoErr(err)
+			
+			// 3. Add groceries transaction (outflow from checking to groceries) - newest
+			groceriesAmount := int64(15000) // $150.00
+			groceriesDate := time.Now() // Today
+			var groceriesTxUUID string
+			err = conn.QueryRow(
+				ctx,
+				`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+				 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+				txLedgerUUID, groceriesDate, "Grocery Shopping", groceriesAmount,
+				checkingAccountUUID, groceriesCategoryUUID,
+			).Scan(&groceriesTxUUID)
+			is.NoErr(err)
+			
+			// Query account transactions
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1)",
+				checkingAccountUUID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			
+			var transactions []struct {
+				Date        time.Time
+				Category    string
+				Description string
+				Type        string
+				Amount      int64
+				Balance     int64
+			}
+			
+			for rows.Next() {
+				var tx struct {
+					Date        time.Time
+					Category    string
+					Description string
+					Type        string
+					Amount      int64
+					Balance     int64
+				}
+				err := rows.Scan(
+					&tx.Date,
+					&tx.Category,
+					&tx.Description,
+					&tx.Type,
+					&tx.Amount,
+					&tx.Balance,
+				)
+				is.NoErr(err)
+				transactions = append(transactions, tx)
+			}
+			is.NoErr(rows.Err())
+			
+			// Should have 3 transactions
+			is.Equal(len(transactions), 3)
+			
+			// Transactions should be ordered by date (newest first)
+			is.Equal(transactions[0].Description, "Grocery Shopping") // Newest transaction first
+			is.Equal(transactions[1].Description, "Rent Payment")     // Middle transaction second
+			is.Equal(transactions[2].Description, "Initial Paycheck") // Oldest transaction last
+			
+			// Check transaction details
+			// First transaction (newest - groceries)
+			is.Equal(transactions[0].Category, "Tx-Groceries")
+			is.Equal(transactions[0].Type, "outflow")
+			is.Equal(transactions[0].Amount, groceriesAmount)
+			is.Equal(transactions[0].Balance, incomeAmount - rentAmount - groceriesAmount) // Final balance
+			
+			// Second transaction (middle - rent)
+			is.Equal(transactions[1].Category, "Tx-Rent")
+			is.Equal(transactions[1].Type, "outflow")
+			is.Equal(transactions[1].Amount, rentAmount)
+			is.Equal(transactions[1].Balance, incomeAmount - rentAmount) // Balance after rent
+			
+			// Third transaction (oldest - income)
+			is.Equal(transactions[2].Category, "Income")
+			is.Equal(transactions[2].Type, "inflow")
+			is.Equal(transactions[2].Amount, incomeAmount)
+			is.Equal(transactions[2].Balance, incomeAmount) // Initial balance
+		})
+		
+		// Test transactions for a category account
+		t.Run("CategoryTransactions", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Query transactions for the groceries category
+			rows, err := conn.Query(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1)",
+				groceriesCategoryUUID,
+			)
+			is.NoErr(err)
+			defer rows.Close()
+			
+			var transactions []struct {
+				Date        time.Time
+				Category    string
+				Description string
+				Type        string
+				Amount      int64
+				Balance     int64
+			}
+			
+			for rows.Next() {
+				var tx struct {
+					Date        time.Time
+					Category    string
+					Description string
+					Type        string
+					Amount      int64
+					Balance     int64
+				}
+				err := rows.Scan(
+					&tx.Date,
+					&tx.Category,
+					&tx.Description,
+					&tx.Type,
+					&tx.Amount,
+					&tx.Balance,
+				)
+				is.NoErr(err)
+				transactions = append(transactions, tx)
+			}
+			is.NoErr(rows.Err())
+			
+			// Should have 1 transaction for groceries category
+			is.Equal(len(transactions), 1)
+			
+			// Check transaction details
+			is.Equal(transactions[0].Category, "Tx-Checking") // For category accounts, the other account is shown
+			is.Equal(transactions[0].Description, "Grocery Shopping")
+			is.Equal(transactions[0].Type, "outflow") // For liability-like accounts, debits are outflows
+			is.Equal(transactions[0].Amount, int64(15000))
+			is.Equal(transactions[0].Balance, int64(-15000)) // Negative balance for spending
+		})
+		
+		// Test error cases
+		t.Run("ErrorCases", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Test with invalid account UUID
+			invalidAccountUUID := "invalid-uuid-that-does-not-exist"
+			
+			// Use QueryRow instead of Query to force immediate execution
+			var (
+				date        time.Time
+				category    string
+				description string
+				txType      string
+				amount      int64
+				balance     int64
+			)
+			
+			err = conn.QueryRow(
+				ctx,
+				"SELECT * FROM api.get_account_transactions($1) LIMIT 1",
+				invalidAccountUUID,
+			).Scan(
+				&date,
+				&category,
+				&description,
+				&txType,
+				&amount,
+				&balance,
+			)
+			
+			// The actual test assertion
+			is.True(err != nil) // Should return an error
+			
+			// Check error message
+			var pgErr *pgconn.PgError
+			if errors.As(err, &pgErr) {
+				is.True(strings.Contains(pgErr.Message, "not found for current user"))
+			}
+		})
+	})
 }
