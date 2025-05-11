@@ -65,6 +65,13 @@ create trigger accounts_update_tg
 execute procedure utils.accounts_update_single_fn();
 
 
+-- Trigger for api.accounts view (handles deletes)
+create trigger accounts_delete_tg
+    instead of delete
+    on api.accounts
+    for each row
+execute procedure utils.accounts_delete_single_fn();
+
 -- +goose StatementEnd
 
 -- +goose Down
@@ -75,7 +82,8 @@ drop trigger if exists trigger_prevent_special_account_deletion on data.accounts
 drop trigger if exists accounts_updated_at_tg on data.accounts cascade;
 drop trigger if exists accounts_set_internal_type_tg on data.accounts cascade; -- Corrected name
 drop trigger if exists accounts_insert_tg on api.accounts cascade;
-drop trigger if exists accounts_update_tg on api.accounts cascade; -- ADD THIS LINE
+drop trigger if exists accounts_update_tg on api.accounts cascade;
+drop trigger if exists accounts_delete_tg on api.accounts cascade;
 
 -- Also drop the unique index if it was created in the Up
 drop index if exists data.unique_special_accounts_per_ledger;

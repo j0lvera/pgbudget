@@ -50,10 +50,9 @@ begin
                NEW.description,
                NEW.metadata,
                v_ledger_id)
--- Return the newly inserted row's data matching the view structure
--- Note: user_data is fetched from the actual inserted row, not NEW.user_data
-    returning uuid, name, type, description, metadata, user_data into
-        new.uuid, new.name, new.type, new.description, new.metadata, new.user_data;
+-- Only return the uuid and user_data as these are the only fields that aren't already in NEW
+    returning uuid, user_data into
+        new.uuid, new.user_data;
 
     -- The ledger_uuid is already part of the NEW record passed to the trigger,
     -- so it doesn't need to be explicitly returned or set here.
@@ -73,38 +72,34 @@ declare
     v_account_id int;
     v_user_data text := utils.get_user(); -- Get current user context
 begin
-    -- Ensure the ledger_uuid provided (if changed) resolves to a valid ledger for the user
+    -- Optimize queries based on whether ledger is changing
     if NEW.ledger_uuid is not null and NEW.ledger_uuid <> OLD.ledger_uuid then
+        -- Only query when ledger is actually changing
         select l.id into v_ledger_id
           from data.ledgers l
          where l.uuid = NEW.ledger_uuid and l.user_data = v_user_data;
-
+        
         if v_ledger_id is null then
             raise exception 'Target ledger with UUID % not found for current user', NEW.ledger_uuid;
         end if;
-    else
-        -- If ledger_uuid is not being changed, or is null in NEW (meaning no change requested for it)
-        -- use the existing ledger_id from the OLD record.
-        -- We still need to fetch the ID for the OLD.ledger_uuid to use in the update if ledger_uuid isn't changing.
-        select l.id into v_ledger_id
-          from data.ledgers l
-         where l.uuid = OLD.ledger_uuid; -- No user_data check here as OLD record implies ownership already via RLS on view
-
-        if v_ledger_id is null then
-             -- This should not happen if OLD.ledger_uuid is valid.
-            raise exception 'Original ledger with UUID % could not be resolved to an ID.', OLD.ledger_uuid;
+        
+        -- Get account_id separately
+        select a.id into v_account_id
+          from data.accounts a
+         where a.uuid = OLD.uuid and a.user_data = v_user_data;
+        
+        if v_account_id is null then
+            raise exception 'Account with UUID % not found for current user to update', OLD.uuid;
         end if;
-    end if;
-
-    -- Get the internal ID of the account being updated
-    -- RLS on the view already ensures the user can see OLD.uuid.
-    -- We need to ensure the update respects ownership if user_data was part of the check.
-    select a.id into v_account_id
-      from data.accounts a
-     where a.uuid = OLD.uuid and a.user_data = v_user_data; -- Re-check ownership for the update operation
-
-    if v_account_id is null then
-        raise exception 'Account with UUID % not found for current user to update', OLD.uuid;
+    else
+        -- Use a join to get both account_id and ledger_id in one query when ledger isn't changing
+        select a.id, a.ledger_id into v_account_id, v_ledger_id
+          from data.accounts a
+         where a.uuid = OLD.uuid and a.user_data = v_user_data;
+        
+        if v_account_id is null then
+            raise exception 'Account with UUID % not found for current user to update', OLD.uuid;
+        end if;
     end if;
 
     -- Update the underlying data.accounts table
@@ -131,6 +126,40 @@ begin
 end;
 $$ language plpgsql volatile security definer;
 
+-- Create a trigger function to handle DELETE operations on the api.accounts view
+create or replace function utils.accounts_delete_single_fn()
+returns trigger as
+$$
+declare
+    v_account_id int;
+    v_user_data text := utils.get_user();
+    v_is_special boolean;
+begin
+    -- Check if this is a special account that shouldn't be deleted
+    select (a.name in ('Income', 'Off-budget', 'Unassigned') and a.type = 'equity') into v_is_special
+      from data.accounts a
+     where a.uuid = OLD.uuid and a.user_data = v_user_data;
+    
+    if v_is_special then
+        raise exception 'Cannot delete special account: %', OLD.name;
+    end if;
+
+    -- Get the internal ID of the account to delete
+    select a.id into v_account_id
+      from data.accounts a
+     where a.uuid = OLD.uuid and a.user_data = v_user_data;
+    
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found for current user to delete', OLD.uuid;
+    end if;
+
+    -- Delete the account
+    delete from data.accounts where id = v_account_id;
+    
+    return OLD;
+end;
+$$ language plpgsql volatile security definer;
+
 -- +goose StatementEnd
 
 -- +goose Down
@@ -138,6 +167,7 @@ $$ language plpgsql volatile security definer;
 
 drop function if exists utils.accounts_insert_single_fn() cascade; -- Corrected: no params
 drop function if exists utils.accounts_update_single_fn() cascade;
+drop function if exists utils.accounts_delete_single_fn() cascade;
 drop function if exists utils.set_account_internal_type_fn() cascade; -- Ensure cascade if other functions depend on it
 
 -- +goose StatementEnd
