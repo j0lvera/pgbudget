@@ -379,6 +379,111 @@ func TestDatabase(t *testing.T) {
 					) // Name in data table should be the new name
 				},
 			)
+			
+			// New subtest for deleting a regular account
+			t.Run(
+				"DeleteRegularAccount", func(t *testing.T) {
+					is := is_.New(t)
+					
+					if accountsLedgerUUID == "" {
+						t.Skip("Skipping DeleteRegularAccount because accountsLedgerUUID is not available")
+					}
+					
+					// Create another account specifically for deletion
+					var deleteAccountUUID string
+					accountName := "Account To Delete"
+					accountType := "asset"
+					
+					err := conn.QueryRow(
+						ctx,
+						`INSERT INTO api.accounts (ledger_uuid, name, type) 
+						 VALUES ($1, $2, $3) RETURNING uuid`,
+						accountsLedgerUUID, accountName, accountType,
+					).Scan(&deleteAccountUUID)
+					is.NoErr(err) // Should create account without error
+					is.True(deleteAccountUUID != "") // Should return a valid UUID
+					
+					// Verify account exists before deletion
+					var exists bool
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(exists) // Account should exist before deletion
+					
+					// Delete the account via api.accounts view
+					_, err = conn.Exec(
+						ctx,
+						"DELETE FROM api.accounts WHERE uuid = $1",
+						deleteAccountUUID,
+					)
+					is.NoErr(err) // Should delete account without error
+					
+					// Verify account no longer exists in api.accounts view
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(!exists) // Account should no longer exist
+					
+					// Verify account no longer exists in data.accounts table
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM data.accounts WHERE uuid = $1)",
+						deleteAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(!exists) // Account should no longer exist in data table
+				},
+			)
+			
+			// Test attempting to delete a special account (should fail)
+			t.Run(
+				"DeleteSpecialAccount", func(t *testing.T) {
+					is := is_.New(t)
+					
+					if accountsLedgerUUID == "" {
+						t.Skip("Skipping DeleteSpecialAccount because accountsLedgerUUID is not available")
+					}
+					
+					// Find the Income account UUID (created automatically with ledger)
+					var incomeAccountUUID string
+					err := conn.QueryRow(
+						ctx,
+						"SELECT utils.find_category($1, $2)",
+						accountsLedgerUUID, "Income",
+					).Scan(&incomeAccountUUID)
+					is.NoErr(err) // Should find Income category
+					is.True(incomeAccountUUID != "") // Should have a valid UUID
+					
+					// Attempt to delete the Income account (should fail)
+					_, err = conn.Exec(
+						ctx,
+						"DELETE FROM api.accounts WHERE uuid = $1",
+						incomeAccountUUID,
+					)
+					is.True(err != nil) // Should return an error
+					
+					// Check for specific error message
+					var pgErr *pgconn.PgError
+					is.True(errors.As(err, &pgErr)) // Error should be a PgError
+					is.True(strings.Contains(pgErr.Message, "Cannot delete special account")) // Check error message
+					
+					// Verify Income account still exists
+					var exists bool
+					err = conn.QueryRow(
+						ctx,
+						"SELECT EXISTS(SELECT 1 FROM api.accounts WHERE uuid = $1)",
+						incomeAccountUUID,
+					).Scan(&exists)
+					is.NoErr(err)
+					is.True(exists) // Income account should still exist
+				},
+			)
 		},
 	)
 
@@ -389,12 +494,43 @@ func TestDatabase(t *testing.T) {
 	// --- Account Tests ---
 	t.Run(
 		"Accounts", func(t *testing.T) {
+			// Create a dedicated ledger for account tests
+			var accountsLedgerUUID string
+			var accountsLedgerID int
+			
+			t.Run(
+				"Setup_AccountsLedger", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create a new ledger specifically for account tests
+					ledgerName := "Accounts Test Ledger"
+					err := conn.QueryRow(
+						ctx,
+						"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+						ledgerName,
+					).Scan(&accountsLedgerUUID)
+					is.NoErr(err) // should create ledger without error
+					
+					// Get the internal ID for verification
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.ledgers WHERE uuid = $1",
+						accountsLedgerUUID,
+					).Scan(&accountsLedgerID)
+					is.NoErr(err) // should find the ledger by UUID
+					is.True(accountsLedgerID > 0) // should have a valid internal ID
+				},
+			)
+			
+			var accountUUID string // To be set by CreateAccount and used by UpdateAccount and DeleteAccount
+			var accountID int      // Internal ID for data.accounts verification
+			
 			t.Run(
 				"CreateAccount", func(t *testing.T) {
 					is := is_.New(t)
 
-					if ledgerUUID == "" {
-						t.Skip("Skipping CreateAccount because ledgerUUID is not available")
+					if accountsLedgerUUID == "" {
+						t.Skip("Skipping CreateAccount because accountsLedgerUUID is not available")
 					}
 
 					accountName := "Test Savings Account"
@@ -424,7 +560,7 @@ func TestDatabase(t *testing.T) {
 						`INSERT INTO api.accounts (ledger_uuid, name, type, description, metadata)
 			 VALUES ($1, $2, $3, $4, $5)
 			 RETURNING uuid, name, type, description, metadata, user_data, ledger_uuid`,
-						ledgerUUID, accountName, accountType,
+						accountsLedgerUUID, accountName, accountType,
 						accountDescription, accountMetadataInput,
 					).Scan(
 						&retUUID,
@@ -458,7 +594,7 @@ func TestDatabase(t *testing.T) {
 						retUserData, testUserID,
 					) // UserData should match the test user
 					is.Equal(
-						retLedgerUUID, ledgerUUID,
+						retLedgerUUID, accountsLedgerUUID,
 					) // LedgerUUID should match the input
 
 					// Verify data in data.accounts table
@@ -509,7 +645,7 @@ func TestDatabase(t *testing.T) {
 						dbUserData, testUserID,
 					) // DB UserData should match
 					is.Equal(
-						dbLedgerID, ledgerID,
+						dbLedgerID, accountsLedgerID,
 					) // DB LedgerID should match the parent ledger's internal ID
 				},
 			)
