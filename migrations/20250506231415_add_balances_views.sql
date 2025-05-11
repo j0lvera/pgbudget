@@ -50,7 +50,7 @@ begin
         bs.activity::bigint,
         bs.balance::bigint
     from utils.get_budget_status(v_ledger_id) bs
-    join data.accounts a on a.id = bs.id
+    join data.accounts a on a.id = bs.account_id
     where a.user_data = v_user_data;
 end;
 $$ language plpgsql stable security invoker;

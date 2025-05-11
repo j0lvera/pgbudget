@@ -410,7 +410,7 @@ $$ language plpgsql;
 create or replace function utils.get_budget_status(p_ledger_id bigint)
     returns table
             (
-                id           bigint,
+                account_id   bigint,
                 account_name text,
                 budgeted     decimal,
                 activity     decimal,
@@ -426,7 +426,7 @@ begin
 
     -- return budget status for all categories in the specified ledger
     return query
-        select a.id,
+        select a.id as account_id,
                a.name as account_name,
                -- budgeted amount
                coalesce(
