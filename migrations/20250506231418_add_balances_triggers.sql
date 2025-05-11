@@ -6,7 +6,7 @@ create or replace function utils.transactions_after_update_fn()
 returns trigger as $$
 declare
     v_accounts_info jsonb;
-    v_balances record;
+    v_balance bigint;
     v_ledger_id bigint := NEW.ledger_id;
     v_user_data text := NEW.user_data;
     v_debit_delta bigint;
@@ -77,7 +77,7 @@ begin
         end if;
         
         -- Get updated balance for new debit account
-        select balance into v_balances
+        select balance into v_balance
         from data.balances
         where account_id = NEW.debit_account_id
         order by created_at desc, id desc
@@ -91,9 +91,9 @@ begin
         )
         values (
             NEW.debit_account_id, NEW.id, v_ledger_id,
-            coalesce(v_balances, 0),
+            coalesce(v_balance, 0),
             v_debit_delta,
-            coalesce(v_balances, 0) + v_debit_delta,
+            coalesce(v_balance, 0) + v_debit_delta,
             'transaction_update_application', v_user_data
         );
     -- If only amount changed, update the debit account
@@ -108,7 +108,7 @@ begin
         -- Only create entry if there's an actual change
         if v_debit_delta != 0 then
             -- Get updated balance
-            select balance into v_balances
+            select balance into v_balance
             from data.balances
             where account_id = NEW.debit_account_id
             order by created_at desc, id desc
@@ -122,9 +122,9 @@ begin
             )
             values (
                 NEW.debit_account_id, NEW.id, v_ledger_id,
-                coalesce(v_balances, 0),
+                coalesce(v_balance, 0),
                 v_debit_delta,
-                coalesce(v_balances, 0) + v_debit_delta,
+                coalesce(v_balance, 0) + v_debit_delta,
                 'transaction_update_net', v_user_data
             );
         end if;
@@ -161,7 +161,7 @@ begin
         end if;
         
         -- Get updated balance for new credit account
-        select balance into v_balances
+        select balance into v_balance
         from data.balances
         where account_id = NEW.credit_account_id
         order by created_at desc, id desc
@@ -175,9 +175,9 @@ begin
         )
         values (
             NEW.credit_account_id, NEW.id, v_ledger_id,
-            coalesce(v_balances, 0),
+            coalesce(v_balance, 0),
             v_credit_delta,
-            coalesce(v_balances, 0) + v_credit_delta,
+            coalesce(v_balance, 0) + v_credit_delta,
             'transaction_update_application', v_user_data
         );
     -- If only amount changed, update the credit account
@@ -192,7 +192,7 @@ begin
         -- Only create entry if there's an actual change
         if v_credit_delta != 0 then
             -- Get updated balance
-            select balance into v_balances
+            select balance into v_balance
             from data.balances
             where account_id = NEW.credit_account_id
             order by created_at desc, id desc
@@ -206,9 +206,9 @@ begin
             )
             values (
                 NEW.credit_account_id, NEW.id, v_ledger_id,
-                coalesce(v_balances, 0),
+                coalesce(v_balance, 0),
                 v_credit_delta,
-                coalesce(v_balances, 0) + v_credit_delta,
+                coalesce(v_balance, 0) + v_credit_delta,
                 'transaction_update_net', v_user_data
             );
         end if;
