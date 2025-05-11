@@ -27,8 +27,9 @@ begin
         raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
     end if;
 
-    -- validate the category name is not empty
-    if p_name is null or trim(p_name) = '' then
+    -- validate the category name is not empty (trim once)
+    p_name := trim(p_name);
+    if p_name is null or p_name = '' then
         raise exception 'Category name cannot be empty';
     end if;
 
