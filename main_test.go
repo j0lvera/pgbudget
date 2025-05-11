@@ -2428,6 +2428,7 @@ func TestDatabase(t *testing.T) {
 					
 					var reversalCount, applicationCount int
 					var checkingApplicationDone, groceriesApplicationDone bool
+					var checkingReversalDone, groceriesReversalDone bool
 					
 					for _, entry := range updateBalanceEntries {
 						if entry.OperationType == "transaction_update_reversal" {
