@@ -701,14 +701,40 @@ func TestDatabase(t *testing.T) {
 	// --- Category Tests ---
 	t.Run(
 		"Categories", func(t *testing.T) {
+			// Create a dedicated ledger for category tests
+			var categoriesLedgerUUID string
+			var categoriesLedgerID int
+			
+			t.Run(
+				"Setup_CategoriesLedger", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create a new ledger specifically for category tests
+					ledgerName := "Categories Test Ledger"
+					err := conn.QueryRow(
+						ctx,
+						"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+						ledgerName,
+					).Scan(&categoriesLedgerUUID)
+					is.NoErr(err) // should create ledger without error
+					
+					// Get the internal ID for verification
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.ledgers WHERE uuid = $1",
+						categoriesLedgerUUID,
+					).Scan(&categoriesLedgerID)
+					is.NoErr(err) // should find the ledger by UUID
+					is.True(categoriesLedgerID > 0) // should have a valid internal ID
+				},
+			)
+			
 			// This is the subtest for creating a category
 			t.Run(
 				"CreateCategory", func(t *testing.T) {
-					// t.Skip("For now") // Removed/Commented
-
 					// Skip if ledger creation failed
-					if ledgerUUID == "" {
-						t.Skip("Skipping CreateCategory tests because ledger creation failed or did not run")
+					if categoriesLedgerUUID == "" {
+						t.Skip("Skipping CreateCategory tests because categories ledger creation failed or did not run")
 					}
 
 					//is := is_.New(t)
@@ -733,7 +759,7 @@ func TestDatabase(t *testing.T) {
 							// Since it returns SETOF, QueryRow works if exactly one row is expected
 							err := conn.QueryRow(
 								ctx, "SELECT * FROM api.add_category($1, $2)",
-								ledgerUUID, categoryName,
+								categoriesLedgerUUID, categoryName,
 							).Scan(
 								&retUUID,
 								&retName,
@@ -754,7 +780,7 @@ func TestDatabase(t *testing.T) {
 								retType, "equity",
 							) // Returned type should be 'equity'
 							is.Equal(
-								retLedgerUUID, ledgerUUID,
+								retLedgerUUID, categoriesLedgerUUID,
 							) // Returned ledger UUID should match input
 							is.Equal(
 								retUserData, testUserID,
@@ -805,7 +831,7 @@ func TestDatabase(t *testing.T) {
 
 							// Assert Database Values
 							is.Equal(
-								dbLedgerID, ledgerID,
+								dbLedgerID, categoriesLedgerID,
 							) // Ledger ID should match the one created earlier
 							is.Equal(
 								dbName, categoryName,
@@ -836,7 +862,7 @@ func TestDatabase(t *testing.T) {
 							// Call add_category again with the same name
 							_, err := conn.Exec(
 								ctx, "SELECT api.add_category($1, $2)",
-								ledgerUUID,
+								categoriesLedgerUUID,
 								categoryName,
 							)
 							is.True(err != nil) // Should return an error
@@ -889,7 +915,7 @@ func TestDatabase(t *testing.T) {
 
 							_, err := conn.Exec(
 								ctx, "SELECT api.add_category($1, $2)",
-								ledgerUUID, "",
+								categoriesLedgerUUID, "",
 							)
 							is.True(err != nil) // Should return an error
 
