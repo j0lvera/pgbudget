@@ -79,7 +79,6 @@ begin
         end if;
 
         -- Create the category account
-        -- We'll let the constraint handle duplicates as requested
         begin
             insert into data.accounts (ledger_id, name, type, internal_type, user_data)
             values (v_ledger_id, v_name, 'equity', 'liability_like', p_user_data)

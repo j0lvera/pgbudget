@@ -36,15 +36,20 @@ create or replace function api.add_categories(
     names text[]
 ) returns setof api.accounts as
 $$
+declare
+    v_account_record record;
 begin
     -- Call the utility function and return results through the API view
-    -- This follows Pattern A from ARCHITECTURE.md:
-    -- 1. Call utils function to perform core data modification
-    -- 2. Return results by querying the api view
-    return query
-        select a.*
-          from utils.add_categories(ledger_uuid, names) b
-          join api.accounts a on a.uuid = b.uuid;
+    for v_account_record in select * from utils.add_categories(ledger_uuid, names)
+    loop
+        -- Return each account through the API view
+        return query
+            select *
+              from api.accounts a
+             where a.uuid = v_account_record.uuid;
+    end loop;
+
+    return;
 end;
 $$ language plpgsql volatile security invoker;
 
