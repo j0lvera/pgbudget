@@ -2467,12 +2467,12 @@ func TestDatabase(t *testing.T) {
 							if entry.AccountID == btCheckingAccountID { // Checking (Asset, credited)
 								// We can't assume the exact previous balance since we don't know the order
 								// Just check that the delta is correct
-								is.Equal(entry.Delta, -newOutflowTxAmount)
+								is.Equal(entry.Delta, -newOutflowTxAmount) // Asset-like account credited = negative delta
 								checkingApplicationDone = true
 							} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/L, debited)
 								// We can't assume the exact previous balance since we don't know the order
 								// Just check that the delta is correct
-								is.Equal(entry.Delta, -newOutflowTxAmount)
+								is.Equal(entry.Delta, -newOutflowTxAmount) // Liability-like account debited = negative delta
 								groceriesApplicationDone = true
 							} else {
 								t.Fatalf(
