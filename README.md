@@ -244,17 +244,17 @@ INSERT INTO api.simple_transactions (
 
 ```sql
 -- View budget status for all categories in a specific ledger.
--- This example uses a hypothetical api.get_budget_status function or data.budget_status view.
--- If not available, you would construct this by querying account balances and transaction activity.
--- Example direct query on a hypothetical 'data.budget_status' view (for ledger_uuid 'd3pOOf6t'):
-SELECT * FROM data.budget_status
-WHERE ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t');
+-- This example uses the utils.get_budget_status function.
+-- Example direct query using the function (for ledger_id corresponding to ledger_uuid 'd3pOOf6t'):
+SELECT * FROM utils.get_budget_status(
+    (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
+);
 
--- Alternatively, using a hypothetical API function:
+-- Alternatively, if an API function is available:
 -- SELECT * FROM api.get_budget_status('d3pOOf6t'); -- Use your ledger_uuid
 ```
 
-Example Result (from a `data.budget_status` view or similar):
+Example Result:
 ```
  id |     account_name     | budgeted | activity | balance 
 ----+----------------------+----------+----------+---------
@@ -264,10 +264,101 @@ Example Result (from a `data.budget_status` view or similar):
 (Assuming `id` here refers to an internal account ID; an API view might expose account UUIDs instead).
 Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.).
 
-The budget status typically shows:
-- **budgeted**: Money assigned to this category
-- **activity**: Money spent from (or added to) this category
-- **balance**: Current available amount in the category
+#### Understanding Budget Status
+
+The budget status provides a snapshot of your financial plan and its execution. Each column has a specific meaning:
+
+- **budgeted**: The total amount you've assigned to this category from your Income account. This represents your financial plan or intention.
+- **activity**: The total spending (negative) or income (positive) in this category involving real-world accounts (assets or liabilities). This shows your actual financial behavior.
+- **balance**: The current available amount in the category (effectively budgeted + activity). This is what you have left to spend.
+
+#### How Budget Status is Calculated
+
+1. **budgeted**: Sum of all transactions where money moves from 'Income' to this category
+2. **activity**: Sum of all transactions between this category and any asset/liability account
+3. **balance**: Net sum of all transactions involving this category (from any account)
+
+#### Example Scenario
+
+Let's follow a simple budget through several transactions:
+
+1. **Receive Income**: $1000 paycheck
+   ```sql
+   -- Add income of $1000 to checking account
+   INSERT INTO api.simple_transactions (
+       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
+   ) VALUES (
+       'your-ledger-uuid', NOW(), 'Paycheck', 'inflow', 100000, 
+       'your-checking-account-uuid', 'your-income-category-uuid'
+   );
+   ```
+   - Increases your checking account by $1000
+   - Increases your Income category by $1000
+   - Budget status: Income has $1000 available to assign
+
+2. **Budget Money**: Assign $200 to Groceries
+   ```sql
+   SELECT uuid FROM api.assign_to_category(
+       'your-ledger-uuid', NOW(), 'Budget: Groceries', 20000, 'your-groceries-category-uuid'
+   );
+   ```
+   - Decreases Income by $200
+   - Increases Groceries by $200
+   - Budget status: Groceries shows $200 budgeted, $0 activity, $200 balance
+
+3. **Spend Money**: Spend $50 on groceries
+   ```sql
+   INSERT INTO api.simple_transactions (
+       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
+   ) VALUES (
+       'your-ledger-uuid', NOW(), 'Grocery shopping', 'outflow', 5000,
+       'your-checking-account-uuid', 'your-groceries-category-uuid'
+   );
+   ```
+   - Decreases your checking account by $50
+   - Decreases your Groceries category by $50
+   - Budget status: Groceries now shows $200 budgeted, -$50 activity, $150 balance
+
+Your budget status would now show:
+```
+ id |     account_name     | budgeted | activity | balance 
+----+----------------------+----------+----------+---------
+  5 | Groceries            |   20000  |   -5000  |  15000
+  6 | Income               |       0  |       0  |  80000
+```
+
+This shows you've assigned $200 to Groceries, spent $50, and have $150 left to spend. Your Income category shows $800 remaining to be assigned to other categories.
+
+#### Budget Status Flow Diagram
+
+```
+┌─────────────┐         ┌─────────────┐         ┌─────────────┐
+│             │         │             │         │             │
+│   Income    │         │  Category   │         │   Asset     │
+│  (Equity)   │         │  (Equity)   │         │  Account    │
+│             │         │             │         │             │
+└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
+       │                        │                       │
+       │                        │                       │
+       │    Budget Money        │      Spend Money      │
+       │  ────────────────>     │  ────────────────>    │
+       │                        │                       │
+       │                        │                       │
+       │                        │                       │
+       │                        │                       │
+       │       Receive Income   │                       │
+       │  <────────────────     │                       │
+       │                        │                       │
+       │                        │                       │
+       ▼                        ▼                       ▼
+  Decreases when          Increases when          Decreases when
+  budgeting money         budgeting money         spending money
+  
+  Increases when          Decreases when          Increases when
+  receiving income        spending money          receiving income
+```
+
+This diagram illustrates how money flows between accounts and affects your budget status.
 
 You can also view all accounts and their balances. This query retrieves the latest balance for each account from the `data.balances` table (which is assumed to be maintained by triggers).
 
