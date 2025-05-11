@@ -38,9 +38,7 @@ begin
     from data.ledgers l
     where l.uuid = p_ledger_uuid and l.user_data = v_user_data;
     
-    if v_ledger_id is null then
-        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
-    end if;
+    -- Remove the exception here, as the utils function will handle it
 
     -- Call the utils function with the resolved ledger ID and return the results
     -- with UUIDs instead of internal IDs for the API
