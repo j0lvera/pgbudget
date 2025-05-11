@@ -407,7 +407,10 @@ end;
 $$ language plpgsql;
 
 -- create a function to get budget status for a specific ledger
-create or replace function utils.get_budget_status(p_ledger_id bigint)
+create or replace function utils.get_budget_status(
+    p_ledger_uuid text,
+    p_user_data text default utils.get_user()
+)
     returns table
             (
                 account_id   bigint,
@@ -418,10 +421,16 @@ create or replace function utils.get_budget_status(p_ledger_id bigint)
             )
 as
 $$
+declare
+    v_ledger_id bigint;
 begin
-    -- Check if the ledger exists
-    if not exists (select 1 from data.ledgers where id = p_ledger_id) then
-        raise exception 'Ledger with ID % not found', p_ledger_id;
+    -- Resolve the ledger UUID to its internal ID and validate ownership
+    select l.id into v_ledger_id
+    from data.ledgers l
+    where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
+    
+    if v_ledger_id is null then
+        raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
     end if;
 
     -- return budget status for all categories in the specified ledger
@@ -468,7 +477,7 @@ begin
                        0
                )      as balance
           from data.accounts a
-         where a.ledger_id = p_ledger_id
+         where a.ledger_id = v_ledger_id
            and a.type = 'equity'
            and a.name not in ('Income', 'Off-budget', 'Unassigned')
          order by a.name;

@@ -29,19 +29,8 @@ create or replace function api.get_budget_status(
     activity bigint,
     balance bigint
 ) as $$
-declare
-    v_ledger_id bigint;
-    v_user_data text := utils.get_user();
 begin
-    -- Resolve the ledger UUID to its internal ID
-    select l.id into v_ledger_id
-    from data.ledgers l
-    where l.uuid = p_ledger_uuid and l.user_data = v_user_data;
-    
-    -- Remove the exception here, as the utils function will handle it
-
-    -- Call the utils function with the resolved ledger ID and return the results
-    -- with UUIDs instead of internal IDs for the API
+    -- Simply call the utils function and transform the results for the API
     return query
     select 
         a.uuid as category_uuid,
@@ -49,9 +38,9 @@ begin
         bs.budgeted::bigint,
         bs.activity::bigint,
         bs.balance::bigint
-    from utils.get_budget_status(v_ledger_id) bs
+    from utils.get_budget_status(p_ledger_uuid) bs
     join data.accounts a on a.id = bs.account_id
-    where a.user_data = v_user_data;
+    where a.user_data = utils.get_user();
 end;
 $$ language plpgsql stable security invoker;
 
