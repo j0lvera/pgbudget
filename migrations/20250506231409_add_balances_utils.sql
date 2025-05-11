@@ -407,7 +407,7 @@ end;
 $$ language plpgsql;
 
 -- create a function to get budget status for a specific ledger
-create or replace function utils.get_budget_status(p_ledger_id int)
+create or replace function utils.get_budget_status(p_ledger_id bigint)
     returns table
             (
                 id           bigint,
