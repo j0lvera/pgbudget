@@ -2502,12 +2502,315 @@ func TestDatabase(t *testing.T) {
 	// 	},
 	// )
 
-	// // Test the get_budget_status function with a fresh ledger
-	// t.Run(
-	// 	"GetBudgetStatus", func(t *testing.T) {
-	// 		t.Skip("Skipping until implementation is ready")
-	// 	},
-	// )
+	// Test the api.get_budget_status function
+	t.Run(
+		"BudgetStatus", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Create a new ledger specifically for this test
+			var budgetStatusLedgerUUID string
+			var budgetStatusLedgerID int
+			
+			// Create a new ledger using the api.ledgers view
+			ledgerName := "BudgetStatus Test Ledger"
+			err := conn.QueryRow(
+				ctx,
+				"insert into api.ledgers (name) values ($1) returning uuid",
+				ledgerName,
+			).Scan(&budgetStatusLedgerUUID)
+			is.NoErr(err) // should create ledger without error
+			
+			// Get the internal ID for verification
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.ledgers WHERE uuid = $1",
+				budgetStatusLedgerUUID,
+			).Scan(&budgetStatusLedgerID)
+			is.NoErr(err) // should find the ledger by UUID
+			is.True(budgetStatusLedgerID > 0) // should have a valid internal ID
+			
+			// Setup accounts for testing
+			var (
+				checkingAccountUUID string
+				checkingAccountID   int
+				groceriesCategoryUUID string
+				groceriesCategoryID   int
+				rentCategoryUUID string
+				rentCategoryID   int
+				incomeAccountUUID string
+				incomeAccountID int
+			)
+			
+			// Create checking account
+			err = conn.QueryRow(
+				ctx,
+				`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+				budgetStatusLedgerUUID, "Budget-Checking",
+			).Scan(&checkingAccountUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				checkingAccountUUID,
+			).Scan(&checkingAccountID)
+			is.NoErr(err)
+			
+			// Create groceries category
+			err = conn.QueryRow(
+				ctx,
+				"SELECT uuid FROM api.add_category($1, $2)",
+				budgetStatusLedgerUUID, "Budget-Groceries",
+			).Scan(&groceriesCategoryUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				groceriesCategoryUUID,
+			).Scan(&groceriesCategoryID)
+			is.NoErr(err)
+			
+			// Create rent category
+			err = conn.QueryRow(
+				ctx,
+				"SELECT uuid FROM api.add_category($1, $2)",
+				budgetStatusLedgerUUID, "Budget-Rent",
+			).Scan(&rentCategoryUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				rentCategoryUUID,
+			).Scan(&rentCategoryID)
+			is.NoErr(err)
+			
+			// Get Income account UUID and ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT utils.find_category($1, $2)",
+				budgetStatusLedgerUUID, "Income",
+			).Scan(&incomeAccountUUID)
+			is.NoErr(err)
+			
+			// Get internal ID
+			err = conn.QueryRow(
+				ctx,
+				"SELECT id FROM data.accounts WHERE uuid = $1",
+				incomeAccountUUID,
+			).Scan(&incomeAccountID)
+			is.NoErr(err)
+			
+			// Test initial budget status (should be empty)
+			t.Run("InitialBudgetStatus", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// Query the api.get_budget_status function
+				rows, err := conn.Query(
+					ctx,
+					"SELECT * FROM api.get_budget_status($1)",
+					budgetStatusLedgerUUID,
+				)
+				is.NoErr(err)
+				defer rows.Close()
+				
+				// Should have two categories but with zero balances
+				var categories []struct {
+					CategoryUUID string
+					CategoryName string
+					Budgeted     int64
+					Activity     int64
+					Balance      int64
+				}
+				
+				for rows.Next() {
+					var cat struct {
+						CategoryUUID string
+						CategoryName string
+						Budgeted     int64
+						Activity     int64
+						Balance      int64
+					}
+					err := rows.Scan(
+						&cat.CategoryUUID,
+						&cat.CategoryName,
+						&cat.Budgeted,
+						&cat.Activity,
+						&cat.Balance,
+					)
+					is.NoErr(err)
+					categories = append(categories, cat)
+				}
+				is.NoErr(rows.Err())
+				
+				// Should have two categories (Groceries and Rent)
+				is.Equal(len(categories), 2)
+				
+				// All values should be zero initially
+				for _, cat := range categories {
+					is.Equal(cat.Budgeted, int64(0))
+					is.Equal(cat.Activity, int64(0))
+					is.Equal(cat.Balance, int64(0))
+				}
+			})
+			
+			// Add transactions and test budget status
+			t.Run("TransactionsAndBudgetStatus", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// 1. Add income transaction (inflow to checking from income)
+				incomeAmount := int64(200000) // $2000.00
+				var incomeTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'inflow', $4, $5, $6) RETURNING uuid`,
+					budgetStatusLedgerUUID, time.Now(), "Paycheck", incomeAmount,
+					checkingAccountUUID, incomeAccountUUID,
+				).Scan(&incomeTxUUID)
+				is.NoErr(err)
+				
+				// 2. Assign money to Groceries category
+				groceriesBudgetAmount := int64(50000) // $500.00
+				var groceriesBudgetTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					"SELECT uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
+					budgetStatusLedgerUUID, time.Now(), "Budget: Groceries", groceriesBudgetAmount,
+					groceriesCategoryUUID,
+				).Scan(&groceriesBudgetTxUUID)
+				is.NoErr(err)
+				
+				// 3. Assign money to Rent category
+				rentBudgetAmount := int64(100000) // $1000.00
+				var rentBudgetTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					"SELECT uuid FROM api.assign_to_category($1, $2, $3, $4, $5)",
+					budgetStatusLedgerUUID, time.Now(), "Budget: Rent", rentBudgetAmount,
+					rentCategoryUUID,
+				).Scan(&rentBudgetTxUUID)
+				is.NoErr(err)
+				
+				// 4. Spend money from Groceries
+				groceriesSpendAmount := int64(20000) // $200.00
+				var groceriesSpendTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+					budgetStatusLedgerUUID, time.Now(), "Grocery Shopping", groceriesSpendAmount,
+					checkingAccountUUID, groceriesCategoryUUID,
+				).Scan(&groceriesSpendTxUUID)
+				is.NoErr(err)
+				
+				// 5. Spend money from Rent
+				rentSpendAmount := int64(100000) // $1000.00 (full amount)
+				var rentSpendTxUUID string
+				err = conn.QueryRow(
+					ctx,
+					`INSERT INTO api.transactions (ledger_uuid, date, description, type, amount, account_uuid, category_uuid)
+					 VALUES ($1, $2, $3, 'outflow', $4, $5, $6) RETURNING uuid`,
+					budgetStatusLedgerUUID, time.Now(), "Pay Rent", rentSpendAmount,
+					checkingAccountUUID, rentCategoryUUID,
+				).Scan(&rentSpendTxUUID)
+				is.NoErr(err)
+				
+				// Check budget status after transactions
+				rows, err := conn.Query(
+					ctx,
+					"SELECT * FROM api.get_budget_status($1)",
+					budgetStatusLedgerUUID,
+				)
+				is.NoErr(err)
+				defer rows.Close()
+				
+				var budgetStatus = make(map[string]struct {
+					CategoryName string
+					Budgeted     int64
+					Activity     int64
+					Balance      int64
+				})
+				
+				for rows.Next() {
+					var (
+						categoryUUID string
+						categoryName string
+						budgeted     int64
+						activity     int64
+						balance      int64
+					)
+					err := rows.Scan(
+						&categoryUUID,
+						&categoryName,
+						&budgeted,
+						&activity,
+						&balance,
+					)
+					is.NoErr(err)
+					
+					budgetStatus[categoryUUID] = struct {
+						CategoryName string
+						Budgeted     int64
+						Activity     int64
+						Balance      int64
+					}{
+						CategoryName: categoryName,
+						Budgeted:     budgeted,
+						Activity:     activity,
+						Balance:      balance,
+					}
+				}
+				is.NoErr(rows.Err())
+				
+				// Should have two categories
+				is.Equal(len(budgetStatus), 2)
+				
+				// Check Groceries category
+				groceriesStatus, exists := budgetStatus[groceriesCategoryUUID]
+				is.True(exists) // Should find Groceries category
+				is.Equal(groceriesStatus.CategoryName, "Budget-Groceries")
+				is.Equal(groceriesStatus.Budgeted, groceriesBudgetAmount) // $500 budgeted
+				is.Equal(groceriesStatus.Activity, -groceriesSpendAmount) // -$200 spent (negative for outflow)
+				is.Equal(groceriesStatus.Balance, groceriesBudgetAmount - groceriesSpendAmount) // $300 remaining
+				
+				// Check Rent category
+				rentStatus, exists := budgetStatus[rentCategoryUUID]
+				is.True(exists) // Should find Rent category
+				is.Equal(rentStatus.CategoryName, "Budget-Rent")
+				is.Equal(rentStatus.Budgeted, rentBudgetAmount) // $1000 budgeted
+				is.Equal(rentStatus.Activity, -rentSpendAmount) // -$1000 spent (negative for outflow)
+				is.Equal(rentStatus.Balance, rentBudgetAmount - rentSpendAmount) // $0 remaining (fully spent)
+			})
+			
+			// Test error cases
+			t.Run("ErrorCases", func(t *testing.T) {
+				is := is_.New(t)
+				
+				// Test with invalid ledger UUID
+				invalidLedgerUUID := "00000000-0000-0000-0000-000000000000"
+				rows, err := conn.Query(
+					ctx,
+					"SELECT * FROM api.get_budget_status($1)",
+					invalidLedgerUUID,
+				)
+				is.True(err != nil) // Should return an error
+				
+				if rows != nil {
+					rows.Close()
+				}
+				
+				// Check error message
+				var pgErr *pgconn.PgError
+				is.True(errors.As(err, &pgErr))
+				is.True(strings.Contains(pgErr.Message, "not found for current user"))
+			})
+		},
+	)
 
 	// Test the get_account_balance function
 	t.Run(
