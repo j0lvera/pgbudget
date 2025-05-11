@@ -272,20 +272,22 @@ create or replace function utils.get_account_transactions(
     p_account_uuid text,
     p_user_data text default utils.get_user()
 )
-    returns table (
-        date date,
-        category text,
-        description text,
-        type text,
-        amount bigint,
-        balance bigint  -- new column for transaction balance
-    ) as $$
+returns table (
+    date date,
+    category text,
+    description text,
+    type text,
+    amount bigint,
+    balance bigint
+) as $$
 declare
-    v_account_id int;
+    v_account_id bigint;
+    v_ledger_id bigint;
     v_internal_type text;
 begin
-    -- Resolve the account UUID to its internal ID and validate ownership
-    select a.id, a.internal_type into v_account_id, v_internal_type
+    -- Resolve the account UUID to its internal ID and validate ownership in one query
+    select a.id, a.ledger_id, a.internal_type 
+    into v_account_id, v_ledger_id, v_internal_type
     from data.accounts a
     where a.uuid = p_account_uuid and a.user_data = p_user_data;
     
@@ -295,61 +297,79 @@ begin
     end if;
 
     -- Return account transactions with the account's internal type determining display
+    -- Using a more efficient CTE structure
     return query
-        with account_transactions as (
-            -- for asset-like accounts:
-            -- - debits (money coming in) should be shown as "inflow"
-            -- - credits (money going out) should be shown as "outflow"
-            -- for liability-like accounts, it's the opposite:
-            -- - debits (paying down debt) should be shown as "outflow"
-            -- - credits (increasing debt) should be shown as "inflow"
-
-            -- transactions where this account is debited
-            select
-                t.date,
-                a.name as category,
-                t.description,
-                case when v_internal_type = 'asset_like' then 'inflow'
-                     else 'outflow' end as type,
-                t.amount, -- always positive
-                t.id as transaction_id,
-                t.created_at
-              from data.transactions t
-                   join data.accounts a on t.credit_account_id = a.id
-             where t.debit_account_id = v_account_id
-               and t.deleted_at is null -- Exclude soft-deleted transactions
-
-             union all
-
-            -- transactions where this account is credited
-            select
-                t.date,
-                a.name as category,
-                t.description,
-                case when v_internal_type = 'asset_like' then 'outflow'
-                     else 'inflow' end as type,
-                t.amount, -- always positive
-                t.id as transaction_id,
-                t.created_at
-              from data.transactions t
-                   join data.accounts a on t.debit_account_id = a.id
-             where t.credit_account_id = v_account_id
-               and t.deleted_at is null -- Exclude soft-deleted transactions
-        )
+    with transaction_data as (
+        -- Get all transactions involving this account
         select
-            at.date,
-            at.category,
-            at.description,
-            at.type,
-            at.amount,
-            b.balance  -- get the balance from the balances table
-          from account_transactions at
-               left join data.balances b on
-              b.transaction_id = at.transaction_id and
-              b.account_id = v_account_id
-         order by at.date desc, at.created_at desc;
+            t.id as transaction_id,
+            t.date,
+            t.description,
+            t.amount,
+            t.created_at,
+            -- Determine if this account was debited or credited
+            case 
+                when t.debit_account_id = v_account_id then 'debited'
+                else 'credited' 
+            end as account_role,
+            -- Get the other account involved in the transaction
+            case 
+                when t.debit_account_id = v_account_id then t.credit_account_id
+                else t.debit_account_id 
+            end as other_account_id
+        from 
+            data.transactions t
+        where 
+            (t.debit_account_id = v_account_id or t.credit_account_id = v_account_id)
+            and t.deleted_at is null
+    ),
+    other_accounts as (
+        -- Get names of the other accounts involved in transactions
+        select 
+            a.id,
+            a.name
+        from 
+            data.accounts a
+        where 
+            a.id in (select other_account_id from transaction_data)
+    ),
+    balance_data as (
+        -- Get balance information for each transaction
+        select 
+            b.transaction_id,
+            b.balance
+        from 
+            data.balances b
+        where 
+            b.account_id = v_account_id
+            and b.transaction_id in (select transaction_id from transaction_data)
+    )
+    
+    -- Combine all data and format for display
+    select
+        td.date,
+        oa.name as category,
+        td.description,
+        -- Determine transaction type based on account's internal type and role in transaction
+        case 
+            when v_internal_type = 'asset_like' and td.account_role = 'debited' then 'inflow'
+            when v_internal_type = 'asset_like' and td.account_role = 'credited' then 'outflow'
+            when v_internal_type = 'liability_like' and td.account_role = 'debited' then 'outflow'
+            when v_internal_type = 'liability_like' and td.account_role = 'credited' then 'inflow'
+        end as type,
+        td.amount,
+        bd.balance
+    from 
+        transaction_data td
+    join 
+        other_accounts oa on td.other_account_id = oa.id
+    left join 
+        balance_data bd on td.transaction_id = bd.transaction_id
+    order by 
+        td.date desc, 
+        td.created_at desc;
 end;
-$$ language plpgsql;
+$$ language plpgsql stable security definer;
 
 create or replace function utils.get_account_balance(
     p_ledger_id integer,
