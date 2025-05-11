@@ -2427,7 +2427,6 @@ func TestDatabase(t *testing.T) {
 					// Reversal deltas should be +7500 for both (opposite of original).
 					
 					var reversalCount, applicationCount int
-					var checkingReversalDone, groceriesReversalDone bool
 					var checkingApplicationDone, groceriesApplicationDone bool
 					
 					for _, entry := range updateBalanceEntries {
