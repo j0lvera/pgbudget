@@ -568,3 +568,24 @@ $$ language plpgsql stable security invoker;
 
 -- Grant execute permission to web user
 grant execute on function api.get_budget_status(text) to pgb_web_user;
+
+-- Create the API function for account transactions
+create or replace function api.get_account_transactions(
+    p_account_uuid text
+) returns table (
+    date date,
+    category text,
+    description text,
+    type text,
+    amount bigint,
+    balance bigint
+) as $$
+begin
+    -- Simply pass through to the utils function
+    return query
+    select * from utils.get_account_transactions(p_account_uuid);
+end;
+$$ language plpgsql stable security invoker;
+
+-- Grant execute permission to web user
+grant execute on function api.get_account_transactions(text) to pgb_web_user;
