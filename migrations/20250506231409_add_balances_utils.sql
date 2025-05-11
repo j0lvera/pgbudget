@@ -419,6 +419,11 @@ create or replace function utils.get_budget_status(p_ledger_id bigint)
 as
 $$
 begin
+    -- Check if the ledger exists
+    if not exists (select 1 from data.ledgers where id = p_ledger_id) then
+        raise exception 'Ledger with ID % not found', p_ledger_id;
+    end if;
+
     -- return budget status for all categories in the specified ledger
     return query
         select a.id,
