@@ -33,14 +33,12 @@ begin
     -- Simply call the utils function and transform the results for the API
     return query
     select 
-        a.uuid as category_uuid,
+        bs.account_uuid as category_uuid,
         bs.account_name as category_name,
         bs.budgeted::bigint,
         bs.activity::bigint,
         bs.balance::bigint
-    from utils.get_budget_status(p_ledger_uuid) bs
-    join data.accounts a on a.id = bs.account_id
-    where a.user_data = utils.get_user();
+    from utils.get_budget_status(p_ledger_uuid) bs;
 end;
 $$ language plpgsql stable security invoker;
 

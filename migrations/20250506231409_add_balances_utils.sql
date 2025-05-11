@@ -413,7 +413,7 @@ create or replace function utils.get_budget_status(
 )
     returns table
             (
-                account_id   bigint,
+                account_uuid text,
                 account_name text,
                 budgeted     decimal,
                 activity     decimal,
@@ -435,7 +435,7 @@ begin
 
     -- return budget status for all categories in the specified ledger
     return query
-        select a.id as account_id,
+        select a.uuid as account_uuid,
                a.name as account_name,
                -- budgeted amount
                coalesce(
@@ -480,6 +480,7 @@ begin
          where a.ledger_id = v_ledger_id
            and a.type = 'equity'
            and a.name not in ('Income', 'Off-budget', 'Unassigned')
+           and a.user_data = p_user_data
          order by a.name;
 end;
 $$ language plpgsql;
