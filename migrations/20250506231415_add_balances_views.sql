@@ -46,12 +46,35 @@ $$ language plpgsql stable security invoker;
 -- Grant execute permission to the web user role
 grant execute on function api.get_budget_status(text) to pgb_web_user;
 
+-- Create a simplified API function that just passes through to the utils function
+create or replace function api.get_account_transactions(
+    p_account_uuid text
+) returns table (
+    date date,
+    category text,
+    description text,
+    type text,
+    amount bigint,
+    balance bigint
+) as $$
+begin
+    -- Simply call the utils function and return the results
+    -- The exception from utils.get_account_transactions will propagate up if account is not found
+    return query
+    select * from utils.get_account_transactions(p_account_uuid);
+end;
+$$ language plpgsql stable security invoker;
+
+-- Grant execute permission to the web user role
+grant execute on function api.get_account_transactions(text) to pgb_web_user;
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
     -- Remove the API function
+    drop function if exists api.get_account_transactions(text);
     drop function if exists api.get_budget_status(text);
 
     revoke all on api.balances from pgb_web_user;

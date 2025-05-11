@@ -268,62 +268,74 @@ begin
 end;
 $$ language plpgsql security definer;
 
-create or replace function utils.get_account_transactions(p_account_id int)
+create or replace function utils.get_account_transactions(
+    p_account_uuid text,
+    p_user_data text default utils.get_user()
+)
     returns table (
-                      date date,
-                      category text,
-                      description text,
-                      type text,
-                      amount bigint,
-                      balance bigint  -- new column for transaction balance
-                  ) as $$
+        date date,
+        category text,
+        description text,
+        type text,
+        amount bigint,
+        balance bigint  -- new column for transaction balance
+    ) as $$
 declare
+    v_account_id int;
     v_internal_type text;
 begin
-    -- cet the account's internal type to determine how to display transactions
-    select internal_type into v_internal_type
-      from data.accounts
-     where id = p_account_id;
+    -- Resolve the account UUID to its internal ID and validate ownership
+    select a.id, a.internal_type into v_account_id, v_internal_type
+    from data.accounts a
+    where a.uuid = p_account_uuid and a.user_data = p_user_data;
+    
+    -- Check if account exists and belongs to the user
+    if v_account_id is null then
+        raise exception 'Account with UUID % not found for current user', p_account_uuid;
+    end if;
 
+    -- Return account transactions with the account's internal type determining display
     return query
-          with account_transactions as (
-              -- for asset-like accounts:
-              -- - debits (money coming in) should be shown as "inflow"
-              -- - credits (money going out) should be shown as "outflow"
-              -- for liability-like accounts, it's the opposite:
-              -- - debits (paying down debt) should be shown as "outflow"
-              -- - credits (increasing debt) should be shown as "inflow"
+        with account_transactions as (
+            -- for asset-like accounts:
+            -- - debits (money coming in) should be shown as "inflow"
+            -- - credits (money going out) should be shown as "outflow"
+            -- for liability-like accounts, it's the opposite:
+            -- - debits (paying down debt) should be shown as "outflow"
+            -- - credits (increasing debt) should be shown as "inflow"
 
-              -- transactions where this account is debited
-              select
-                  t.date,
-                  a.name as category,
-                  t.description,
-                  case when v_internal_type = 'asset_like' then 'inflow'
-                       else 'outflow' end as type,
-                  t.amount, -- always positive
-                  t.id as transaction_id,
-                  t.created_at
-                from data.transactions t
-                     join data.accounts a on t.credit_account_id = a.id
-               where t.debit_account_id = p_account_id
+            -- transactions where this account is debited
+            select
+                t.date,
+                a.name as category,
+                t.description,
+                case when v_internal_type = 'asset_like' then 'inflow'
+                     else 'outflow' end as type,
+                t.amount, -- always positive
+                t.id as transaction_id,
+                t.created_at
+              from data.transactions t
+                   join data.accounts a on t.credit_account_id = a.id
+             where t.debit_account_id = v_account_id
+               and t.deleted_at is null -- Exclude soft-deleted transactions
 
-               union all
+             union all
 
--- transactions where this account is credited
-              select
-                  t.date,
-                  a.name as category,
-                  t.description,
-                  case when v_internal_type = 'asset_like' then 'outflow'
-                       else 'inflow' end as type,
-                  t.amount, -- always positive
-                  t.id as transaction_id,
-                  t.created_at
-                from data.transactions t
-                     join data.accounts a on t.debit_account_id = a.id
-               where t.credit_account_id = p_account_id
-          )
+            -- transactions where this account is credited
+            select
+                t.date,
+                a.name as category,
+                t.description,
+                case when v_internal_type = 'asset_like' then 'outflow'
+                     else 'inflow' end as type,
+                t.amount, -- always positive
+                t.id as transaction_id,
+                t.created_at
+              from data.transactions t
+                   join data.accounts a on t.debit_account_id = a.id
+             where t.credit_account_id = v_account_id
+               and t.deleted_at is null -- Exclude soft-deleted transactions
+        )
         select
             at.date,
             at.category,
@@ -334,7 +346,7 @@ begin
           from account_transactions at
                left join data.balances b on
               b.transaction_id = at.transaction_id and
-              b.account_id = p_account_id
+              b.account_id = v_account_id
          order by at.date desc, at.created_at desc;
 end;
 $$ language plpgsql;
