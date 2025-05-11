@@ -436,69 +436,135 @@ $$
 declare
     v_ledger_id bigint;
 begin
-    -- Resolve the ledger UUID to its internal ID and validate ownership
+    -- Find the ledger ID and validate ownership in one query
     select l.id into v_ledger_id
     from data.ledgers l
     where l.uuid = p_ledger_uuid and l.user_data = p_user_data;
     
-    -- Explicitly check for NULL ledger_id
     if v_ledger_id is null then
-        -- This is the key fix: we need to explicitly raise an exception
-        -- when the ledger is not found or doesn't belong to the current user
         raise exception 'Ledger with UUID % not found for current user', p_ledger_uuid;
     end if;
-
-    -- return budget status for all categories in the specified ledger
+    
+    -- Return budget status for all categories in the ledger
+    -- Using a single query with conditional aggregation for better performance
     return query
-        select a.uuid as account_uuid,
-               a.name as account_name,
-               -- budgeted amount
-               coalesce(
-                       (select sum(t.amount)
-                          from data.transactions t
-                               join data.accounts income_acc on t.debit_account_id = income_acc.id
-                         where income_acc.name = 'Income'
-                           and t.credit_account_id = a.id),
-                       0
-               )      as budgeted,
-               -- activity
-               coalesce(
-                       (select sum(
-                                       case
-                                           when t.credit_account_id = a.id then t.amount
-                                           when t.debit_account_id = a.id then -t.amount
-                                           else 0
-                                           end
-                               )
-                          from data.transactions t
-                               join data.accounts credit_acc on t.credit_account_id = credit_acc.id
-                               join data.accounts debit_acc on t.debit_account_id = debit_acc.id
-                         where (t.credit_account_id = a.id or t.debit_account_id = a.id)
-                           and (credit_acc.type in ('asset', 'liability') or debit_acc.type in ('asset', 'liability'))),
-                       0
-               )      as activity,
-               -- balance or remaining
-               coalesce(
-                       (select sum(
-                                       case
-                                           when t.credit_account_id = a.id then t.amount
-                                           when t.debit_account_id = a.id then -t.amount
-                                           else 0
-                                           end
-                               )
-                          from data.transactions t
-                         where t.credit_account_id = a.id
-                            or t.debit_account_id = a.id),
-                       0
-               )      as balance
-          from data.accounts a
-         where a.ledger_id = v_ledger_id
-           and a.type = 'equity'
-           and a.name not in ('Income', 'Off-budget', 'Unassigned')
-           and a.user_data = p_user_data
-         order by a.name;
+    with categories as (
+        -- Get all budget categories (equity accounts except Income)
+        select 
+            a.id, 
+            a.uuid, 
+            a.name
+        from 
+            data.accounts a
+        where 
+            a.ledger_id = v_ledger_id
+            and a.user_data = p_user_data
+            and a.type = 'equity'
+            and a.name != 'Income'
+            and a.name != 'Off-budget'
+            and a.name != 'Unassigned'
+    ),
+    income_account as (
+        -- Get the Income account ID for this ledger
+        select 
+            a.id
+        from 
+            data.accounts a
+        where 
+            a.ledger_id = v_ledger_id
+            and a.user_data = p_user_data
+            and a.type = 'equity'
+            and a.name = 'Income'
+        limit 1
+    ),
+    asset_liability_accounts as (
+        -- Get all asset and liability accounts for this ledger
+        select 
+            a.id
+        from 
+            data.accounts a
+        where 
+            a.ledger_id = v_ledger_id
+            and a.user_data = p_user_data
+            and a.type in ('asset', 'liability')
+    ),
+    budget_transactions as (
+        -- Transactions from Income to categories (budget allocations)
+        select 
+            t.credit_account_id as category_id,
+            sum(t.amount) as amount
+        from 
+            data.transactions t
+        where 
+            t.ledger_id = v_ledger_id
+            and t.user_data = p_user_data
+            and t.debit_account_id = (select id from income_account)
+            and t.deleted_at is null
+        group by 
+            t.credit_account_id
+    ),
+    activity_transactions as (
+        -- Transactions between categories and asset/liability accounts
+        select 
+            t.debit_account_id as category_id,
+            -sum(t.amount) as amount -- Negative for outflows (debits to categories)
+        from 
+            data.transactions t
+        where 
+            t.ledger_id = v_ledger_id
+            and t.user_data = p_user_data
+            and t.debit_account_id in (select id from categories)
+            and t.credit_account_id in (select id from asset_liability_accounts)
+            and t.deleted_at is null
+        group by 
+            t.debit_account_id
+        
+        union all
+        
+        select 
+            t.credit_account_id as category_id,
+            sum(t.amount) as amount -- Positive for inflows (credits to categories)
+        from 
+            data.transactions t
+        where 
+            t.ledger_id = v_ledger_id
+            and t.user_data = p_user_data
+            and t.credit_account_id in (select id from categories)
+            and t.debit_account_id in (select id from asset_liability_accounts)
+            and t.deleted_at is null
+        group by 
+            t.credit_account_id
+    ),
+    balance_calculations as (
+        -- Calculate the current balance for each category
+        select 
+            c.id as category_id,
+            coalesce(utils.get_account_balance(v_ledger_id, c.id), 0) as balance
+        from 
+            categories c
+    )
+    
+    -- Final result combining all the data
+    select 
+        c.uuid as account_uuid,
+        c.name as account_name,
+        coalesce(b.amount, 0)::decimal as budgeted,
+        coalesce(sum(a.amount), 0)::decimal as activity,
+        coalesce(bal.balance, 0)::decimal as balance
+    from 
+        categories c
+    left join 
+        budget_transactions b on c.id = b.category_id
+    left join 
+        activity_transactions a on c.id = a.category_id
+    left join 
+        balance_calculations bal on c.id = bal.category_id
+    group by 
+        c.uuid, c.name, b.amount, bal.balance
+    order by 
+        c.name;
 end;
-$$ language plpgsql;
+$$ language plpgsql stable security definer;
 
 -- +goose StatementEnd
 
@@ -524,3 +590,22 @@ drop function if exists utils.get_account_transactions(integer);
 drop function if exists utils.update_account_balance();
 
 -- +goose StatementEnd
+-- Create the API function that calls the utils function
+create or replace function api.get_budget_status(
+    p_ledger_uuid text
+) returns table (
+    account_uuid text,
+    account_name text,
+    budgeted decimal,
+    activity decimal,
+    balance decimal
+) as $$
+begin
+    -- Simply pass through to the utils function
+    return query
+    select * from utils.get_budget_status(p_ledger_uuid);
+end;
+$$ language plpgsql stable security invoker;
+
+-- Grant execute permission to web user
+grant execute on function api.get_budget_status(text) to pgb_web_user;
