@@ -258,8 +258,9 @@ declare
     v_account_internal_type text;
     v_transaction_uuid      text;
     v_user_data             text := utils.get_user();
+    v_category_uuid         text := NEW.category_uuid;
 begin
-    -- validate inputs early
+    -- validate inputs early for fast failure
     if NEW.amount <= 0 then
         raise exception 'Transaction amount must be positive: %', NEW.amount;
     end if;
@@ -268,7 +269,7 @@ begin
         raise exception 'Invalid transaction type: %. Must be either "inflow" or "outflow"', NEW.type;
     end if;
 
-    -- get the ledger_id and validate ownership
+    -- get the ledger_id and validate ownership in one query
     select l.id
       into v_ledger_id
       from data.ledgers l
@@ -292,10 +293,10 @@ begin
                        NEW.account_uuid, NEW.ledger_uuid;
     end if;
 
-    -- handle category lookup
-    if NEW.category_uuid is null then
-        -- find the "Unassigned" category directly
-        select a.id into v_category_id
+    -- handle category lookup with a more efficient approach
+    if v_category_uuid is null then
+        -- Use a direct query to find the "Unassigned" category
+        select a.id, a.uuid into v_category_id, v_category_uuid
           from data.accounts a
          where a.ledger_id = v_ledger_id
            and a.user_data = v_user_data
@@ -310,17 +311,18 @@ begin
         -- find the specified category
         select a.id into v_category_id
           from data.accounts a
-         where a.uuid = NEW.category_uuid 
+         where a.uuid = v_category_uuid 
            and a.ledger_id = v_ledger_id
            and a.user_data = v_user_data;
 
         if v_category_id is null then
             raise exception 'Category with UUID % not found in ledger % for current user', 
-                           NEW.category_uuid, NEW.ledger_uuid;
+                           v_category_uuid, NEW.ledger_uuid;
         end if;
     end if;
 
     -- determine debit and credit accounts based on account type and transaction type
+    -- using a more readable CASE expression
     case 
         when v_account_internal_type = 'asset_like' and NEW.type = 'inflow' then
             -- inflow to asset: debit asset (increase), credit category (increase)
@@ -347,7 +349,7 @@ begin
                            v_account_internal_type, NEW.type;
     end case;
 
-    -- insert the transaction into the transactions table
+    -- insert the transaction into the transactions table with all necessary fields
     insert into data.transactions (
         description, 
         date, 
@@ -370,10 +372,13 @@ begin
     )
     returning uuid into v_transaction_uuid;
 
-    -- Return the data for the new row
-    -- The NEW record for an INSTEAD OF INSERT trigger should be populated with values
-    -- that match the view's columns. PostgREST uses this to return the created resource.
+    -- Populate the NEW record with all necessary fields for the view
     NEW.uuid := v_transaction_uuid;
+    -- The other fields are already set in NEW from the INSERT statement
+    -- If category_uuid was null and we found Unassigned, update it
+    if NEW.category_uuid is null then
+        NEW.category_uuid := v_category_uuid;
+    end if;
 
     return NEW;
 end;
