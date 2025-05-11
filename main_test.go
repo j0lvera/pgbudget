@@ -2793,11 +2793,89 @@ func TestDatabase(t *testing.T) {
 				
 				// Test with invalid ledger UUID
 				invalidLedgerUUID := "invalid-uuid-that-does-not-exist"
+				
+				// Add debug logging
+				t.Logf("Testing with invalid ledger UUID: %s", invalidLedgerUUID)
+				
+				// Check if the ledger exists in the database
+				var ledgerExists bool
+				err = conn.QueryRow(
+					ctx,
+					"SELECT EXISTS(SELECT 1 FROM data.ledgers WHERE uuid = $1)",
+					invalidLedgerUUID,
+				).Scan(&ledgerExists)
+				is.NoErr(err)
+				t.Logf("Does ledger with UUID %s exist in database? %v", invalidLedgerUUID, ledgerExists)
+				
+				// Check the function implementation
+				var functionDef string
+				err = conn.QueryRow(
+					ctx,
+					"SELECT pg_get_functiondef(oid) FROM pg_proc WHERE proname = 'get_budget_status' AND pronamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'utils')",
+				).Scan(&functionDef)
+				if err == nil {
+					t.Logf("Function definition: %s", functionDef)
+				} else {
+					t.Logf("Error getting function definition: %v", err)
+				}
+				
+				// Try to query with the invalid UUID
 				rows, err := conn.Query(
 					ctx,
 					"SELECT * FROM api.get_budget_status($1)",
 					invalidLedgerUUID,
 				)
+				
+				// Log the result
+				if err != nil {
+					t.Logf("Got expected error: %v", err)
+					
+					var pgErr *pgconn.PgError
+					if errors.As(err, &pgErr) {
+						t.Logf("PostgreSQL error details - Code: %s, Message: %s", pgErr.Code, pgErr.Message)
+					}
+				} else {
+					t.Logf("No error returned when one was expected")
+					
+					// If no error, let's see what rows were returned
+					defer rows.Close()
+					
+					var rowCount int
+					for rows.Next() {
+						rowCount++
+						
+						var (
+							categoryUUID string
+							categoryName string
+							budgeted     int64
+							activity     int64
+							balance      int64
+						)
+						
+						scanErr := rows.Scan(
+							&categoryUUID,
+							&categoryName,
+							&budgeted,
+							&activity,
+							&balance,
+						)
+						
+						if scanErr != nil {
+							t.Logf("Error scanning row: %v", scanErr)
+						} else {
+							t.Logf("Row returned: category=%s, name=%s, budgeted=%d, activity=%d, balance=%d",
+								categoryUUID, categoryName, budgeted, activity, balance)
+						}
+					}
+					
+					if rowErr := rows.Err(); rowErr != nil {
+						t.Logf("Error after iterating rows: %v", rowErr)
+					}
+					
+					t.Logf("Total rows returned: %d", rowCount)
+				}
+				
+				// The actual test assertion
 				is.True(err != nil) // Should return an error
 				
 				if rows != nil {
