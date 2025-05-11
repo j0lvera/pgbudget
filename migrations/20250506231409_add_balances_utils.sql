@@ -406,8 +406,8 @@ end;
 $$ language plpgsql stable security definer;
 
 create or replace function utils.get_account_balance(
-    p_ledger_id integer,
-    p_account_id integer
+    p_ledger_id bigint,
+    p_account_id bigint
 ) returns numeric as $$
 declare
     v_internal_type text;
