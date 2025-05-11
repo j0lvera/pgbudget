@@ -943,8 +943,35 @@ func TestDatabase(t *testing.T) {
 	// --- Transaction Tests ---
 	t.Run(
 		"Transactions", func(t *testing.T) {
+			// Create a dedicated ledger for transaction tests
+			var transactionLedgerUUID string
+			var transactionLedgerID int
+			
+			t.Run(
+				"Setup_TransactionLedger", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create a new ledger specifically for transaction tests
+					ledgerName := "Transactions Test Ledger"
+					err := conn.QueryRow(
+						ctx,
+						"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+						ledgerName,
+					).Scan(&transactionLedgerUUID)
+					is.NoErr(err) // should create ledger without error
+					
+					// Get the internal ID for verification
+					err = conn.QueryRow(
+						ctx,
+						"SELECT id FROM data.ledgers WHERE uuid = $1",
+						transactionLedgerUUID,
+					).Scan(&transactionLedgerID)
+					is.NoErr(err) // should find the ledger by UUID
+					is.True(transactionLedgerID > 0) // should have a valid internal ID
+				},
+			)
+			
 			// These UUIDs will be populated by sub-setup tests within "CreateTransaction"
-			var transactionLedgerUUID string // This will be assigned ledgerUUID from the outer scope
 			var mainAccountUUID string       // e.g., a checking account
 			var expenseCategoryUUID string   // e.g., a "Shopping" category
 
@@ -954,11 +981,9 @@ func TestDatabase(t *testing.T) {
 
 			t.Run(
 				"CreateTransaction", func(t *testing.T) {
-					// Assign the ledgerUUID from the outer scope.
-					// ledgerUUID and ledgerID are available from the "Ledgers" test group.
-					transactionLedgerUUID = ledgerUUID
+					// Use the dedicated ledger UUID instead of the one from the outer scope
 					if transactionLedgerUUID == "" {
-						t.Skip("Skipping CreateTransaction tests because ledger UUID is not available")
+						t.Skip("Skipping CreateTransaction tests because transaction ledger UUID is not available")
 					}
 
 					// Setup: Create a specific account and category for this transaction test
@@ -1117,7 +1142,7 @@ func TestDatabase(t *testing.T) {
 
 							// Assertions for database values
 							is.Equal(
-								dbLedgerID, ledgerID,
+								dbLedgerID, transactionLedgerID,
 							) // Internal ledger ID should match
 							is.Equal(dbDescription, "New Gadget Purchase")
 							is.Equal(dbAmount, int64(12500))
@@ -1238,7 +1263,7 @@ func TestDatabase(t *testing.T) {
 
 							// Assertions for database values
 							is.Equal(
-								dbLedgerID, ledgerID,
+								dbLedgerID, transactionLedgerID,
 							) // Internal ledger ID should match
 							is.Equal(dbDescription, "Client Payment Received")
 							is.Equal(dbAmount, int64(50000))
@@ -1729,7 +1754,7 @@ func TestDatabase(t *testing.T) {
 					is.NoErr(err) // Should find transaction
 
 					is.Equal(
-						dbLedgerUUID, ledgerUUID,
+						dbLedgerUUID, transactionLedgerUUID,
 					) // Ledger UUID should match
 					is.Equal(
 						dbDescription, assignDesc,
