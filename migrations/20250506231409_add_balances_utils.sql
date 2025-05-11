@@ -421,7 +421,7 @@ begin
      where id = p_account_id and ledger_id = p_ledger_id;
 
     if v_internal_type is null then
-        raise exception 'Account not found or does not belong to the specified ledger';
+        raise exception 'account not found or does not belong to the specified ledger';
     end if;
 
     -- First try to get the latest balance from the balances table
