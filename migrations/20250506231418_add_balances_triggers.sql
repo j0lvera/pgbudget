@@ -98,36 +98,61 @@ begin
         );
     -- If only amount changed, update the debit account
     elsif v_amount_changed then
-        -- Calculate net delta (difference between old and new amounts)
+        -- First add reversal entry
         if v_accounts_info->NEW.debit_account_id::text->>'type' = 'asset_like' then
-            v_debit_delta := NEW.amount - OLD.amount;
+            v_debit_delta := -OLD.amount; -- Reverse the old debit
         else
-            v_debit_delta := OLD.amount - NEW.amount;
+            v_debit_delta := OLD.amount; -- Reverse the old debit
         end if;
         
-        -- Only create entry if there's an actual change
-        if v_debit_delta != 0 then
-            -- Get updated balance
-            select balance into v_balance
-            from data.balances
-            where account_id = NEW.debit_account_id
-            order by created_at desc, id desc
-            limit 1;
-            
-            -- Insert update balance entry
-            insert into data.balances (
-                account_id, transaction_id, ledger_id, 
-                previous_balance, delta, balance, 
-                operation_type, user_data
-            )
-            values (
-                NEW.debit_account_id, NEW.id, v_ledger_id,
-                coalesce(v_balance, 0),
-                v_debit_delta,
-                coalesce(v_balance, 0) + v_debit_delta,
-                'transaction_update_net', v_user_data
-            );
+        -- Get current balance
+        select balance into v_balance
+        from data.balances
+        where account_id = NEW.debit_account_id
+        order by created_at desc, id desc
+        limit 1;
+        
+        -- Insert reversal balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.debit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balance, 0),
+            v_debit_delta,
+            coalesce(v_balance, 0) + v_debit_delta,
+            'transaction_update_reversal', v_user_data
+        );
+        
+        -- Then add application entry with new amount
+        if v_accounts_info->NEW.debit_account_id::text->>'type' = 'asset_like' then
+            v_debit_delta := NEW.amount; -- Apply the new debit
+        else
+            v_debit_delta := -NEW.amount; -- Apply the new debit
         end if;
+        
+        -- Get updated balance after reversal
+        select balance into v_balance
+        from data.balances
+        where account_id = NEW.debit_account_id
+        order by created_at desc, id desc
+        limit 1;
+        
+        -- Insert application balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.debit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balance, 0),
+            v_debit_delta,
+            coalesce(v_balance, 0) + v_debit_delta,
+            'transaction_update_application', v_user_data
+        );
     end if;
     
     -- 2. If credit account changed, reverse effect on old credit account
@@ -182,36 +207,61 @@ begin
         );
     -- If only amount changed, update the credit account
     elsif v_amount_changed then
-        -- Calculate net delta (difference between old and new amounts)
+        -- First add reversal entry
         if v_accounts_info->NEW.credit_account_id::text->>'type' = 'asset_like' then
-            v_credit_delta := OLD.amount - NEW.amount;
+            v_credit_delta := OLD.amount; -- Reverse the old credit
         else
-            v_credit_delta := NEW.amount - OLD.amount;
+            v_credit_delta := -OLD.amount; -- Reverse the old credit
         end if;
         
-        -- Only create entry if there's an actual change
-        if v_credit_delta != 0 then
-            -- Get updated balance
-            select balance into v_balance
-            from data.balances
-            where account_id = NEW.credit_account_id
-            order by created_at desc, id desc
-            limit 1;
-            
-            -- Insert update balance entry
-            insert into data.balances (
-                account_id, transaction_id, ledger_id, 
-                previous_balance, delta, balance, 
-                operation_type, user_data
-            )
-            values (
-                NEW.credit_account_id, NEW.id, v_ledger_id,
-                coalesce(v_balance, 0),
-                v_credit_delta,
-                coalesce(v_balance, 0) + v_credit_delta,
-                'transaction_update_net', v_user_data
-            );
+        -- Get current balance
+        select balance into v_balance
+        from data.balances
+        where account_id = NEW.credit_account_id
+        order by created_at desc, id desc
+        limit 1;
+        
+        -- Insert reversal balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.credit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balance, 0),
+            v_credit_delta,
+            coalesce(v_balance, 0) + v_credit_delta,
+            'transaction_update_reversal', v_user_data
+        );
+        
+        -- Then add application entry with new amount
+        if v_accounts_info->NEW.credit_account_id::text->>'type' = 'asset_like' then
+            v_credit_delta := -NEW.amount; -- Apply the new credit
+        else
+            v_credit_delta := NEW.amount; -- Apply the new credit
         end if;
+        
+        -- Get updated balance after reversal
+        select balance into v_balance
+        from data.balances
+        where account_id = NEW.credit_account_id
+        order by created_at desc, id desc
+        limit 1;
+        
+        -- Insert application balance entry
+        insert into data.balances (
+            account_id, transaction_id, ledger_id, 
+            previous_balance, delta, balance, 
+            operation_type, user_data
+        )
+        values (
+            NEW.credit_account_id, NEW.id, v_ledger_id,
+            coalesce(v_balance, 0),
+            v_credit_delta,
+            coalesce(v_balance, 0) + v_credit_delta,
+            'transaction_update_application', v_user_data
+        );
     end if;
     
     return NEW;
