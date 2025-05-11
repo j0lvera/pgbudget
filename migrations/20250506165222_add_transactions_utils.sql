@@ -531,23 +531,32 @@ create or replace function utils.simple_transactions_delete_fn() returns trigger
 $$
 declare
     v_user_data text := utils.get_user();
-    v_affected_rows int;
+    v_transaction_record data.transactions;
 begin
-    -- delete the transaction from data.transactions with user context validation
-    delete from data.transactions
-     where uuid = OLD.uuid
-       and user_data = v_user_data
-    returning 1 into v_affected_rows;
+    -- Get the transaction record and verify ownership in one query
+    select * into v_transaction_record
+    from data.transactions t
+    where t.uuid = OLD.uuid
+      and t.user_data = v_user_data;
     
-    -- verify the deletion was successful (row existed and belonged to user)
-    if v_affected_rows is null or v_affected_rows = 0 then
+    if v_transaction_record.id is null then
         raise exception 'Transaction with UUID % not found for current user', OLD.uuid;
     end if;
-
-    -- for INSTEAD OF DELETE, returning OLD is standard practice
+    
+    -- Perform soft delete by setting deleted_at
+    update data.transactions
+    set deleted_at = current_timestamp
+    where uuid = OLD.uuid and user_data = v_user_data
+    returning * into v_transaction_record;
+    
+    -- Verify the update was successful
+    if v_transaction_record.deleted_at is null then
+        raise exception 'Failed to soft-delete transaction with UUID %', OLD.uuid;
+    end if;
+    
     return OLD;
 end;
-$$ language plpgsql security definer;
+$$ language plpgsql volatile security definer;
 
 
 
