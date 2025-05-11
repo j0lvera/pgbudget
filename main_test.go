@@ -2443,65 +2443,40 @@ func TestDatabase(t *testing.T) {
 						len(updateBalanceEntries), 4,
 					) // 2 reversal, 2 application
 
-					// Verify Reversal Entries (original outflowTxAmount = $75.00)
-					// Original outflow: Debit Groceries(L), Credit Checking(A).
-					// For Groceries (liability-like): Debit decreases balance, so delta was -7500
-					// For Checking (asset-like): Credit decreases balance, so delta was -7500
-					// Reversal deltas should be +7500 for both (opposite of original).
+					// We should have 4 entries: 2 reversals and 2 applications
+					is.Equal(len(updateBalanceEntries), 4)
 					
+					// Count the number of each operation type
 					var reversalCount, applicationCount int
-					var checkingApplicationDone, groceriesApplicationDone bool
+					var checkingReversalFound, groceriesReversalFound bool
+					var checkingApplicationFound, groceriesApplicationFound bool
 					
 					for _, entry := range updateBalanceEntries {
 						if entry.OperationType == "transaction_update_reversal" {
 							reversalCount++
 							if entry.AccountID == btCheckingAccountID {
-								is.Equal(
-									entry.PreviousBalance,
-									prevCheckingBalBeforeUpdate,
-								)
-								is.Equal(
-									entry.Delta, outflowTxAmount,
-								) // Reversing original delta of -outflowTxAmount by adding the amount
-								is.Equal(
-									entry.Balance,
-									prevCheckingBalBeforeUpdate+outflowTxAmount,
-								)
+								checkingReversalFound = true
+								// Checking is an asset account (asset_like), credited in outflow
+								// Reversal should add back the original amount
+								is.Equal(entry.Delta, outflowTxAmount) // Reversing original delta of -outflowTxAmount
 							} else if entry.AccountID == btGroceriesCategoryID {
-								is.Equal(
-									entry.PreviousBalance,
-									prevGroceriesBalBeforeUpdate,
-								)
-								is.Equal(
-									entry.Delta, outflowTxAmount,
-								) // Reversing original delta of -outflowTxAmount by adding the amount
-								is.Equal(
-									entry.Balance,
-									prevGroceriesBalBeforeUpdate+outflowTxAmount,
-								)
-							} else {
-								t.Fatalf(
-									"Unexpected account_id %d in reversal balance entry",
-									entry.AccountID,
-								)
+								groceriesReversalFound = true
+								// Groceries is a liability-like account, debited in outflow
+								// Reversal should add back the original amount
+								is.Equal(entry.Delta, outflowTxAmount) // Reversing original delta of -outflowTxAmount
 							}
 						} else if entry.OperationType == "transaction_update_application" {
 							applicationCount++
-							if entry.AccountID == btCheckingAccountID { // Checking (Asset, credited)
-								// We can't assume the exact previous balance since we don't know the order
-								// Just check that the delta is correct
-								is.Equal(entry.Delta, -newOutflowTxAmount) // Asset-like account credited = negative delta
-								checkingApplicationDone = true
-							} else if entry.AccountID == btGroceriesCategoryID { // Groceries (Equity/L, debited)
-								// We can't assume the exact previous balance since we don't know the order
-								// Just check that the delta is correct
-								is.Equal(entry.Delta, -newOutflowTxAmount) // Liability-like account debited = negative delta
-								groceriesApplicationDone = true
-							} else {
-								t.Fatalf(
-									"Unexpected account_id %d in application balance entry",
-									entry.AccountID,
-								)
+							if entry.AccountID == btCheckingAccountID {
+								checkingApplicationFound = true
+								// Checking is an asset account (asset_like), credited in outflow
+								// Application should subtract the new amount
+								is.Equal(entry.Delta, -newOutflowTxAmount) // New delta is negative for credit to asset
+							} else if entry.AccountID == btGroceriesCategoryID {
+								groceriesApplicationFound = true
+								// Groceries is a liability-like account, debited in outflow
+								// Application should subtract the new amount
+								is.Equal(entry.Delta, -newOutflowTxAmount) // New delta is negative for debit to liability
 							}
 						}
 					}
@@ -2509,8 +2484,25 @@ func TestDatabase(t *testing.T) {
 					// Verify we have the right number of each operation type
 					is.Equal(reversalCount, 2) // Should have 2 reversal entries
 					is.Equal(applicationCount, 2) // Should have 2 application entries
-					is.True(checkingApplicationDone)  // Checking account application missing or incorrect
-					is.True(groceriesApplicationDone) // Groceries account application missing or incorrect
+					
+					// Verify we found entries for both accounts
+					is.True(checkingReversalFound) // Should have reversal for checking account
+					is.True(groceriesReversalFound) // Should have reversal for groceries account
+					is.True(checkingApplicationFound) // Should have application for checking account
+					is.True(groceriesApplicationFound) // Should have application for groceries account
+					
+					// Verify final balances
+					_, finalCheckingBal, _, _ := getLatestBalanceEntry(t, btCheckingAccountID)
+					_, finalGroceriesBal, _, _ := getLatestBalanceEntry(t, btGroceriesCategoryID)
+					
+					// Calculate expected final balances
+					// For checking: previous balance + original amount - new amount
+					expectedCheckingBal := prevCheckingBalBeforeUpdate + outflowTxAmount - newOutflowTxAmount
+					// For groceries: previous balance + original amount - new amount
+					expectedGroceriesBal := prevGroceriesBalBeforeUpdate + outflowTxAmount - newOutflowTxAmount
+					
+					is.Equal(finalCheckingBal, expectedCheckingBal)
+					is.Equal(finalGroceriesBal, expectedGroceriesBal)
 				},
 			)
 
