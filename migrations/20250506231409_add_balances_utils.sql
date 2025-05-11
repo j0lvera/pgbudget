@@ -378,48 +378,74 @@ create or replace function utils.get_account_balance(
 declare
     v_internal_type text;
     v_balance numeric;
+    v_latest_balance bigint;
+    v_latest_balance_ts timestamptz;
 begin
-    -- get the internal type of the account (asset_like or liability_like)
+    -- Get the internal type of the account (asset_like or liability_like)
     select internal_type into v_internal_type
       from data.accounts
      where id = p_account_id and ledger_id = p_ledger_id;
 
     if v_internal_type is null then
-        raise exception 'account not found or does not belong to the specified ledger';
+        raise exception 'Account not found or does not belong to the specified ledger';
     end if;
 
-    -- calculate balance based on internal type
-    -- for asset-like accounts: debits increase (positive), credits decrease (negative)
-    -- for liability-like accounts: credits increase (positive), debits decrease (negative)
+    -- First try to get the latest balance from the balances table
+    -- This is much faster than recalculating from all transactions
+    select balance, created_at into v_latest_balance, v_latest_balance_ts
+      from data.balances
+     where account_id = p_account_id
+     order by created_at desc, id desc
+     limit 1;
+    
+    if v_latest_balance is not null then
+        -- Check if there are any transactions after the latest balance timestamp
+        -- If not, we can just return the latest balance
+        if not exists (
+            select 1
+              from data.transactions t
+             where (t.debit_account_id = p_account_id or t.credit_account_id = p_account_id)
+               and t.ledger_id = p_ledger_id
+               and t.deleted_at is null
+               and (t.created_at > v_latest_balance_ts or t.updated_at > v_latest_balance_ts)
+        ) then
+            return v_latest_balance;
+        end if;
+    end if;
+
+    -- If we don't have a latest balance or there are newer transactions,
+    -- calculate the balance from all transactions
     if v_internal_type = 'asset_like' then
+        -- For asset-like accounts: debits increase (positive), credits decrease (negative)
         select coalesce(sum(
-                                case
-                                    when debit_account_id = p_account_id then amount
-                                    when credit_account_id = p_account_id then -amount
-                                    else 0
-                                    end
-                        ), 0) into v_balance
+            case
+                when debit_account_id = p_account_id then amount
+                when credit_account_id = p_account_id then -amount
+                else 0
+            end
+        ), 0) into v_balance
           from data.transactions
          where ledger_id = p_ledger_id
            and (debit_account_id = p_account_id or credit_account_id = p_account_id)
-           and deleted_at is null; -- Exclude soft-deleted transactions
-    else -- liability_like
+           and deleted_at is null;
+    else
+        -- For liability-like accounts: credits increase (positive), debits decrease (negative)
         select coalesce(sum(
-                                case
-                                    when credit_account_id = p_account_id then amount
-                                    when debit_account_id = p_account_id then -amount
-                                    else 0
-                                    end
-                        ), 0) into v_balance
+            case
+                when credit_account_id = p_account_id then amount
+                when debit_account_id = p_account_id then -amount
+                else 0
+            end
+        ), 0) into v_balance
           from data.transactions
          where ledger_id = p_ledger_id
            and (debit_account_id = p_account_id or credit_account_id = p_account_id)
-           and deleted_at is null; -- Exclude soft-deleted transactions
+           and deleted_at is null;
     end if;
 
     return v_balance;
 end;
-$$ language plpgsql;
+$$ language plpgsql stable security definer;
 
 -- function to get the latest balance from the balances table
 create or replace function utils.get_latest_account_balance(
