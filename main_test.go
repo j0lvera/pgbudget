@@ -1754,7 +1754,7 @@ func TestDatabase(t *testing.T) {
 					is.NoErr(err) // Should find transaction
 
 					is.Equal(
-						dbLedgerUUID, transactionLedgerUUID,
+						dbLedgerUUID, ledgerUUID,
 					) // Ledger UUID should match
 					is.Equal(
 						dbDescription, assignDesc,
