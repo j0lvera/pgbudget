@@ -445,59 +445,11 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
--- Create the API function that calls the utils function
-create or replace function api.get_budget_status(
-    p_ledger_uuid text
-) returns table (
-    account_uuid text,
-    account_name text,
-    budgeted decimal,
-    activity decimal,
-    balance decimal
-) as $$
-begin
-    -- Simply pass through to the utils function
-    return query
-    select * from utils.get_budget_status(p_ledger_uuid);
-end;
-$$ language plpgsql stable security invoker;
-
--- Grant execute permission to web user
-grant execute on function api.get_budget_status(text) to pgb_web_user;
-
--- Create the API function for account transactions
-create or replace function api.get_account_transactions(
-    p_account_uuid text
-) returns table (
-    date date,
-    category text,
-    description text,
-    type text,
-    amount bigint,
-    balance bigint
-) as $$
-begin
-    -- Simply pass through to the utils function
-    return query
-    select * from utils.get_account_transactions(p_account_uuid);
-end;
-$$ language plpgsql stable security invoker;
-
--- Grant execute permission to web user
-grant execute on function api.get_account_transactions(text) to pgb_web_user;
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-
--- revoke grants first
-revoke execute on function api.get_budget_status(text) from pgb_web_user;
-revoke execute on function api.get_account_transactions(text) from pgb_web_user;
-
--- drop the API functions
-drop function if exists api.get_budget_status(text);
-drop function if exists api.get_account_transactions(text);
 
 -- drop the utility functions
 drop function if exists utils.get_budget_status(text, text);
