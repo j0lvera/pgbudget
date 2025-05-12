@@ -491,24 +491,19 @@ grant execute on function api.get_account_transactions(text) to pgb_web_user;
 -- +goose Down
 -- +goose StatementBegin
 
--- drop the function to handle transaction updates
-drop function if exists utils.handle_transaction_update_balance();
-
-
--- drop the function to get budget status
-drop function if exists utils.get_budget_status(text);
-
--- drop the function to get account balance
-drop function if exists utils.get_account_balance(bigint, bigint);
-
--- drop the function to get account transactions
-drop function if exists utils.get_account_transactions(text);
-
--- drop the trigger function
-drop function if exists utils.update_account_balance();
+-- revoke grants first
+revoke execute on function api.get_budget_status(text) from pgb_web_user;
+revoke execute on function api.get_account_transactions(text) from pgb_web_user;
 
 -- drop the API functions
 drop function if exists api.get_budget_status(text);
 drop function if exists api.get_account_transactions(text);
+
+-- drop the utility functions
+drop function if exists utils.get_budget_status(text, text);
+drop function if exists utils.get_account_transactions(text, text);
+drop function if exists utils.get_account_balance(bigint, bigint);
+drop function if exists utils.get_latest_account_balance(integer);
+drop function if exists utils.update_account_balance();
 
 -- +goose StatementEnd
