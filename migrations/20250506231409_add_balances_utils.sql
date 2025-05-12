@@ -99,86 +99,6 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- function to handle balance updates when a transaction is deleted
-create or replace function utils.handle_transaction_delete_balance()
-    returns trigger as
-$$
-declare
-    v_old_debit_account_previous_balance  bigint;
-    v_old_debit_account_internal_type     text;
-    v_delta_reversal_debit                bigint;
-
-    v_old_credit_account_previous_balance bigint;
-    v_old_credit_account_internal_type    text;
-    v_delta_reversal_credit               bigint;
-begin
-    -- REVERSAL FOR OLD DEBIT ACCOUNT
-    -- get previous balance and internal type for the OLD DEBIT account
-    select balance into v_old_debit_account_previous_balance
-    from data.balances
-    where account_id = old.debit_account_id
-    order by created_at desc, id desc limit 1;
-
-    select internal_type into v_old_debit_account_internal_type
-    from data.accounts where id = old.debit_account_id;
-
-    if v_old_debit_account_previous_balance is null then
-        v_old_debit_account_previous_balance := 0;
-    end if;
-
-    if v_old_debit_account_internal_type is null then
-        raise exception 'internal_type not found for old debit account %', old.debit_account_id;
-    end if;
-
-    -- calculate reversal delta for OLD DEBIT account
-    if v_old_debit_account_internal_type = 'asset_like' then
-        v_delta_reversal_debit := -old.amount; -- reversing a debit to asset decreases balance
-    elsif v_old_debit_account_internal_type = 'liability_like' then
-        v_delta_reversal_debit := old.amount;  -- reversing a debit to liability/equity increases balance
-    else
-        raise exception 'unknown internal_type % for old debit account %', v_old_debit_account_internal_type, old.debit_account_id;
-    end if;
-
-    -- insert balance entry for OLD DEBIT account reversal
-    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
-    values (old.debit_account_id, old.id, old.ledger_id, v_old_debit_account_previous_balance, v_delta_reversal_debit,
-            v_old_debit_account_previous_balance + v_delta_reversal_debit, 'transaction_delete');
-
-    -- REVERSAL FOR OLD CREDIT ACCOUNT
-    -- get previous balance and internal type for the OLD CREDIT account
-    select balance into v_old_credit_account_previous_balance
-    from data.balances
-    where account_id = old.credit_account_id
-    order by created_at desc, id desc limit 1;
-
-    select internal_type into v_old_credit_account_internal_type
-    from data.accounts where id = old.credit_account_id;
-
-    if v_old_credit_account_previous_balance is null then
-        v_old_credit_account_previous_balance := 0;
-    end if;
-
-    if v_old_credit_account_internal_type is null then
-        raise exception 'internal_type not found for old credit account %', old.credit_account_id;
-    end if;
-
-    -- calculate reversal delta for OLD CREDIT account
-    if v_old_credit_account_internal_type = 'asset_like' then
-        v_delta_reversal_credit := old.amount;  -- reversing a credit to asset increases balance
-    elsif v_old_credit_account_internal_type = 'liability_like' then
-        v_delta_reversal_credit := -old.amount; -- reversing a credit to liability/equity decreases balance
-    else
-        raise exception 'unknown internal_type % for old credit account %', v_old_credit_account_internal_type, old.credit_account_id;
-    end if;
-
-    -- insert balance entry for OLD CREDIT account reversal
-    insert into data.balances (account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type)
-    values (old.credit_account_id, old.id, old.ledger_id, v_old_credit_account_previous_balance, v_delta_reversal_credit,
-            v_old_credit_account_previous_balance + v_delta_reversal_credit, 'transaction_delete');
-
-    return old; -- for AFTER DELETE, return value is ignored but OLD is conventional
-end;
-$$ language plpgsql security definer;
 
 
 create or replace function utils.get_account_transactions(
@@ -574,8 +494,6 @@ grant execute on function api.get_account_transactions(text) to pgb_web_user;
 -- drop the function to handle transaction updates
 drop function if exists utils.handle_transaction_update_balance();
 
--- drop the function to handle transaction deletes
-drop function if exists utils.handle_transaction_delete_balance();
 
 -- drop the function to get budget status
 drop function if exists utils.get_budget_status(text);
