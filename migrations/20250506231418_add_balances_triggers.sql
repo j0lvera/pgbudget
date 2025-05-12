@@ -14,6 +14,7 @@ declare
     v_debit_account_changed boolean;
     v_credit_account_changed boolean;
     v_amount_changed boolean;
+    v_invalidate_from_date timestamptz;
 begin
     -- Determine what changed
     v_debit_account_changed := OLD.debit_account_id != NEW.debit_account_id;
@@ -23,6 +24,13 @@ begin
     -- If nothing relevant changed, exit early
     if not (v_debit_account_changed or v_credit_account_changed or v_amount_changed) then
         return NEW;
+    end if;
+    
+    -- Determine which date to invalidate from (the earlier of old or new date)
+    if OLD.date <> NEW.date then
+        v_invalidate_from_date := least(OLD.date, NEW.date);
+    else
+        v_invalidate_from_date := OLD.date;
     end if;
     
     -- Get latest balances and account types in a single query
@@ -264,6 +272,43 @@ begin
         );
     end if;
     
+    -- Invalidate display balances for affected accounts
+    if v_debit_account_changed or v_amount_changed then
+        update data.transaction_display_balances tdb
+        set is_valid = false
+        from data.transactions t
+        where tdb.transaction_id = t.id
+          and tdb.account_id = OLD.debit_account_id
+          and t.date >= v_invalidate_from_date;
+        
+        if v_debit_account_changed then
+            update data.transaction_display_balances tdb
+            set is_valid = false
+            from data.transactions t
+            where tdb.transaction_id = t.id
+              and tdb.account_id = NEW.debit_account_id
+              and t.date >= v_invalidate_from_date;
+        end if;
+    end if;
+    
+    if v_credit_account_changed or v_amount_changed then
+        update data.transaction_display_balances tdb
+        set is_valid = false
+        from data.transactions t
+        where tdb.transaction_id = t.id
+          and tdb.account_id = OLD.credit_account_id
+          and t.date >= v_invalidate_from_date;
+        
+        if v_credit_account_changed then
+            update data.transaction_display_balances tdb
+            set is_valid = false
+            from data.transactions t
+            where tdb.transaction_id = t.id
+              and tdb.account_id = NEW.credit_account_id
+              and t.date >= v_invalidate_from_date;
+        end if;
+    end if;
+    
     return NEW;
 end;
 $$ language plpgsql;
@@ -333,6 +378,13 @@ declare
     v_ledger_id bigint := NEW.ledger_id;
     v_user_data text := NEW.user_data;
 begin
+    -- Invalidate display balances for affected accounts
+    update data.transaction_display_balances tdb
+    set is_valid = false
+    from data.transactions t
+    where tdb.transaction_id = t.id
+      and (tdb.account_id = NEW.debit_account_id or tdb.account_id = NEW.credit_account_id)
+      and t.date >= NEW.date;
     -- Get account information and current balances in a single query
     with account_data as (
         select 
@@ -388,6 +440,113 @@ create trigger balances_updated_at_tg
     on data.balances
     for each row
 execute procedure utils.set_updated_at_fn();
+
+-- Update the account balance function to also create display balance entries
+create or replace function utils.update_account_balance()
+returns trigger as $$
+declare
+    v_debit_account_type text;
+    v_credit_account_type text;
+    v_debit_delta bigint;
+    v_credit_delta bigint;
+    v_debit_prev_balance bigint := 0;
+    v_credit_prev_balance bigint := 0;
+    v_debit_new_balance bigint;
+    v_credit_new_balance bigint;
+    v_debit_display_balance bigint := 0;
+    v_credit_display_balance bigint := 0;
+begin
+    -- Get account types
+    select internal_type into v_debit_account_type from data.accounts where id = NEW.debit_account_id;
+    select internal_type into v_credit_account_type from data.accounts where id = NEW.credit_account_id;
+    
+    -- Get previous balances
+    select coalesce(balance, 0) into v_debit_prev_balance
+    from data.balances
+    where account_id = NEW.debit_account_id
+    order by created_at desc, id desc
+    limit 1;
+    
+    select coalesce(balance, 0) into v_credit_prev_balance
+    from data.balances
+    where account_id = NEW.credit_account_id
+    order by created_at desc, id desc
+    limit 1;
+    
+    -- Calculate deltas based on account types
+    if v_debit_account_type = 'asset_like' then
+        v_debit_delta := NEW.amount; -- Debit increases asset-like accounts
+    else
+        v_debit_delta := -NEW.amount; -- Debit decreases liability-like accounts
+    end if;
+    
+    if v_credit_account_type = 'asset_like' then
+        v_credit_delta := -NEW.amount; -- Credit decreases asset-like accounts
+    else
+        v_credit_delta := NEW.amount; -- Credit increases liability-like accounts
+    end if;
+    
+    -- Calculate new balances
+    v_debit_new_balance := v_debit_prev_balance + v_debit_delta;
+    v_credit_new_balance := v_credit_prev_balance + v_credit_delta;
+    
+    -- Insert balance entries
+    insert into data.balances (
+        account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type, user_data
+    ) values
+    (
+        NEW.debit_account_id, NEW.id, NEW.ledger_id, v_debit_prev_balance, v_debit_delta, v_debit_new_balance, 'transaction_insert', NEW.user_data
+    ),
+    (
+        NEW.credit_account_id, NEW.id, NEW.ledger_id, v_credit_prev_balance, v_credit_delta, v_credit_new_balance, 'transaction_insert', NEW.user_data
+    );
+    
+    -- Get previous display balances for both accounts
+    -- For debit account
+    select coalesce(max(tdb.display_balance), 0) into v_debit_display_balance
+    from data.transaction_display_balances tdb
+    join data.transactions t on tdb.transaction_id = t.id
+    where tdb.account_id = NEW.debit_account_id
+      and (t.date < NEW.date or (t.date = NEW.date and t.created_at < NEW.created_at))
+      and t.deleted_at is null
+      and tdb.is_valid;
+      
+    -- For credit account
+    select coalesce(max(tdb.display_balance), 0) into v_credit_display_balance
+    from data.transaction_display_balances tdb
+    join data.transactions t on tdb.transaction_id = t.id
+    where tdb.account_id = NEW.credit_account_id
+      and (t.date < NEW.date or (t.date = NEW.date and t.created_at < NEW.created_at))
+      and t.deleted_at is null
+      and tdb.is_valid;
+    
+    -- Calculate new display balances
+    if v_debit_account_type = 'asset_like' then
+        v_debit_display_balance := v_debit_display_balance + NEW.amount;
+    else
+        v_debit_display_balance := v_debit_display_balance - NEW.amount;
+    end if;
+    
+    if v_credit_account_type = 'asset_like' then
+        v_credit_display_balance := v_credit_display_balance - NEW.amount;
+    else
+        v_credit_display_balance := v_credit_display_balance + NEW.amount;
+    end if;
+    
+    -- Insert display balance entries
+    insert into data.transaction_display_balances (
+        transaction_id, account_id, display_balance, is_valid, user_data
+    ) values
+    (
+        NEW.id, NEW.debit_account_id, v_debit_display_balance, true, NEW.user_data
+    ),
+    (
+        NEW.id, NEW.credit_account_id, v_credit_display_balance, true, NEW.user_data
+    );
+    
+    return NEW;
+end;
+$$ language plpgsql;
 
 -- create the trigger on transactions table
 create trigger update_account_balance_trigger
