@@ -196,21 +196,25 @@ where
 -- +goose Down
 -- +goose StatementBegin
 
--- Drop the api.transactions view
-drop view if exists api.transactions;
-
--- Drop trigger from data.transactions table
-drop trigger if exists transactions_updated_at_tg on data.transactions;
-
--- Drop the new triggers from the consolidated api.transactions view
+-- First drop the triggers on the current api.transactions view
 drop trigger if exists transactions_insert_tg on api.transactions;
 drop trigger if exists transactions_update_tg on api.transactions;
 drop trigger if exists transactions_delete_tg on api.transactions;
+
+-- Drop trigger from data.transactions table
+drop trigger if exists transactions_updated_at_tg on data.transactions;
 
 -- Drop the updated functions
 drop function if exists utils.simple_transactions_update_fn();
 drop function if exists utils.simple_transactions_delete_fn();
 
+-- Now drop the view
+drop view if exists api.transactions;
+
+-- The following commented section should NOT be executed as part of the Down migration
+-- because it's trying to recreate objects that should be created by other migrations
+-- when they run their "Up" sections.
+/*
 -- Recreate the trigger for the ORIGINAL api.transactions view (manual double-entry)
 -- This relies on utils.transactions_insert_single_fn being available (recreated by utils down migration).
 -- This also relies on the original api.transactions view being recreated by the views down migration.
@@ -242,5 +246,6 @@ create trigger simple_transactions_delete_tg
     on api.simple_transactions -- Targets the original api.simple_transactions view
     for each row
 execute function utils.simple_transactions_delete_fn();
+*/
 
 -- +goose StatementEnd
