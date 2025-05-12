@@ -510,3 +510,5 @@ drop function if exists utils.update_account_balance();
 -- drop the API functions
 drop function if exists api.get_budget_status(text);
 drop function if exists api.get_account_transactions(text);
+
+-- +goose StatementEnd

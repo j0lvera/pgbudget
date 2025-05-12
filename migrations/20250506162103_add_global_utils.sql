@@ -32,6 +32,6 @@ $$ language plpgsql;
 
 drop function if exists utils.get_user();
 
-drop function utils.set_updated_at_fn();
+drop function if exists utils.set_updated_at_fn();
 
 -- +goose StatementEnd

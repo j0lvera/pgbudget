@@ -154,98 +154,62 @@ create trigger transactions_delete_tg -- RENAMED from simple_transactions_delete
 execute function utils.simple_transactions_delete_fn(); -- Calls the simple util
 
 -- Create or replace the api.transactions view to exclude soft-deleted transactions
-create or replace view api.transactions with (security_invoker = true) as
-select 
-    t.uuid,
-    t.description,
-    t.amount,
-    t.date,
-    t.metadata,
-    l.uuid as ledger_uuid,
-    case 
-        when t.debit_account_id = a_asset.id then 'inflow'
-        else 'outflow'
-    end as type,
-    case 
-        when t.debit_account_id = a_asset.id then a_asset.uuid
-        else a_category.uuid
-    end as account_uuid,
-    case 
-        when t.debit_account_id = a_asset.id then a_category.uuid
-        else a_asset.uuid
-    end as category_uuid
-from 
-    data.transactions t
-join 
-    data.ledgers l on t.ledger_id = l.id
-join 
-    data.accounts a_asset on (
-        (t.debit_account_id = a_asset.id and a_asset.type = 'asset') or 
-        (t.credit_account_id = a_asset.id and a_asset.type = 'asset')
-    )
-join 
-    data.accounts a_category on (
-        (t.debit_account_id = a_category.id and a_category.type = 'equity') or 
-        (t.credit_account_id = a_category.id and a_category.type = 'equity')
-    )
-where 
-    t.deleted_at is null; -- Exclude soft-deleted transactions
+-- create or replace view api.transactions with (security_invoker = true) as
+-- select
+--     t.uuid,
+--     t.description,
+--     t.amount,
+--     t.date,
+--     t.metadata,
+--     l.uuid as ledger_uuid,
+--     case
+--         when t.debit_account_id = a_asset.id then 'inflow'
+--         else 'outflow'
+--     end as type,
+--     case
+--         when t.debit_account_id = a_asset.id then a_asset.uuid
+--         else a_category.uuid
+--     end as account_uuid,
+--     case
+--         when t.debit_account_id = a_asset.id then a_category.uuid
+--         else a_asset.uuid
+--     end as category_uuid
+-- from
+--     data.transactions t
+-- join
+--     data.ledgers l on t.ledger_id = l.id
+-- join
+--     data.accounts a_asset on (
+--         (t.debit_account_id = a_asset.id and a_asset.type = 'asset') or
+--         (t.credit_account_id = a_asset.id and a_asset.type = 'asset')
+--     )
+-- join
+--     data.accounts a_category on (
+--         (t.debit_account_id = a_category.id and a_category.type = 'equity') or
+--         (t.credit_account_id = a_category.id and a_category.type = 'equity')
+--     )
+-- where
+--     t.deleted_at is null; -- Exclude soft-deleted transactions
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
+
 -- First drop the triggers on the current api.transactions view
-drop trigger if exists transactions_insert_tg on api.transactions;
-drop trigger if exists transactions_update_tg on api.transactions;
 drop trigger if exists transactions_delete_tg on api.transactions;
+drop trigger if exists transactions_update_tg on api.transactions;
+drop trigger if exists transactions_insert_tg on api.transactions;
+
+drop function if exists utils.simple_transactions_delete_fn();
+drop function if exists utils.simple_transactions_update_fn();
 
 -- Drop trigger from data.transactions table
 drop trigger if exists transactions_updated_at_tg on data.transactions;
 
--- Drop the updated functions
-drop function if exists utils.simple_transactions_update_fn();
-drop function if exists utils.simple_transactions_delete_fn();
 
 -- Now drop the view
-drop view if exists api.transactions;
-
--- The following commented section should NOT be executed as part of the Down migration
--- because it's trying to recreate objects that should be created by other migrations
--- when they run their "Up" sections.
-/*
--- Recreate the trigger for the ORIGINAL api.transactions view (manual double-entry)
--- This relies on utils.transactions_insert_single_fn being available (recreated by utils down migration).
--- This also relies on the original api.transactions view being recreated by the views down migration.
-create trigger transactions_insert_tg
-    instead of insert
-    on api.transactions -- Targets the original api.transactions view (manual double-entry)
-    for each row
-execute function utils.transactions_insert_single_fn();
-
--- Recreate triggers for the ORIGINAL api.simple_transactions view
--- This relies on utils.simple_transactions_*_fn being available (they are dropped and would need to be
--- recreated if this down migration is run standalone after the utils down migration,
--- but goose runs downs in reverse order, so utils functions should be there).
--- This also relies on the original api.simple_transactions view being recreated by the views down migration.
-create trigger simple_transactions_insert_tg
-    instead of insert
-    on api.simple_transactions -- Targets the original api.simple_transactions view
-    for each row
-execute function utils.simple_transactions_insert_fn();
-
-create trigger simple_transactions_update_tg
-    instead of update
-    on api.simple_transactions -- Targets the original api.simple_transactions view
-    for each row
-execute function utils.simple_transactions_update_fn();
-
-create trigger simple_transactions_delete_tg
-    instead of delete
-    on api.simple_transactions -- Targets the original api.simple_transactions view
-    for each row
-execute function utils.simple_transactions_delete_fn();
-*/
+-- drop view if exists api.transactions;
 
 -- +goose StatementEnd
