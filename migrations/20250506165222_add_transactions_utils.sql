@@ -565,10 +565,8 @@ $$ language plpgsql volatile security definer;
 -- +goose Down
 -- +goose StatementBegin
 
-drop function if exists utils.add_transaction(text, timestamptz, text, text, bigint, text, text);
+drop function if exists utils.add_transaction(text, timestamptz, text, text, bigint, text, text, text);
 drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
-drop function if exists utils.get_budget_status(text, text) cascade;
-drop function if exists api.get_budget_status(text) cascade;
 
 -- RECREATE utils.transactions_insert_single_fn() IN THE DOWN MIGRATION
 -- This function is used by the trigger on the original api.transactions view (manual double-entry)
