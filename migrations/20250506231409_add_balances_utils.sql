@@ -525,30 +525,6 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
--- +goose StatementEnd
-
--- +goose Down
--- +goose StatementBegin
-
--- drop the function to handle transaction updates
-drop function if exists utils.handle_transaction_update_balance();
-
--- drop the function to handle transaction deletes
-drop function if exists utils.handle_transaction_delete_balance();
-
--- drop the function to get budget status
-drop function if exists utils.get_budget_status(integer);
-
--- drop the function to get account balance
-drop function if exists utils.get_account_balance(integer, integer);
-
--- drop the function to get account transactions
-drop function if exists utils.get_account_transactions(integer);
-
--- drop the trigger function
-drop function if exists utils.update_account_balance();
-
--- +goose StatementEnd
 -- Create the API function that calls the utils function
 create or replace function api.get_budget_status(
     p_ledger_uuid text
@@ -589,3 +565,30 @@ $$ language plpgsql stable security invoker;
 
 -- Grant execute permission to web user
 grant execute on function api.get_account_transactions(text) to pgb_web_user;
+
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+
+-- drop the function to handle transaction updates
+drop function if exists utils.handle_transaction_update_balance();
+
+-- drop the function to handle transaction deletes
+drop function if exists utils.handle_transaction_delete_balance();
+
+-- drop the function to get budget status
+drop function if exists utils.get_budget_status(text);
+
+-- drop the function to get account balance
+drop function if exists utils.get_account_balance(bigint, bigint);
+
+-- drop the function to get account transactions
+drop function if exists utils.get_account_transactions(text);
+
+-- drop the trigger function
+drop function if exists utils.update_account_balance();
+
+-- drop the API functions
+drop function if exists api.get_budget_status(text);
+drop function if exists api.get_account_transactions(text);
