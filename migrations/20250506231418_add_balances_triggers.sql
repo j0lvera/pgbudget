@@ -581,18 +581,17 @@ execute function utils.transactions_after_soft_delete_fn();
 -- +goose Down
 -- +goose StatementBegin
 
+-- First drop all triggers in the correct order
+drop trigger if exists transactions_after_soft_delete_trigger on data.transactions;
 drop trigger if exists transactions_after_delete_balance_trigger on data.transactions;
-
 drop trigger if exists transactions_after_update_balance_trigger on data.transactions;
-
 drop trigger if exists update_account_balance_trigger on data.transactions;
-
 drop trigger if exists balances_updated_at_tg on data.balances;
 
+-- Then drop the functions
 drop function if exists utils.transactions_after_soft_delete_fn();
-
 drop function if exists utils.handle_transaction_delete_balance();
-
 drop function if exists utils.transactions_after_update_fn();
+drop function if exists utils.update_account_balance();
 
 -- +goose StatementEnd
