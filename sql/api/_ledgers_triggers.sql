@@ -1,7 +1,12 @@
--- +goose Up
--- +goose StatementBegin
+-- File: _ledgers_triggers.sql
+-- Purpose: Defines triggers and trigger functions related to ledger creation and default/special account setup.
+-- Source: migrations/20250326194640_add_ledger_creation_tgs_and_fns.sql
 
--- create function that creates default accounts for a new ledger (in api schema)
+-- (Assumes api schema exists)
+-- (Assumes data.accounts table exists as these functions/triggers interact with it)
+-- (Assumes data.ledgers table exists as one trigger is on it)
+
+-- Function to create default accounts for a new ledger
 create or replace function api.create_default_ledger_accounts()
     returns trigger as
 $$
@@ -22,47 +27,42 @@ begin
 end;
 $$ language plpgsql;
 
--- create trigger to run the function when a new ledger is created
+comment on function api.create_default_ledger_accounts() is 'Trigger function to automatically create default accounts (Income, Off-budget, Unassigned) when a new ledger is inserted into data.ledgers.';
+
+-- Trigger to run the function when a new ledger is created
 create trigger trigger_create_default_ledger_accounts
     after insert
     on data.ledgers
     for each row
 execute function api.create_default_ledger_accounts();
 
--- add constraint to prevent duplicate special accounts per ledger
+comment on trigger trigger_create_default_ledger_accounts on data.ledgers is 'After inserting a new ledger, automatically creates associated default accounts.';
+
+-- Constraint to prevent duplicate special accounts per ledger (acts on data.accounts)
 create unique index if not exists unique_special_accounts_per_ledger
     on data.accounts (ledger_id, name)
     where name in ('Income', 'Off-budget', 'Unassigned') and type = 'equity';
 
--- add constraint to prevent deletion of special accounts (in api schema)
+comment on index data.unique_special_accounts_per_ledger is 'Ensures that special account names (Income, Off-budget, Unassigned) are unique per ledger for equity type accounts.';
+
+-- Function to prevent deletion of special accounts (acts on data.accounts)
 create or replace function api.prevent_special_account_deletion()
     returns trigger as
 $$
 begin
     raise exception 'Cannot delete special account: %', OLD.name;
-    RETURN NULL;
+    RETURN NULL; -- For BEFORE trigger, returning NULL cancels the operation.
 end;
 $$ language plpgsql;
 
+comment on function api.prevent_special_account_deletion() is 'Trigger function to prevent the deletion of special accounts (Income, Off-budget, Unassigned).';
+
+-- Trigger to prevent deletion of special accounts (acts on data.accounts)
 create trigger trigger_prevent_special_account_deletion
     before delete
     on data.accounts
     for each row
     when (OLD.name in ('Income', 'Off-budget', 'Unassigned') and OLD.type = 'equity')
 execute function api.prevent_special_account_deletion();
--- +goose StatementEnd
 
--- +goose Down
--- +goose StatementBegin
-
--- remove the triggers and functions
-drop trigger if exists trigger_prevent_special_account_deletion on data.accounts;
-drop function if exists api.prevent_special_account_deletion();
-
-drop trigger if exists trigger_create_default_ledger_accounts on data.ledgers;
-drop function if exists api.create_default_ledger_accounts();
-
--- remove the constraint
-drop index if exists data.unique_special_accounts_per_ledger;
-
--- +goose StatementEnd
+comment on trigger trigger_prevent_special_account_deletion on data.accounts is 'Prevents deletion of special equity accounts (Income, Off-budget, Unassigned).';
