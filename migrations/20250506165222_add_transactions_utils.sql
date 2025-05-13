@@ -567,67 +567,6 @@ $$ language plpgsql volatile security definer;
 
 drop function if exists utils.add_transaction(text, timestamptz, text, text, bigint, text, text, text);
 drop function if exists utils.assign_to_category(text, timestamptz, text, bigint, text, text) cascade;
-
--- RECREATE utils.transactions_insert_single_fn() IN THE DOWN MIGRATION
--- This function is used by the trigger on the original api.transactions view (manual double-entry)
--- which is recreated in the down migration of 20250506165235_add_transactions_triggers.sql.
-create or replace function utils.transactions_insert_single_fn()
-returns trigger as
-$$
-declare
-    v_ledger_id         bigint;
-    v_debit_account_id  bigint;
-    v_credit_account_id bigint;
-    v_user_data         text := utils.get_user();
-begin
-    select l.id
-      into v_ledger_id
-      from data.ledgers l
-     where l.uuid = NEW.ledger_uuid and l.user_data = v_user_data;
-
-    if v_ledger_id is null then
-        raise exception 'Ledger with UUID % not found for current user', NEW.ledger_uuid;
-    end if;
-
-    select a.id
-      into v_debit_account_id
-      from data.accounts a
-     where a.uuid = NEW.debit_account_uuid
-       and a.ledger_id = v_ledger_id and a.user_data = v_user_data;
-
-    if v_debit_account_id is null then
-        raise exception 'Debit account with UUID % not found in ledger % for current user', NEW.debit_account_uuid, NEW.ledger_uuid;
-    end if;
-
-    select a.id
-      into v_credit_account_id
-      from data.accounts a
-     where a.uuid = NEW.credit_account_uuid
-       and a.ledger_id = v_ledger_id and a.user_data = v_user_data;
-
-    if v_credit_account_id is null then
-        raise exception 'Credit account with UUID % not found in ledger % for current user', NEW.credit_account_uuid, NEW.ledger_uuid;
-    end if;
-
-    insert into data.transactions (
-        description, date, amount,
-        debit_account_id, credit_account_id, ledger_id,
-        metadata
-    )
-    values (
-        NEW.description, NEW.date, NEW.amount,
-        v_debit_account_id, v_credit_account_id, v_ledger_id,
-        NEW.metadata
-    )
-    returning uuid, description, amount, metadata, date into
-        NEW.uuid, NEW.description, NEW.amount, NEW.metadata, NEW.date;
-    
-    -- NEW.ledger_uuid, NEW.debit_account_uuid, NEW.credit_account_uuid are already set from the input.
-    return NEW;
-end;
-$$ language plpgsql volatile security definer;
-
-
 drop function if exists utils.simple_transactions_insert_fn();
 drop function if exists utils.simple_transactions_update_fn();
 drop function if exists utils.simple_transactions_delete_fn();
