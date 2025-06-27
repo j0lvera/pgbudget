@@ -3,22 +3,30 @@
 
 -- simple function to calculate account balance on-demand from transactions
 create or replace function utils.get_account_balance(
+    p_ledger_id bigint,
     p_account_id bigint
 ) returns bigint as $$
 declare
     v_balance bigint := 0;
     v_internal_type text;
+    v_account_ledger_id bigint;
 begin
-    -- get account type
-    select internal_type into v_internal_type 
+    -- get account type and verify it belongs to the specified ledger
+    select internal_type, ledger_id 
+    into v_internal_type, v_account_ledger_id
     from data.accounts 
     where id = p_account_id;
     
     if v_internal_type is null then
-        raise exception 'account with id % not found', p_account_id;
+        raise exception 'Account with ID % not found', p_account_id;
     end if;
     
-    -- calculate balance by summing all transactions
+    if v_account_ledger_id != p_ledger_id then
+        raise exception 'Account not found or does not belong to the specified ledger';
+    end if;
+    
+    -- calculate balance by summing all non-deleted transactions
+    -- using ledger_id in WHERE clause for better performance
     if v_internal_type = 'asset_like' then
         select coalesce(sum(
             case 
@@ -28,7 +36,8 @@ begin
             end
         ), 0) into v_balance
         from data.transactions
-        where (debit_account_id = p_account_id or credit_account_id = p_account_id)
+        where ledger_id = p_ledger_id
+          and (debit_account_id = p_account_id or credit_account_id = p_account_id)
           and deleted_at is null;
     else -- liability_like
         select coalesce(sum(
@@ -39,7 +48,8 @@ begin
             end
         ), 0) into v_balance
         from data.transactions
-        where (debit_account_id = p_account_id or credit_account_id = p_account_id)
+        where ledger_id = p_ledger_id
+          and (debit_account_id = p_account_id or credit_account_id = p_account_id)
           and deleted_at is null;
     end if;
     
