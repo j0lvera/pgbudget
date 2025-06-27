@@ -8,6 +8,93 @@ create trigger transactions_updated_at_tg
     for each row
 execute procedure utils.set_updated_at_fn();
 
+-- Trigger to update balances when transactions are inserted
+create or replace function utils.transactions_balance_insert_fn()
+returns trigger as $$
+begin
+    -- update balance entries for the transaction
+    perform utils.update_account_balances(
+        NEW.id,
+        NEW.debit_account_id,
+        NEW.credit_account_id,
+        NEW.amount,
+        'transaction_insert',
+        NEW.user_data
+    );
+    return NEW;
+end;
+$$ language plpgsql volatile security definer;
+
+create trigger transactions_balance_insert_tg
+    after insert
+    on data.transactions
+    for each row
+execute function utils.transactions_balance_insert_fn();
+
+-- Trigger to update balances when transactions are updated
+create or replace function utils.transactions_balance_update_fn()
+returns trigger as $$
+begin
+    -- first reverse the old transaction
+    perform utils.update_account_balances(
+        OLD.id,
+        OLD.debit_account_id,
+        OLD.credit_account_id,
+        OLD.amount,
+        'transaction_update_reversal',
+        OLD.user_data
+    );
+    
+    -- then apply the new transaction
+    perform utils.update_account_balances(
+        NEW.id,
+        NEW.debit_account_id,
+        NEW.credit_account_id,
+        NEW.amount,
+        'transaction_update_application',
+        NEW.user_data
+    );
+    
+    return NEW;
+end;
+$$ language plpgsql volatile security definer;
+
+create trigger transactions_balance_update_tg
+    after update
+    on data.transactions
+    for each row
+    when (OLD.amount != NEW.amount OR 
+          OLD.debit_account_id != NEW.debit_account_id OR 
+          OLD.credit_account_id != NEW.credit_account_id)
+execute function utils.transactions_balance_update_fn();
+
+-- Trigger to update balances when transactions are soft-deleted
+create or replace function utils.transactions_balance_delete_fn()
+returns trigger as $$
+begin
+    -- only process if deleted_at was just set (soft delete)
+    if OLD.deleted_at is null and NEW.deleted_at is not null then
+        perform utils.update_account_balances(
+            NEW.id,
+            NEW.debit_account_id,
+            NEW.credit_account_id,
+            NEW.amount,
+            'transaction_soft_delete',
+            NEW.user_data
+        );
+    end if;
+    
+    return NEW;
+end;
+$$ language plpgsql volatile security definer;
+
+create trigger transactions_balance_delete_tg
+    after update
+    on data.transactions
+    for each row
+    when (OLD.deleted_at is null and NEW.deleted_at is not null)
+execute function utils.transactions_balance_delete_fn();
+
 -- Create or replace the simple_transactions_update_fn function
 create or replace function utils.simple_transactions_update_fn()
 returns trigger as $$
@@ -205,8 +292,16 @@ drop trigger if exists transactions_insert_tg on api.transactions;
 drop function if exists utils.simple_transactions_delete_fn();
 drop function if exists utils.simple_transactions_update_fn();
 
--- Drop trigger from data.transactions table
+-- Drop triggers from data.transactions table
 drop trigger if exists transactions_updated_at_tg on data.transactions;
+drop trigger if exists transactions_balance_insert_tg on data.transactions;
+drop trigger if exists transactions_balance_update_tg on data.transactions;
+drop trigger if exists transactions_balance_delete_tg on data.transactions;
+
+-- Drop trigger functions
+drop function if exists utils.transactions_balance_insert_fn();
+drop function if exists utils.transactions_balance_update_fn();
+drop function if exists utils.transactions_balance_delete_fn();
 
 
 -- Now drop the view
