@@ -1,21 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- create api view for balances
-create or replace view api.balances with (security_invoker = true) as
-select 
-    b.id,
-    b.created_at,
-    a.uuid as account_uuid,
-    t.uuid as transaction_uuid,
-    b.previous_balance,
-    b.delta,
-    b.new_balance,
-    b.operation_type
-from data.balances b
-join data.accounts a on b.account_id = a.id
-left join data.transactions t on b.transaction_id = t.id;
-
 -- simplified api function to expose budget status
 create or replace function api.get_budget_status(
     p_ledger_uuid text
@@ -62,9 +47,8 @@ $$ language plpgsql stable security invoker;
 -- +goose Down
 -- +goose StatementBegin
 
--- remove the api functions and views
+-- remove the api functions
 drop function if exists api.get_account_transactions(text);
 drop function if exists api.get_budget_status(text);
-drop view if exists api.balances;
 
 -- +goose StatementEnd

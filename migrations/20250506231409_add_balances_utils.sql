@@ -1,46 +1,6 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- create the data.balances table that tests expect
-create table if not exists data.balances (
-    id bigint generated always as identity primary key,
-    
-    created_at timestamptz not null default current_timestamp,
-    updated_at timestamptz not null default current_timestamp,
-    
-    account_id bigint not null,
-    transaction_id bigint,
-    
-    previous_balance bigint not null default 0,
-    delta bigint not null,
-    new_balance bigint not null,
-    
-    operation_type text not null,
-    user_data text not null default utils.get_user(),
-    
-    constraint balances_account_id_fkey foreign key (account_id) references data.accounts(id),
-    constraint balances_transaction_id_fkey foreign key (transaction_id) references data.transactions(id),
-    constraint balances_operation_type_check check (operation_type in (
-        'transaction_insert', 
-        'transaction_update_reversal', 
-        'transaction_update_application',
-        'transaction_soft_delete'
-    ))
-);
-
--- enable RLS on balances table
-alter table data.balances enable row level security;
-
--- create RLS policy for balances
-create policy balances_policy on data.balances
-    using (user_data = utils.get_user())
-    with check (user_data = utils.get_user());
-
--- create indexes for performance
-create index if not exists balances_account_id_idx on data.balances(account_id);
-create index if not exists balances_transaction_id_idx on data.balances(transaction_id);
-create index if not exists balances_created_at_idx on data.balances(created_at desc);
-
 -- simple function to calculate account balance on-demand from transactions
 create or replace function utils.get_account_balance(
     p_ledger_id bigint,
@@ -97,106 +57,6 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
--- function to update balance entries when transactions change
-create or replace function utils.update_account_balances(
-    p_transaction_id bigint,
-    p_debit_account_id bigint,
-    p_credit_account_id bigint,
-    p_amount bigint,
-    p_operation_type text,
-    p_user_data text default utils.get_user()
-) returns void as $$
-declare
-    v_debit_prev_balance bigint;
-    v_credit_prev_balance bigint;
-    v_debit_delta bigint;
-    v_credit_delta bigint;
-    v_debit_internal_type text;
-    v_credit_internal_type text;
-    v_ledger_id bigint;
-begin
-    -- get account types and ledger_id
-    select internal_type into v_debit_internal_type
-    from data.accounts where id = p_debit_account_id;
-    
-    select internal_type, ledger_id into v_credit_internal_type, v_ledger_id
-    from data.accounts where id = p_credit_account_id;
-    
-    -- get previous balances
-    v_debit_prev_balance := utils.get_account_balance(v_ledger_id, p_debit_account_id);
-    v_credit_prev_balance := utils.get_account_balance(v_ledger_id, p_credit_account_id);
-    
-    -- calculate deltas based on operation type
-    if p_operation_type = 'transaction_insert' then
-        -- for inserts, apply the transaction amounts
-        if v_debit_internal_type = 'asset_like' then
-            v_debit_delta := p_amount; -- debit increases asset
-        else
-            v_debit_delta := -p_amount; -- debit decreases liability/equity
-        end if;
-        
-        if v_credit_internal_type = 'asset_like' then
-            v_credit_delta := -p_amount; -- credit decreases asset
-        else
-            v_credit_delta := p_amount; -- credit increases liability/equity
-        end if;
-    elsif p_operation_type = 'transaction_update_reversal' then
-        -- for update reversals, reverse the original transaction
-        if v_debit_internal_type = 'asset_like' then
-            v_debit_delta := -p_amount; -- reverse the debit
-        else
-            v_debit_delta := p_amount; -- reverse the debit
-        end if;
-        
-        if v_credit_internal_type = 'asset_like' then
-            v_credit_delta := p_amount; -- reverse the credit
-        else
-            v_credit_delta := -p_amount; -- reverse the credit
-        end if;
-    elsif p_operation_type = 'transaction_update_application' then
-        -- for update applications, apply the new amounts
-        if v_debit_internal_type = 'asset_like' then
-            v_debit_delta := p_amount; -- apply new debit
-        else
-            v_debit_delta := -p_amount; -- apply new debit
-        end if;
-        
-        if v_credit_internal_type = 'asset_like' then
-            v_credit_delta := -p_amount; -- apply new credit
-        else
-            v_credit_delta := p_amount; -- apply new credit
-        end if;
-    elsif p_operation_type = 'transaction_soft_delete' then
-        -- for soft deletes, reverse the transaction
-        if v_debit_internal_type = 'asset_like' then
-            v_debit_delta := -p_amount; -- reverse the debit
-        else
-            v_debit_delta := p_amount; -- reverse the debit
-        end if;
-        
-        if v_credit_internal_type = 'asset_like' then
-            v_credit_delta := p_amount; -- reverse the credit
-        else
-            v_credit_delta := -p_amount; -- reverse the credit
-        end if;
-    end if;
-    
-    -- insert balance entries for both accounts
-    insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, new_balance, operation_type, user_data
-    ) values (
-        p_debit_account_id, p_transaction_id, v_debit_prev_balance, v_debit_delta, 
-        v_debit_prev_balance + v_debit_delta, p_operation_type, p_user_data
-    );
-    
-    insert into data.balances (
-        account_id, transaction_id, previous_balance, delta, new_balance, operation_type, user_data
-    ) values (
-        p_credit_account_id, p_transaction_id, v_credit_prev_balance, v_credit_delta, 
-        v_credit_prev_balance + v_credit_delta, p_operation_type, p_user_data
-    );
-end;
-$$ language plpgsql volatile security definer;
 
 -- simple function to get account transactions without running balances
 create or replace function utils.get_account_transactions(
@@ -246,9 +106,11 @@ begin
             else 'outflow'
         end as type,
         t.amount,
-        -- calculate balance on-demand (this will be slow for large datasets)
-        (select utils.get_account_balance(a.ledger_id, v_account_id) 
-         from data.accounts a where a.id = v_account_id) as balance
+        -- calculate balance on-demand
+        utils.get_account_balance(
+            (select ledger_id from data.accounts where id = v_account_id), 
+            v_account_id
+        ) as balance
     from 
         data.transactions t
     where 
@@ -375,19 +237,6 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
--- compatibility function for tests that expect the old single-parameter signature
-create or replace function utils.get_latest_account_balance(
-    p_account_id bigint
-) returns bigint as $$
-begin
-    -- get the ledger_id for the account and call the updated function
-    return (
-        select utils.get_account_balance(a.ledger_id, p_account_id)
-        from data.accounts a
-        where a.id = p_account_id
-    );
-end;
-$$ language plpgsql stable security definer;
 
 -- +goose StatementEnd
 
@@ -398,10 +247,5 @@ $$ language plpgsql stable security definer;
 drop function if exists utils.get_budget_status(text, text);
 drop function if exists utils.get_account_transactions(text, text);
 drop function if exists utils.get_account_balance(bigint, bigint);
-drop function if exists utils.get_latest_account_balance(bigint);
-drop function if exists utils.update_account_balances(bigint, bigint, bigint, bigint, text, text);
-
--- drop the balances table
-drop table if exists data.balances;
 
 -- +goose StatementEnd
