@@ -13,14 +13,10 @@ select a.uuid,
   from data.accounts a
   join data.ledgers l on a.ledger_id = l.id; -- Join accounts with ledgers
 
-grant select, insert, update, delete on api.accounts to pgb_web_user;
-
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-
-revoke all on api.accounts from pgb_web_user;
 
 drop view if exists api.accounts;
 

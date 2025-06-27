@@ -43,10 +43,6 @@ create table if not exists data.balances
 create index if not exists balances_account_latest_idx
     on data.balances (account_id, created_at desc);
 
--- grant permissions to pgb_web_user
-grant select, insert, update, delete on data.balances to pgb_web_user;
-grant usage, select on sequence data.balances_id_seq to pgb_web_user;
-
 -- enable row level security
 alter table data.balances
     enable row level security;
@@ -62,12 +58,6 @@ create policy balances_policy on data.balances
 
 -- drop policy
 drop policy if exists balances_policy on data.balances;
-
--- revoke sequence permissions
-revoke usage, select on sequence data.balances_id_seq from pgb_web_user;
-
--- revoke table permissions
-revoke all on data.balances from pgb_web_user;
 
 -- drop table
 drop table if exists data.balances;

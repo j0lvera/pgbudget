@@ -26,8 +26,6 @@ begin
 end;
 $$ language plpgsql volatile security invoker; -- runs with invoker privileges, relies on utils function for security
 
-grant execute on function api.add_category(text, text) to pgb_web_user;
-
 -- API function for batch category creation
 -- takes ledger uuid and array of category names
 -- returns a set of records matching the structure of api.accounts view
@@ -54,15 +52,11 @@ end;
 $$ language plpgsql volatile security invoker;
 
 -- Grant execute permission to web user
-grant execute on function api.add_categories(text, text[]) to pgb_web_user;
 
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
-
-revoke execute on function api.add_category(text, text) from pgb_web_user;
-revoke execute on function api.add_categories(text, text[]) from pgb_web_user;
 
 drop function if exists api.add_category(
     ledger_uuid text,

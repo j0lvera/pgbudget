@@ -41,11 +41,6 @@ create table data.accounts
     )
 );
 
--- grants privileges on the data.accounts table to the pgb_web_user role.
-grant select, insert, update, delete on data.accounts to pgb_web_user;
--- grants privileges on the sequence for the id column to the pgb_web_user role.
-grant usage, select on sequence data.accounts_id_seq to pgb_web_user;
-
 -- enables row level security (rls) on the data.accounts table.
 alter table data.accounts
     enable row level security;
@@ -63,10 +58,6 @@ comment on policy accounts_policy on data.accounts is 'Ensures that users can on
 -- +goose StatementBegin
 
 drop policy if exists accounts_policy on data.accounts;
-
-revoke all on data.accounts from pgb_web_user;
-
-revoke usage, select on sequence data.accounts_id_seq from pgb_web_user;
 
 drop table if exists data.accounts;
 

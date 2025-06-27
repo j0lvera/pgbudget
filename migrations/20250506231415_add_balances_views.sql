@@ -16,8 +16,6 @@ select b.uuid,
          left join data.accounts acc on acc.id = b.account_id
          left join data.transactions tx on tx.id = b.transaction_id;
 
--- grant only SELECT permissions to the web user (read-only)
-grant select on api.balances to pgb_web_user;
 
 -- Create an API function to expose budget status with UUIDs instead of internal IDs
 create or replace function api.get_budget_status(
@@ -43,8 +41,6 @@ begin
 end;
 $$ language plpgsql stable security invoker;
 
--- Grant execute permission to the web user role
-grant execute on function api.get_budget_status(text) to pgb_web_user;
 
 -- Create a simplified API function that just passes through to the utils function
 create or replace function api.get_account_transactions(
@@ -65,8 +61,6 @@ begin
 end;
 $$ language plpgsql stable security invoker;
 
--- Grant execute permission to the web user role
-grant execute on function api.get_account_transactions(text) to pgb_web_user;
 
 -- +goose StatementEnd
 
@@ -76,8 +70,6 @@ grant execute on function api.get_account_transactions(text) to pgb_web_user;
     -- Remove the API function
     drop function if exists api.get_account_transactions(text);
     drop function if exists api.get_budget_status(text);
-
-    revoke all on api.balances from pgb_web_user;
 
     drop view if exists api.balances;
 
