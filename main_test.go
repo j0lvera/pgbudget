@@ -1603,7 +1603,7 @@ func TestDatabase(t *testing.T) {
 				// Use COALESCE to handle cases where no balance record exists yet
 				err = conn.QueryRow(
 					ctx,
-					"SELECT COALESCE((SELECT balance FROM data.balances WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1), 0)",
+					"SELECT COALESCE((SELECT new_balance FROM data.balances WHERE account_id = $1 ORDER BY created_at DESC LIMIT 1), 0)",
 					accountID,
 				).Scan(&balance)
 				if err != nil {
@@ -1935,7 +1935,7 @@ func TestDatabase(t *testing.T) {
 				is := is_.New(subTestT) // Create 'is' instance specific to this helper call's context
 				err := conn.QueryRow(
 					ctx,
-					`SELECT previous_balance, balance, operation_type FROM data.balances
+					`SELECT previous_balance, new_balance, operation_type FROM data.balances
 				 WHERE account_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1`,
 					accountID,
 				).Scan(&prevBal, &currentBal, &opType)
