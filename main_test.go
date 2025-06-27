@@ -204,39 +204,17 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Simulate PostgREST Authentication Context:
-	// The application uses PostgREST, which sets 'request.jwt.claims' based on the user's JWT.
-	// Database functions (like utils.get_user()) and RLS policies rely on this setting to identify the user.
-	// Since tests connect directly via pgx, bypassing PostgREST, we must manually set a dummy
-	// 'request.jwt.claims' for the session using set_config() so these functions work correctly.
-	// IMPORTANT: The 'user_data' field within the JWT claims is used by utils.get_user()
-	testUserID := "test_user_id_123"
-	jwtClaims := fmt.Sprintf(
-		`{"role": "test_user", "email": "test@example.com", "user_data": "%s"}`,
-		testUserID,
-	)
-	// Use 'false' for session-local setting
-	_, err = conn.Exec(
-		ctx, `SELECT set_config('request.jwt.claims', $1, false)`, jwtClaims,
-	)
-	is.NoErr(err) // Should set config without error
-
-	// --- VERIFICATION STEPS ---
-	// 1. Verify the setting was applied and is readable (session-local)
-	var readClaims string
-	// Use 'false' for session-local setting
-	err = conn.QueryRow(
-		ctx, `SELECT current_setting('request.jwt.claims', false)`,
-	).Scan(&readClaims)
-	is.NoErr(err) // Should be able to read the setting back
-	is.Equal(
-		readClaims, jwtClaims,
-	) // Setting read back should match what was set
-
-	// 2. Verify the literal string can be cast to JSON directly
-	_, err = conn.Exec(ctx, `SELECT $1::json`, jwtClaims)
-	is.NoErr(err) // Should be able to cast the literal string to JSON without error
-	// --- END OF VERIFICATION STEPS ---
+	// Database-native Authentication Context:
+	// The application now uses PostgreSQL's current_user for authentication instead of JWT claims.
+	// utils.get_user() returns current_user, and RLS policies use this for user identification.
+	// Tests connect as the default database user from pgcontainer.
+	testUserID := pgcontainer.DefaultDbUser
+	// No additional setup needed - utils.get_user() now uses current_user directly
+	// Verify the current user is set correctly
+	var currentUser string
+	err = conn.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser)
+	is.NoErr(err) // Should be able to get current user
+	is.Equal(currentUser, testUserID) // Current user should match expected test user
 
 	// Basic connection test
 	t.Run(
