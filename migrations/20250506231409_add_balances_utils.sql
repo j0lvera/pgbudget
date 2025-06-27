@@ -106,7 +106,8 @@ begin
         end as type,
         t.amount,
         -- calculate balance on-demand (this will be slow for large datasets)
-        utils.get_account_balance(v_account_id) as balance
+        (select utils.get_account_balance(a.ledger_id, v_account_id) 
+         from data.accounts a where a.id = v_account_id) as balance
     from 
         data.transactions t
     where 
@@ -221,7 +222,7 @@ begin
         c.name as account_name,
         coalesce(b.amount, 0)::decimal as budgeted,
         coalesce(a.amount, 0)::decimal as activity,
-        utils.get_account_balance(c.id)::decimal as balance
+        utils.get_account_balance(v_ledger_id, c.id)::decimal as balance
     from 
         categories c
     left join 
@@ -233,6 +234,20 @@ begin
 end;
 $$ language plpgsql stable security definer;
 
+-- compatibility function for tests that expect the old single-parameter signature
+create or replace function utils.get_latest_account_balance(
+    p_account_id bigint
+) returns bigint as $$
+begin
+    -- get the ledger_id for the account and call the updated function
+    return (
+        select utils.get_account_balance(a.ledger_id, p_account_id)
+        from data.accounts a
+        where a.id = p_account_id
+    );
+end;
+$$ language plpgsql stable security definer;
+
 -- +goose StatementEnd
 
 -- +goose Down
@@ -241,6 +256,7 @@ $$ language plpgsql stable security definer;
 -- drop the utility functions
 drop function if exists utils.get_budget_status(text, text);
 drop function if exists utils.get_account_transactions(text, text);
-drop function if exists utils.get_account_balance(bigint);
+drop function if exists utils.get_account_balance(bigint, bigint);
+drop function if exists utils.get_latest_account_balance(bigint);
 
 -- +goose StatementEnd
