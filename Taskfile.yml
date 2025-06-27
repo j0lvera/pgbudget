@@ -37,6 +37,11 @@ tasks:
     cmds:
       - aider --model openrouter/anthropic/claude-3.7-sonnet
 
+  ai:sonnet-4:
+    desc: Run AI assistant
+    cmds:
+      - aider --model openrouter/anthropic/claude-sonnet-4
+
   ai:gemini:
     desc: Run AI assistant with Gemini
     cmds:
