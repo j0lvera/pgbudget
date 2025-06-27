@@ -9,33 +9,21 @@ create table if not exists data.balances
     updated_at       timestamptz not null default current_timestamp,
     user_data        text        not null default utils.get_user(),
 
-    previous_balance bigint      not null,
-    balance          bigint      not null,
-    -- the amount that changed (can be positive or negative)
+    previous_balance bigint      not null default 0,
+    new_balance      bigint      not null,
     delta            bigint      not null,
 
-    -- helpful for auditing/debugging
-    operation_type   text        not null,
+    operation_type   text        not null default 'transaction',
 
-    -- denormalized references for easier querying
     account_id       bigint      not null references data.accounts (id),
     ledger_id        bigint      not null references data.ledgers (id),
     transaction_id   bigint      not null references data.transactions (id),
 
     constraint balances_uuid_unique unique (uuid),
-    -- Allow more descriptive operation types
     constraint balances_operation_type_check check (
-        char_length(operation_type) > 0 and char_length(operation_type) <= 50 -- Example: 'transaction_insert', 'transaction_delete', etc.
+        char_length(operation_type) > 0 and char_length(operation_type) <= 50
         ),
-    -- This constraint is removed because delta's sign is now correctly handled by trigger functions
-    -- based on account internal_type and the nature of the operation.
-    -- The operation_type itself is no longer 'debit' or 'credit' at the balance entry level
-    -- in a way that directly dictates delta's sign for this constraint.
-    -- constraint balances_delta_valid_check check (
-    --    (operation_type = 'debit' and delta > 0) or
-    --    (operation_type = 'credit' and delta < 0)
-    --    ),
-    constraint balances_calculation_check check (balance = previous_balance + delta),
+    constraint balances_calculation_check check (new_balance = previous_balance + delta),
     constraint balances_user_data_length_check check (char_length(user_data) <= 255)
 );
 

@@ -1,100 +1,60 @@
 -- +goose Up
 -- +goose StatementBegin
 
--- create a function that will be called by the trigger
+-- simple function to update account balances
 create or replace function utils.update_account_balance()
     returns trigger as $$
 declare
-    v_accounts_info record;
-    v_ledger_id bigint := NEW.ledger_id;
-    v_user_data text := utils.get_user();
+    v_debit_prev_balance bigint := 0;
+    v_credit_prev_balance bigint := 0;
     v_debit_delta bigint;
     v_credit_delta bigint;
+    v_debit_type text;
+    v_credit_type text;
 begin
-    -- Get account information and previous balances in a single query
-    -- This reduces database roundtrips even further
-    with account_data as (
-        select 
-            d.id as debit_id, d.internal_type as debit_type,
-            c.id as credit_id, c.internal_type as credit_type
-        from 
-            data.accounts d
-        cross join 
-            data.accounts c
-        where 
-            d.id = NEW.debit_account_id and
-            c.id = NEW.credit_account_id
-    ),
-    balance_data as (
-        select 
-            account_id, 
-            balance
-        from (
-            select 
-                account_id, 
-                balance,
-                row_number() over (partition by account_id order by created_at desc, id desc) as rn
-            from 
-                data.balances
-            where 
-                account_id in (NEW.debit_account_id, NEW.credit_account_id)
-        ) ranked
-        where 
-            rn = 1
-    )
-    select 
-        ad.debit_type, ad.credit_type,
-        coalesce((select balance from balance_data where account_id = NEW.debit_account_id), 0) as debit_balance,
-        coalesce((select balance from balance_data where account_id = NEW.credit_account_id), 0) as credit_balance
-    into v_accounts_info
-    from account_data ad;
-
-    -- Validate account types
-    if v_accounts_info.debit_type is null then
-        raise exception 'internal_type not found for debit account %', NEW.debit_account_id;
-    end if;
-
-    if v_accounts_info.credit_type is null then
-        raise exception 'internal_type not found for credit account %', NEW.credit_account_id;
-    end if;
-
-    -- Calculate deltas based on account types
-    if v_accounts_info.debit_type = 'asset_like' then
+    -- get previous balances (0 if none exist)
+    select coalesce(new_balance, 0) into v_debit_prev_balance
+    from data.balances 
+    where account_id = NEW.debit_account_id 
+    order by created_at desc, id desc 
+    limit 1;
+    
+    select coalesce(new_balance, 0) into v_credit_prev_balance
+    from data.balances 
+    where account_id = NEW.credit_account_id 
+    order by created_at desc, id desc 
+    limit 1;
+    
+    -- get account types
+    select internal_type into v_debit_type 
+    from data.accounts 
+    where id = NEW.debit_account_id;
+    
+    select internal_type into v_credit_type 
+    from data.accounts 
+    where id = NEW.credit_account_id;
+    
+    -- calculate deltas based on account type
+    if v_debit_type = 'asset_like' then
         v_debit_delta := NEW.amount;
-    elsif v_accounts_info.debit_type = 'liability_like' then
+    else
         v_debit_delta := -NEW.amount;
-    else
-        raise exception 'unknown internal_type % for debit account %', 
-                        v_accounts_info.debit_type, NEW.debit_account_id;
     end if;
-
-    if v_accounts_info.credit_type = 'asset_like' then
+    
+    if v_credit_type = 'asset_like' then
         v_credit_delta := -NEW.amount;
-    elsif v_accounts_info.credit_type = 'liability_like' then
-        v_credit_delta := NEW.amount;
     else
-        raise exception 'unknown internal_type % for credit account %', 
-                        v_accounts_info.credit_type, NEW.credit_account_id;
+        v_credit_delta := NEW.amount;
     end if;
-
-    -- Insert new balances for both accounts in a single transaction
+    
+    -- insert balance records
     insert into data.balances (
-        account_id, transaction_id, ledger_id, previous_balance, delta, balance, operation_type, user_data
+        account_id, transaction_id, ledger_id, previous_balance, delta, new_balance, user_data
     )
     values 
-    (
-        NEW.debit_account_id, NEW.id, v_ledger_id, 
-        v_accounts_info.debit_balance, v_debit_delta,
-        v_accounts_info.debit_balance + v_debit_delta, 
-        'transaction_insert', v_user_data
-    ),
-    (
-        NEW.credit_account_id, NEW.id, v_ledger_id, 
-        v_accounts_info.credit_balance, v_credit_delta,
-        v_accounts_info.credit_balance + v_credit_delta, 
-        'transaction_insert', v_user_data
-    );
-
+        (NEW.debit_account_id, NEW.id, NEW.ledger_id, v_debit_prev_balance, v_debit_delta, v_debit_prev_balance + v_debit_delta, NEW.user_data),
+        (NEW.credit_account_id, NEW.id, NEW.ledger_id, v_credit_prev_balance, v_credit_delta, v_credit_prev_balance + v_credit_delta, NEW.user_data);
+    
     return NEW;
 end;
 $$ language plpgsql security definer;
@@ -207,76 +167,26 @@ $$ language plpgsql stable security definer;
 create or replace function utils.get_account_balance(
     p_ledger_id bigint,
     p_account_id bigint
-) returns numeric as $$
+) returns bigint as $$
 declare
-    v_internal_type text;
-    v_balance numeric;
-    v_latest_balance bigint;
-    v_latest_balance_ts timestamptz;
+    v_balance bigint;
 begin
-    -- Get the internal type of the account (asset_like or liability_like)
-    select internal_type into v_internal_type
-      from data.accounts
-     where id = p_account_id and ledger_id = p_ledger_id;
-
-    if v_internal_type is null then
+    -- validate account belongs to ledger
+    if not exists (
+        select 1 from data.accounts 
+        where id = p_account_id and ledger_id = p_ledger_id
+    ) then
         raise exception 'account not found or does not belong to the specified ledger';
     end if;
 
-    -- First try to get the latest balance from the balances table
-    -- This is much faster than recalculating from all transactions
-    select balance, created_at into v_latest_balance, v_latest_balance_ts
-      from data.balances
-     where account_id = p_account_id
-     order by created_at desc, id desc
-     limit 1;
-    
-    if v_latest_balance is not null then
-        -- Check if there are any transactions after the latest balance timestamp
-        -- If not, we can just return the latest balance
-        if not exists (
-            select 1
-              from data.transactions t
-             where (t.debit_account_id = p_account_id or t.credit_account_id = p_account_id)
-               and t.ledger_id = p_ledger_id
-               and t.deleted_at is null
-               and (t.created_at > v_latest_balance_ts or t.updated_at > v_latest_balance_ts)
-        ) then
-            return v_latest_balance;
-        end if;
-    end if;
+    -- get latest balance from balances table
+    select coalesce(new_balance, 0) into v_balance
+    from data.balances 
+    where account_id = p_account_id 
+    order by created_at desc, id desc 
+    limit 1;
 
-    -- If we don't have a latest balance or there are newer transactions,
-    -- calculate the balance from all transactions
-    if v_internal_type = 'asset_like' then
-        -- For asset-like accounts: debits increase (positive), credits decrease (negative)
-        select coalesce(sum(
-            case
-                when debit_account_id = p_account_id then amount
-                when credit_account_id = p_account_id then -amount
-                else 0
-            end
-        ), 0) into v_balance
-          from data.transactions
-         where ledger_id = p_ledger_id
-           and (debit_account_id = p_account_id or credit_account_id = p_account_id)
-           and deleted_at is null;
-    else
-        -- For liability-like accounts: credits increase (positive), debits decrease (negative)
-        select coalesce(sum(
-            case
-                when credit_account_id = p_account_id then amount
-                when debit_account_id = p_account_id then -amount
-                else 0
-            end
-        ), 0) into v_balance
-          from data.transactions
-         where ledger_id = p_ledger_id
-           and (debit_account_id = p_account_id or credit_account_id = p_account_id)
-           and deleted_at is null;
-    end if;
-
-    return v_balance;
+    return coalesce(v_balance, 0);
 end;
 $$ language plpgsql stable security definer;
 
@@ -287,7 +197,7 @@ create or replace function utils.get_latest_account_balance(
 declare
     v_balance bigint;
 begin
-    select balance into v_balance
+    select new_balance into v_balance
       from data.balances
      where account_id = p_account_id
      order by created_at desc, id desc
@@ -295,7 +205,7 @@ begin
     
     return coalesce(v_balance, 0);
 end;
-$$ language plpgsql;
+$$ language plpgsql stable;
 
 -- create a function to get budget status for a specific ledger
 create or replace function utils.get_budget_status(

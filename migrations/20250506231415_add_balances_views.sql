@@ -6,7 +6,7 @@ create or replace view api.balances with (security_invoker = true) as
 select b.uuid,
        b.previous_balance,
        b.delta,
-       b.balance,
+       b.new_balance,
        b.operation_type,
        b.user_data,
        b.created_at,
