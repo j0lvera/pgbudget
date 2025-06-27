@@ -2120,7 +2120,7 @@ func TestDatabase(t *testing.T) {
 					}
 					rows, err := conn.Query(
 						ctx,
-						`SELECT account_id, previous_balance, delta, balance, operation_type, user_data
+						`SELECT account_id, previous_balance, delta, new_balance, operation_type, user_data
 				 FROM data.balances WHERE transaction_id = $1 ORDER BY account_id`, // Order by account_id for predictable checking
 						outflowTxInternalID,
 					)
@@ -2185,7 +2185,7 @@ func TestDatabase(t *testing.T) {
 					}
 					rowsAPI, err := conn.Query(
 						ctx,
-						`SELECT account_uuid, balance, delta FROM api.balances WHERE transaction_uuid = $1 ORDER BY account_uuid`,
+						`SELECT account_uuid, new_balance, delta FROM api.balances WHERE transaction_uuid = $1 ORDER BY account_uuid`,
 						outflowTxUUID,
 					)
 					is.NoErr(err)
@@ -2301,7 +2301,7 @@ func TestDatabase(t *testing.T) {
 					}
 					rows, err := conn.Query(
 						ctx,
-						`SELECT account_id, previous_balance, delta, balance, operation_type
+						`SELECT account_id, previous_balance, delta, new_balance, operation_type
 				 FROM data.balances WHERE transaction_id = $1 ORDER BY account_id`,
 						inflowTxInternalID,
 					)
@@ -2392,7 +2392,7 @@ func TestDatabase(t *testing.T) {
 					}
 					rows, err := conn.Query(
 						ctx,
-						`SELECT account_id, previous_balance, delta, balance, operation_type
+						`SELECT account_id, previous_balance, delta, new_balance, operation_type
 				 FROM data.balances WHERE transaction_id = $1 AND operation_type LIKE 'transaction_update_%'
 				 ORDER BY created_at ASC, id ASC`, // Order by creation to see reversal then application
 						outflowTxInternalID,
@@ -2558,7 +2558,7 @@ func TestDatabase(t *testing.T) {
 					}
 					rows, err := conn.Query(
 						ctx,
-						`SELECT account_id, previous_balance, delta, balance, operation_type
+						`SELECT account_id, previous_balance, delta, new_balance, operation_type
 				 FROM data.balances WHERE transaction_id = $1 AND operation_type = 'transaction_soft_delete'
 				 ORDER BY account_id ASC`, // Order by account_id for predictable checking
 						inflowTxInternalID,
