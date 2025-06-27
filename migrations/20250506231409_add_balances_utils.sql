@@ -49,11 +49,11 @@ begin
     
     -- insert balance records
     insert into data.balances (
-        account_id, transaction_id, ledger_id, previous_balance, delta, new_balance, user_data
+        account_id, transaction_id, ledger_id, previous_balance, delta, new_balance, operation_type, user_data
     )
     values 
-        (NEW.debit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_debit_prev_balance, 0), v_debit_delta, COALESCE(v_debit_prev_balance, 0) + v_debit_delta, NEW.user_data),
-        (NEW.credit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_credit_prev_balance, 0), v_credit_delta, COALESCE(v_credit_prev_balance, 0) + v_credit_delta, NEW.user_data);
+        (NEW.debit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_debit_prev_balance, 0), v_debit_delta, COALESCE(v_debit_prev_balance, 0) + v_debit_delta, 'transaction_insert', NEW.user_data),
+        (NEW.credit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_credit_prev_balance, 0), v_credit_delta, COALESCE(v_credit_prev_balance, 0) + v_credit_delta, 'transaction_insert', NEW.user_data);
     
     return NEW;
 end;
@@ -130,7 +130,7 @@ begin
         -- Get balance information for each transaction
         select 
             b.transaction_id,
-            b.balance
+            b.new_balance as balance
         from 
             data.balances b
         where 

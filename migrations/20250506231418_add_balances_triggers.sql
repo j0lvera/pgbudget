@@ -52,8 +52,8 @@ begin
         account_id, transaction_id, ledger_id, previous_balance, delta, new_balance, operation_type, user_data
     )
     values 
-        (NEW.debit_account_id, NEW.id, NEW.ledger_id, v_debit_prev_balance, v_debit_delta, v_debit_prev_balance + v_debit_delta, 'soft_delete', NEW.user_data),
-        (NEW.credit_account_id, NEW.id, NEW.ledger_id, v_credit_prev_balance, v_credit_delta, v_credit_prev_balance + v_credit_delta, 'soft_delete', NEW.user_data);
+        (NEW.debit_account_id, NEW.id, NEW.ledger_id, v_debit_prev_balance, v_debit_delta, v_debit_prev_balance + v_debit_delta, 'transaction_soft_delete', NEW.user_data),
+        (NEW.credit_account_id, NEW.id, NEW.ledger_id, v_credit_prev_balance, v_credit_delta, v_credit_prev_balance + v_credit_delta, 'transaction_soft_delete', NEW.user_data);
     
     return NEW;
 end;
