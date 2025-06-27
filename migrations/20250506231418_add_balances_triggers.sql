@@ -59,12 +59,13 @@ begin
 end;
 $$ language plpgsql security definer;
 
--- create trigger for updated_at
-create trigger balances_updated_at_tg
-    before update
-    on data.balances
-    for each row
-execute procedure utils.set_updated_at_fn();
+-- balances table is append-only (we never update balance records, only insert new ones)
+-- so we don't need an updated_at trigger
+-- create trigger balances_updated_at_tg
+--     before update
+--     on data.balances
+--     for each row
+-- execute procedure utils.set_updated_at_fn();
 
 -- create the trigger on transactions table for inserts
 create trigger update_account_balance_trigger
@@ -87,7 +88,7 @@ execute function utils.handle_transaction_soft_delete();
 -- drop triggers
 drop trigger if exists transactions_after_soft_delete_trigger on data.transactions;
 drop trigger if exists update_account_balance_trigger on data.transactions;
-drop trigger if exists balances_updated_at_tg on data.balances;
+-- drop trigger if exists balances_updated_at_tg on data.balances; -- commented out since trigger is commented out
 
 -- drop functions
 drop function if exists utils.handle_transaction_soft_delete();
