@@ -52,8 +52,8 @@ begin
         account_id, transaction_id, ledger_id, previous_balance, delta, new_balance, user_data
     )
     values 
-        (NEW.debit_account_id, NEW.id, NEW.ledger_id, v_debit_prev_balance, v_debit_delta, v_debit_prev_balance + v_debit_delta, NEW.user_data),
-        (NEW.credit_account_id, NEW.id, NEW.ledger_id, v_credit_prev_balance, v_credit_delta, v_credit_prev_balance + v_credit_delta, NEW.user_data);
+        (NEW.debit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_debit_prev_balance, 0), v_debit_delta, COALESCE(v_debit_prev_balance, 0) + v_debit_delta, NEW.user_data),
+        (NEW.credit_account_id, NEW.id, NEW.ledger_id, COALESCE(v_credit_prev_balance, 0), v_credit_delta, COALESCE(v_credit_prev_balance, 0) + v_credit_delta, NEW.user_data);
     
     return NEW;
 end;
