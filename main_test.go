@@ -2904,7 +2904,6 @@ func TestDatabase(t *testing.T) {
 				Description string
 				Type        string
 				Amount      int64
-				Balance     int64
 			}
 			
 			for rows.Next() {
@@ -2914,7 +2913,6 @@ func TestDatabase(t *testing.T) {
 					Description string
 					Type        string
 					Amount      int64
-					Balance     int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -2922,7 +2920,6 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
-					&tx.Balance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -2993,7 +2990,6 @@ func TestDatabase(t *testing.T) {
 				Description string
 				Type        string
 				Amount      int64
-				Balance     int64
 			}
 			
 			for rows.Next() {
@@ -3003,7 +2999,6 @@ func TestDatabase(t *testing.T) {
 					Description string
 					Type        string
 					Amount      int64
-					Balance     int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -3011,7 +3006,6 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
-					&tx.Balance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -3031,19 +3025,16 @@ func TestDatabase(t *testing.T) {
 			is.Equal(transactions[0].Category, "Tx-Groceries")
 			is.Equal(transactions[0].Type, "outflow")
 			is.Equal(transactions[0].Amount, groceriesAmount)
-			is.Equal(transactions[0].Balance, incomeAmount - rentAmount - groceriesAmount) // Final balance
 			
 			// Second transaction (middle - rent)
 			is.Equal(transactions[1].Category, "Tx-Rent")
 			is.Equal(transactions[1].Type, "outflow")
 			is.Equal(transactions[1].Amount, rentAmount)
-			is.Equal(transactions[1].Balance, incomeAmount - rentAmount) // Balance after rent
 			
 			// Third transaction (oldest - income)
 			is.Equal(transactions[2].Category, "Income")
 			is.Equal(transactions[2].Type, "inflow")
 			is.Equal(transactions[2].Amount, incomeAmount)
-			is.Equal(transactions[2].Balance, incomeAmount) // Initial balance
 		})
 		
 		// Test transactions for a category account
@@ -3065,7 +3056,6 @@ func TestDatabase(t *testing.T) {
 				Description string
 				Type        string
 				Amount      int64
-				Balance     int64
 			}
 			
 			for rows.Next() {
@@ -3075,7 +3065,6 @@ func TestDatabase(t *testing.T) {
 					Description string
 					Type        string
 					Amount      int64
-					Balance     int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -3083,7 +3072,6 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
-					&tx.Balance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -3098,7 +3086,6 @@ func TestDatabase(t *testing.T) {
 			is.Equal(transactions[0].Description, "Grocery Shopping")
 			is.Equal(transactions[0].Type, "outflow") // For liability-like accounts, debits are outflows
 			is.Equal(transactions[0].Amount, int64(15000))
-			is.Equal(transactions[0].Balance, int64(-15000)) // Negative balance for spending
 		})
 		
 		// Test error cases
@@ -3115,7 +3102,6 @@ func TestDatabase(t *testing.T) {
 				description string
 				txType      string
 				amount      int64
-				balance     int64
 			)
 			
 			err = conn.QueryRow(
@@ -3128,7 +3114,6 @@ func TestDatabase(t *testing.T) {
 				&description,
 				&txType,
 				&amount,
-				&balance,
 			)
 			
 			// The actual test assertion

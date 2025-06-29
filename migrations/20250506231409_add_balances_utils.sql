@@ -68,8 +68,7 @@ returns table (
     category text,
     description text,
     type text,
-    amount bigint,
-    balance bigint
+    amount bigint
 ) as $$
 declare
     v_account_id bigint;
@@ -86,7 +85,7 @@ begin
         raise exception 'Account with UUID % not found for current user', p_account_uuid;
     end if;
 
-    -- return account transactions with simple balance calculation
+    -- return account transactions without balance calculation
     return query
     select
         t.date,
@@ -105,12 +104,7 @@ begin
             then 'inflow'
             else 'outflow'
         end as type,
-        t.amount,
-        -- calculate balance on-demand
-        utils.get_account_balance(
-            (select ledger_id from data.accounts where id = v_account_id), 
-            v_account_id
-        ) as balance
+        t.amount
     from 
         data.transactions t
     where 

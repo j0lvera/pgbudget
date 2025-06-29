@@ -32,8 +32,7 @@ create or replace function api.get_account_transactions(
     category text,
     description text,
     type text,
-    amount bigint,
-    balance bigint
+    amount bigint
 ) as $$
 begin
     -- simply call the utils function and return the results
