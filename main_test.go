@@ -213,13 +213,12 @@ func TestDatabase(t *testing.T) {
 	
 	// Set the application user context for this test session
 	// This simulates what the Go microservice would do for each authenticated request
-	_, err = conn.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", testUserID)
-	is.NoErr(err) // Should be able to set user context
-	
-	// Verify the user context is set correctly
+	// We need to set the session variable and test it in a single statement
 	var userFromSession string
-	err = conn.QueryRow(ctx, `SELECT utils.get_user()`).Scan(&userFromSession)
-	is.NoErr(err) // Should be able to get user from utils.get_user()
+	err = conn.QueryRow(ctx, `
+		SELECT utils.get_user() FROM (SELECT set_config('app.current_user_id', $1, true)) AS _
+	`, testUserID).Scan(&userFromSession)
+	is.NoErr(err) // Should be able to set user context and get user
 	is.Equal(userFromSession, testUserID) // User from session should match expected test user
 
 	// Basic connection test
