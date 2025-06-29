@@ -22,7 +22,7 @@ begin
     end if;
     
     if v_account_ledger_id != p_ledger_id then
-        raise exception 'Account not found or does not belong to the specified ledger';
+        raise exception 'account not found or does not belong to the specified ledger';
     end if;
     
     -- calculate balance by summing all non-deleted transactions
