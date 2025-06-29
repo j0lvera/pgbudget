@@ -204,17 +204,23 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Database-native Authentication Context:
-	// The application now uses PostgreSQL's current_user for authentication instead of JWT claims.
-	// utils.get_user() returns current_user, and RLS policies use this for user identification.
-	// Tests connect as the default database user from pgcontainer.
+	// Session-based Authentication Context:
+	// The application uses session variables to set user context for RLS policies.
+	// utils.get_user() checks for 'app.current_user_id' session variable first,
+	// then falls back to current_user for backward compatibility.
+	// Tests can either set the session variable or rely on the current_user fallback.
 	testUserID := pgcontainer.DefaultDbUser
-	// No additional setup needed - utils.get_user() now uses current_user directly
-	// Verify the current user is set correctly
-	var currentUser string
-	err = conn.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser)
-	is.NoErr(err) // Should be able to get current user
-	is.Equal(currentUser, testUserID) // Current user should match expected test user
+	
+	// Set the application user context for this test session
+	// This simulates what the Go microservice would do for each authenticated request
+	_, err = conn.Exec(ctx, "SELECT set_config('app.current_user_id', $1, true)", testUserID)
+	is.NoErr(err) // Should be able to set user context
+	
+	// Verify the user context is set correctly
+	var userFromSession string
+	err = conn.QueryRow(ctx, `SELECT utils.get_user()`).Scan(&userFromSession)
+	is.NoErr(err) // Should be able to get user from utils.get_user()
+	is.Equal(userFromSession, testUserID) // User from session should match expected test user
 
 	// Basic connection test
 	t.Run(

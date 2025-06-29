@@ -14,7 +14,13 @@ $$ language plpgsql;
 create or replace function utils.get_user() returns text as
 $$
 begin
-    return current_user;
+    -- Try to get application user from session variable first
+    -- This allows the Go microservice to set user context per request
+    -- Falls back to current_user for tests and direct database access
+    return coalesce(
+        current_setting('app.current_user_id', true),
+        current_user
+    );
 end;
 $$ language plpgsql stable;
 
