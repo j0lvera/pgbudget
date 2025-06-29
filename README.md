@@ -95,11 +95,23 @@ This approach avoids floating-point precision issues when dealing with money. It
 
 All API interactions should use UUIDs to identify resources like ledgers, accounts, and categories.
 
+**⚠️ Important: Always Set User Context First**
+
+Before running any queries, you must set the user context for the session. This is required for Row Level Security (RLS) to work properly:
+
+```sql
+-- Set the user context (replace 'your_user_id' with your actual user ID)
+SELECT set_config('app.current_user_id', 'your_user_id', false);
+```
+
 ### Create a Budget (Ledger)
 
 You create a new budget (referred to as a "ledger") by inserting into the `api.ledgers` view.
 
 ```sql
+-- Set user context first
+SELECT set_config('app.current_user_id', 'your_user_id', false);
+
 -- Create a new budget ledger
 INSERT INTO api.ledgers (name) VALUES ('My Budget') RETURNING uuid;
 ```
@@ -407,6 +419,122 @@ This shows you've assigned $200 to Groceries, spent $50, and have $150 left to s
 ```
 
 This diagram illustrates how money flows between accounts and affects your budget status.
+
+## Complete Budget Setup Example
+
+Here's a complete example that demonstrates setting up a budget with transactions and using the reporting functions:
+
+```sql
+DO $$
+DECLARE
+    v_user_id text := 'my_user_123';  -- Replace with your user ID
+    v_ledger_uuid text;
+    v_checking_uuid text;
+    v_groceries_uuid text;
+    v_income_uuid text;
+    v_transaction_uuid text;
+BEGIN
+    -- Set user context
+    PERFORM set_config('app.current_user_id', v_user_id, false);
+    
+    -- Create ledger
+    INSERT INTO api.ledgers (name) 
+    VALUES ('My Complete Budget') 
+    RETURNING uuid INTO v_ledger_uuid;
+    
+    RAISE NOTICE 'Created ledger: %', v_ledger_uuid;
+    
+    -- Create checking account
+    INSERT INTO api.accounts (ledger_uuid, name, type)
+    VALUES (v_ledger_uuid, 'Checking', 'asset')
+    RETURNING uuid INTO v_checking_uuid;
+    
+    -- Create groceries category
+    SELECT uuid INTO v_groceries_uuid 
+    FROM api.add_category(v_ledger_uuid, 'Groceries');
+    
+    -- Find income category (created automatically)
+    SELECT utils.find_category(v_ledger_uuid, 'Income') INTO v_income_uuid;
+    
+    -- Add income transaction
+    INSERT INTO api.transactions (
+        ledger_uuid, date, description, type, amount, 
+        account_uuid, category_uuid
+    )
+    VALUES (
+        v_ledger_uuid, NOW(), 'Paycheck', 'inflow', 100000,
+        v_checking_uuid, v_income_uuid
+    )
+    RETURNING uuid INTO v_transaction_uuid;
+    
+    -- Assign money to groceries
+    SELECT uuid INTO v_transaction_uuid
+    FROM api.assign_to_category(
+        v_ledger_uuid, NOW(), 'Budget: Groceries', 
+        30000, v_groceries_uuid
+    );
+    
+    -- Spend money: Buy Milk
+    INSERT INTO api.transactions (
+        ledger_uuid, date, description, type, amount,
+        account_uuid, category_uuid
+    )
+    VALUES (
+        v_ledger_uuid, NOW(), 'Buy Milk', 'outflow', 500,
+        v_checking_uuid, v_groceries_uuid
+    )
+    RETURNING uuid INTO v_transaction_uuid;
+    
+    -- Spend money: Buy Bread
+    INSERT INTO api.transactions (
+        ledger_uuid, date, description, type, amount,
+        account_uuid, category_uuid
+    )
+    VALUES (
+        v_ledger_uuid, NOW(), 'Buy Bread', 'outflow', 300,
+        v_checking_uuid, v_groceries_uuid
+    )
+    RETURNING uuid INTO v_transaction_uuid;
+    
+    RAISE NOTICE 'Budget setup complete!';
+    RAISE NOTICE 'Ledger: %, Checking: %, Groceries: %', 
+        v_ledger_uuid, v_checking_uuid, v_groceries_uuid;
+    
+    -- Check account balance
+    RAISE NOTICE 'Checking account balance: %', (
+        SELECT utils.get_account_balance(
+            (SELECT id FROM data.ledgers WHERE uuid = v_ledger_uuid),
+            (SELECT id FROM data.accounts WHERE uuid = v_checking_uuid)
+        )
+    );
+    
+    -- View account transactions
+    RAISE NOTICE 'Account transactions:';
+    FOR v_transaction_uuid IN 
+        SELECT date || ' - ' || category || ' - ' || description || ' - ' || type || ' - $' || (amount/100.0)
+        FROM api.get_account_transactions(v_checking_uuid)
+    LOOP
+        RAISE NOTICE '%', v_transaction_uuid;
+    END LOOP;
+    
+    -- View budget status
+    RAISE NOTICE 'Budget status:';
+    FOR v_transaction_uuid IN 
+        SELECT category_name || ' - Budgeted: $' || (budgeted/100.0) || 
+               ', Activity: $' || (activity/100.0) || ', Balance: $' || (balance/100.0)
+        FROM api.get_budget_status(v_ledger_uuid)
+    LOOP
+        RAISE NOTICE '%', v_transaction_uuid;
+    END LOOP;
+END $$;
+```
+
+This example will:
+1. Set up user context
+2. Create a complete budget with ledger, checking account, and groceries category
+3. Add income and assign money to groceries
+4. Record two spending transactions (milk and bread)
+5. Display account balance, transaction history, and budget status
 
 ### View All Account Balances
 
