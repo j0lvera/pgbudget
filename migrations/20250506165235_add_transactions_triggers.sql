@@ -8,6 +8,7 @@ create trigger transactions_updated_at_tg
     for each row
 execute procedure utils.set_updated_at_fn();
 
+
 -- Create or replace the simple_transactions_update_fn function
 create or replace function utils.simple_transactions_update_fn()
 returns trigger as $$

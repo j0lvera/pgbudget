@@ -22,10 +22,6 @@ create table data.ledgers
     constraint ledgers_description_length_check check (char_length(description) <= 255)
 );
 
--- allow authenticated user to access the ledgers table.
-grant all on data.ledgers to pgb_web_user;
-grant usage, select on sequence data.ledgers_id_seq to pgb_web_user;
-
 -- enable RLS
 alter table data.ledgers
     enable row level security;
@@ -42,8 +38,6 @@ comment on policy ledgers_policy on data.ledgers is 'Ensures that users can only
 -- +goose StatementBegin
 
 drop policy if exists ledgers_policy on data.ledgers;
-
-revoke all on data.ledgers from pgb_web_user;
 
 drop table data.ledgers;
 

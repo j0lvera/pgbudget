@@ -33,8 +33,6 @@ from
     -- should ideally be consistent, but can be simpler if the primary use is mutation via triggers.
     -- The trigger functions will populate these fields in the returned NEW record.
 
-grant select, insert, update, delete on api.transactions to pgb_web_user;
-
 
 -- function to assign money from Income to a category (public API)
 -- This function provides a public interface for budget allocations
@@ -84,18 +82,12 @@ begin
 end;
 $$ language plpgsql volatile security invoker;
 
-grant execute on function api.assign_to_category(text, timestamptz, text, bigint, text) to pgb_web_user;
-
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
-revoke execute on function api.assign_to_category(text, timestamptz, text, bigint, text) from pgb_web_user;
-
 drop function if exists api.assign_to_category(text, timestamptz, text, bigint, text) cascade;
-
-revoke all on api.transactions from pgb_web_user;
 
 drop view if exists api.transactions;
 

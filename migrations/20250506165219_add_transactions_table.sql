@@ -32,10 +32,6 @@ create table data.transactions
     constraint transactions_status_check check (status in ('pending', 'posted'))
 );
 
--- allow authenticated user to access the transactions table.
-grant all on data.transactions to pgb_web_user;
-grant usage, select on sequence data.transactions_id_seq to pgb_web_user;
-
 -- enable RLS
 alter table data.transactions
     enable row level security;
@@ -50,8 +46,6 @@ create policy transactions_policy on data.transactions
 -- +goose StatementBegin
 
 drop policy if exists transactions_policy on data.transactions;
-
-revoke all on data.transactions from pgb_web_user;
 
 -- It's good practice to drop columns in Down, though dropping the table handles it.
 -- alter table data.transactions drop column if exists deleted_at;

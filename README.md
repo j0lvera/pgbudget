@@ -1,10 +1,61 @@
 # pgbudget
 
-A PostgreSQL-based zero-sum budgeting system.
+A PostgreSQL-based zero-sum budgeting database engine.
 
 ## Description
 
-pgbudget lets you manage your personal budget directly in PostgreSQL. It helps you track income, assign money to categories, and record expenses while maintaining balance across all accounts.
+pgbudget is a robust database foundation for zero-sum budgeting applications. It provides a complete double-entry accounting system built on PostgreSQL, designed to serve as the database layer for budgeting microservices and applications.
+
+## Current Status: Developer Preview (v0.1)
+
+This release is targeted at developers who want a solid, well-tested database foundation for building budgeting applications.
+
+### ✅ Core Features Available
+
+**Budgeting Functionality:**
+- ✅ Create ledgers (budgets) with proper isolation
+- ✅ Create accounts (checking, savings, credit cards)
+- ✅ Create budget categories with automatic setup
+- ✅ Add income transactions with proper accounting
+- ✅ Assign money from income to categories (budgeting process)
+- ✅ Record spending transactions with category tracking
+- ✅ View comprehensive budget status (budgeted vs spent per category)
+- ✅ View account transaction history
+- ✅ On-demand balance calculations for any account
+- ✅ Complete double-entry accounting with full audit trail
+
+**Technical Strengths:**
+- ✅ Robust PostgreSQL-based architecture with proper schemas
+- ✅ Comprehensive test coverage with real-world scenarios
+- ✅ Clean API design with proper separation of concerns (`data`, `utils`, `api` schemas)
+- ✅ Zero-sum budgeting principles correctly implemented
+- ✅ Row-level security for multi-tenant usage
+- ✅ Optimized queries with proper indexing
+
+### 🚀 Roadmap
+
+**Phase 1 Enhancements (Near-term):**
+- 📋 Running balances in transaction history (currently TODO)
+- 📋 Batch transaction operations for better performance
+- 📋 Enhanced reporting functions (spending trends, category analysis)
+- 📋 Data validation improvements and better error messages
+- 📋 Performance optimizations for large transaction volumes
+
+**Phase 2 Features (Future):**
+- 📋 Recurring transaction templates
+- 📋 Advanced transaction categorization and tagging
+- 📋 Multi-currency support with exchange rates
+- 📋 Budgeting goals and targets with progress tracking
+- 📋 Data import/export utilities (CSV, JSON)
+- 📋 Advanced analytics and reporting functions
+
+**Explicitly Out of Scope:**
+- ❌ Web interface (use separate frontend projects)
+- ❌ User authentication (handled by application layer)
+- ❌ REST API endpoints (direct database access)
+- ❌ Mobile applications (build on top of this database)
+
+This project focuses solely on providing a rock-solid database foundation. Authentication, user interfaces, and API layers are intended to be built as separate microservices on top of this database engine.
 
 ## Requirements
 
@@ -107,13 +158,11 @@ The insert operation will return the UUID of the newly created account.
 
 ### Add Income
 
-Income is typically recorded as an "inflow" transaction using the `api.transactions` view by specifying the `type` as 'inflow'. This transaction increases the balance of an asset account (e.g., 'Checking') and credits the special 'Income' category.
+Income is recorded as an "inflow" transaction using the `api.transactions` view. This increases your bank account balance and credits the 'Income' category, making funds available for budgeting.
 
 ```sql
 -- Add income of $1000 from "Paycheck" (100000 cents)
--- For this example, let's say 'aK9sLp0Q' is the UUID for your 'Checking' account.
-
-INSERT INTO api.simple_transactions (
+INSERT INTO api.transactions (
     ledger_uuid,
     date,
     description,
@@ -128,7 +177,7 @@ INSERT INTO api.simple_transactions (
     'inflow',
     100000,             -- Amount in cents ($1000.00)
     'aK9sLp0Q', -- Your checking_account_uuid
-    (SELECT uuid FROM api.accounts WHERE ledger_uuid = 'd3pOOf6t' AND name = 'Income' AND type = 'equity') -- Dynamically find Income category UUID
+    (SELECT uuid FROM api.accounts WHERE ledger_uuid = 'd3pOOf6t' AND name = 'Income' AND type = 'equity')
 ) RETURNING uuid;
 ```
 
@@ -138,7 +187,12 @@ Result (example):
 ----------
  xY7zPqR2
 ```
-For more details on transaction entry, see the "Transaction Entry Options" section below. To find UUIDs of existing categories (like the default 'Income' category, or categories you've previously created), you can query the `api.accounts` view. For example, to find the 'Income' category UUID for a specific ledger: `SELECT uuid FROM api.accounts WHERE ledger_uuid = 'your-ledger-uuid' AND name = 'Income' AND type = 'equity';`. The `api.add_category` function, detailed in the "Create Categories" section, returns the UUID immediately upon creation of a new category.
+
+To find the Income category UUID for your ledger:
+```sql
+SELECT uuid FROM api.accounts 
+WHERE ledger_uuid = 'd3pOOf6t' AND name = 'Income' AND type = 'equity';
+```
 
 ### Create Categories
 
@@ -197,12 +251,11 @@ It takes these parameters:
 
 ### Spend Money
 
-Spending is recorded as an "outflow" transaction using the `api.transactions` view by specifying the `type` as 'outflow'. This decreases the balance of an asset account (e.g., 'Checking') and debits the relevant budget category.
+Spending is recorded as an "outflow" transaction using the `api.transactions` view. This decreases your bank account balance and debits the relevant budget category.
 
 ```sql
 -- Spend $15 on Milk from Groceries category (1500 cents)
--- Use your ledger_uuid, checking_account_uuid (e.g., 'aK9sLp0Q'), and groceries_category_uuid.
-INSERT INTO api.simple_transactions (
+INSERT INTO api.transactions (
     ledger_uuid,
     date,
     description,
@@ -221,7 +274,7 @@ INSERT INTO api.simple_transactions (
 ) RETURNING uuid;
 
 -- Pay the entire Internet bill (7500 cents)
-INSERT INTO api.simple_transactions (
+INSERT INTO api.transactions (
     ledger_uuid,
     date,
     description,
@@ -242,11 +295,11 @@ INSERT INTO api.simple_transactions (
 
 ### Check Budget Status
 
-To get a comprehensive view of your budget categories and their statuses, you can use the `api.get_budget_status` function:
+Use the `api.get_budget_status` function to see how much you've budgeted, spent, and have remaining in each category:
 
 ```sql
 -- Get budget status for all categories in a specific ledger
-SELECT * FROM api.get_budget_status('your-ledger-uuid');
+SELECT * FROM api.get_budget_status('d3pOOf6t');
 ```
 
 Example Result:
@@ -255,6 +308,7 @@ Example Result:
 --------------+----------------------+----------+----------+---------
  aK9sLp0Q     | Groceries            |   20000  |   -1500  |  18500
  zKHL0bud     | Internet bill        |    7500  |   -7500  |      0
+ mN8xPqR3     | Income               |        0 |        0 |  72500
 ```
 Note: All amounts are in cents (20000 = $200.00, -1500 = -$15.00, etc.).
 
@@ -354,131 +408,22 @@ This shows you've assigned $200 to Groceries, spent $50, and have $150 left to s
 
 This diagram illustrates how money flows between accounts and affects your budget status.
 
-#### Understanding Budget Status
+### View All Account Balances
 
-The budget status provides a snapshot of your financial plan and its execution. Each column has a specific meaning:
-
-- **budgeted**: The total amount you've assigned to this category from your Income account. This represents your financial plan or intention.
-- **activity**: The total spending (negative) or income (positive) in this category involving real-world accounts (assets or liabilities). This shows your actual financial behavior.
-- **balance**: The current available amount in the category (effectively budgeted + activity). This is what you have left to spend.
-
-#### How Budget Status is Calculated
-
-1. **budgeted**: Sum of all transactions where money moves from 'Income' to this category
-2. **activity**: Sum of all transactions between this category and any asset/liability account
-3. **balance**: Net sum of all transactions involving this category (from any account)
-
-#### Example Scenario
-
-Let's follow a simple budget through several transactions:
-
-1. **Receive Income**: $1000 paycheck
-   ```sql
-   -- Add income of $1000 to checking account
-   INSERT INTO api.simple_transactions (
-       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
-   ) VALUES (
-       'your-ledger-uuid', NOW(), 'Paycheck', 'inflow', 100000, 
-       'your-checking-account-uuid', 'your-income-category-uuid'
-   );
-   ```
-   - Increases your checking account by $1000
-   - Increases your Income category by $1000
-   - Budget status: Income has $1000 available to assign
-
-2. **Budget Money**: Assign $200 to Groceries
-   ```sql
-   SELECT uuid FROM api.assign_to_category(
-       'your-ledger-uuid', NOW(), 'Budget: Groceries', 20000, 'your-groceries-category-uuid'
-   );
-   ```
-   - Decreases Income by $200
-   - Increases Groceries by $200
-   - Budget status: Groceries shows $200 budgeted, $0 activity, $200 balance
-
-3. **Spend Money**: Spend $50 on groceries
-   ```sql
-   INSERT INTO api.simple_transactions (
-       ledger_uuid, date, description, type, amount, account_uuid, category_uuid
-   ) VALUES (
-       'your-ledger-uuid', NOW(), 'Grocery shopping', 'outflow', 5000,
-       'your-checking-account-uuid', 'your-groceries-category-uuid'
-   );
-   ```
-   - Decreases your checking account by $50
-   - Decreases your Groceries category by $50
-   - Budget status: Groceries now shows $200 budgeted, -$50 activity, $150 balance
-
-Your budget status would now show:
-```
- id |     account_name     | budgeted | activity | balance 
-----+----------------------+----------+----------+---------
-  5 | Groceries            |   20000  |   -5000  |  15000
-  6 | Income               |       0  |       0  |  80000
-```
-
-This shows you've assigned $200 to Groceries, spent $50, and have $150 left to spend. Your Income category shows $800 remaining to be assigned to other categories.
-
-#### Budget Status Flow Diagram
-
-```
-┌─────────────┐         ┌─────────────┐         ┌─────────────┐
-│             │         │             │         │             │
-│   Income    │         │  Category   │         │   Asset     │
-│  (Equity)   │         │  (Equity)   │         │  Account    │
-│             │         │             │         │             │
-└──────┬──────┘         └──────┬──────┘         └──────┬──────┘
-       │                        │                       │
-       │                        │                       │
-       │    Budget Money        │      Spend Money      │
-       │  ────────────────>     │  ────────────────>    │
-       │                        │                       │
-       │                        │                       │
-       │                        │                       │
-       │                        │                       │
-       │       Receive Income   │                       │
-       │  <────────────────     │                       │
-       │                        │                       │
-       │                        │                       │
-       ▼                        ▼                       ▼
-  Decreases when          Increases when          Decreases when
-  budgeting money         budgeting money         spending money
-  
-  Increases when          Decreases when          Increases when
-  receiving income        spending money          receiving income
-```
-
-This diagram illustrates how money flows between accounts and affects your budget status.
-
-You can also view all accounts and their balances. This query retrieves the latest balance for each account from the `data.balances` table (which is assumed to be maintained by triggers).
+Get a comprehensive view of all accounts and their current balances:
 
 ```sql
--- View all accounts and their latest balances for a specific ledger (e.g., 'd3pOOf6t')
+-- View all accounts and their current balances for a specific ledger
 SELECT
     a.uuid as account_uuid,
     a.name,
     a.type,
-    COALESCE(b.balance, 0) as balance -- Get latest balance from data.balances
+    utils.get_account_balance(
+        (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t'),
+        a.id
+    ) as balance
 FROM data.accounts a
-LEFT JOIN (
-    -- Subquery to get the latest balance for each account
-    SELECT account_id, balance
-    FROM (
-        SELECT
-            bal_hist.account_id,
-            bal_hist.balance,
-            ROW_NUMBER() OVER (PARTITION BY bal_hist.account_id ORDER BY bal_hist.created_at DESC) as rn
-        FROM data.balances bal_hist
-        -- Optimization: Ensure balances are for accounts within the target ledger
-        WHERE EXISTS (
-            SELECT 1 FROM data.accounts acc_filter
-            WHERE acc_filter.id = bal_hist.account_id
-              AND acc_filter.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
-        )
-    ) sb
-    WHERE sb.rn = 1
-) b ON a.id = b.account_id
-WHERE a.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t') -- Filter accounts by ledger
+WHERE a.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
 ORDER BY a.type, a.name;
 ```
 
@@ -496,22 +441,15 @@ Note: Balance amounts are in cents (91000 = $910.00).
 
 ### Check Account Balances
 
-To get the balance of a specific account, you can query the `data.balances` table. An API function like `api.get_account_balance` might also be provided for convenience.
+Get the current balance of any account using the on-demand balance calculation:
 
 ```sql
--- Get the latest balance of a specific account using its UUID (e.g., 'aK9sLp0Q')
--- for a specific ledger (e.g., 'd3pOOf6t').
--- This query retrieves the latest balance from the 'data.balances' table.
-SELECT COALESCE(
-           (SELECT b.balance
-            FROM data.balances b
-            JOIN data.accounts acc ON b.account_id = acc.id
-            WHERE acc.uuid = 'aK9sLp0Q' -- The account_uuid you want to check
-              AND acc.ledger_id = (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t')
-            ORDER BY b.created_at DESC
-            LIMIT 1),
-           0 -- Default to 0 if no balance record found
-       ) AS balance;
+-- Get the current balance of a specific account
+-- First, get the ledger_id and account_id
+SELECT utils.get_account_balance(
+    (SELECT id FROM data.ledgers WHERE uuid = 'd3pOOf6t'),
+    (SELECT id FROM data.accounts WHERE uuid = 'aK9sLp0Q')
+) AS balance;
 ```
 
 Result (example):
@@ -522,69 +460,62 @@ Result (example):
 ```
 Note: Balance amount is in cents (91000 = $910.00).
 
-This query directly accesses the `data.balances` table, which is assumed to store historical or current balances, ensuring you get the most up-to-date figure.
+The balance is calculated on-demand by summing all transactions affecting the account, ensuring accuracy without maintaining separate balance tables.
 
 ### View Account Transactions
 
-To view the transaction history for a specific account, use the `api.get_account_transactions` function:
+Use the `api.get_account_transactions` function to see the transaction history for any account:
 
 ```sql
 -- View transactions for a specific account
-SELECT * FROM api.get_account_transactions('your-account-uuid');
+SELECT * FROM api.get_account_transactions('aK9sLp0Q');
 ```
 
 Example Result:
 ```
-    date    |   category    |   description    |   type   | amount | balance
-------------+---------------+------------------+----------+--------+--------
- 2025-04-06 | Groceries     | Buy Groceries    | outflow  |   5000 | 492000
- 2025-04-06 | Income        | Commission Income| inflow   |  10000 | 497000
- 2025-04-05 | Internet      | Pay Internet Bill| outflow  |   9000 | 487000
- 2025-04-05 | Groceries     | Buy Milk         | outflow  |   4000 | 496000
- 2025-04-05 | Income        | Paycheck         | inflow   | 500000 | 500000
+    date    |   category    |   description    |   type   | amount
+------------+---------------+------------------+----------+--------
+ 2025-04-06 | Groceries     | Buy Groceries    | outflow  |   5000
+ 2025-04-06 | Income        | Commission Income| inflow   |  10000
+ 2025-04-05 | Internet      | Pay Internet Bill| outflow  |   9000
+ 2025-04-05 | Groceries     | Buy Milk         | outflow  |   4000
+ 2025-04-05 | Income        | Paycheck         | inflow   | 500000
 ```
 
-Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.).
+Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.). Running balances are planned for a future release.
 
 #### Understanding Account Transactions
 
-The transaction view provides a complete history of all transactions affecting a specific account, with user-friendly labels:
+The transaction view provides a complete history with user-friendly labels:
 
-- **date**: The date when the transaction occurred
-- **category**: For asset/liability accounts, this shows the budget category. For category accounts, this shows the asset/liability account involved.
-- **description**: The transaction description you provided
+- **date**: When the transaction occurred
+- **category**: For asset/liability accounts, shows the budget category. For category accounts, shows the asset/liability account involved.
+- **description**: Your transaction description
 - **type**: Simplified transaction type:
-  - For asset accounts: "inflow" means money coming in, "outflow" means money going out
-  - For liability accounts: "inflow" means debt increasing, "outflow" means debt decreasing
-  - For category accounts: "inflow" means budget increasing, "outflow" means budget decreasing
-- **amount**: The transaction amount (always positive, with the direction indicated by the type)
-- **balance**: The account balance after this transaction (running balance)
+  - For asset accounts: "inflow" = money coming in, "outflow" = money going out
+  - For liability accounts: "inflow" = debt increasing, "outflow" = debt decreasing  
+  - For category accounts: "inflow" = budget increasing, "outflow" = budget decreasing
+- **amount**: Transaction amount (always positive, direction shown by type)
 
-Transactions are ordered by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
+Transactions are ordered by date (newest first) for easy review.
 
-#### How Transaction Types Are Determined
+#### Transaction Type Logic
 
-The system automatically determines the appropriate transaction type based on:
+The system automatically determines transaction types based on:
 1. The account's internal type (asset-like or liability-like)
-2. Whether the account was debited or credited in the transaction
+2. Whether the account was debited or credited
 
-For example:
-- A debit to an asset account (like checking) is shown as "inflow"
-- A credit to an asset account is shown as "outflow"
-- A debit to a liability/equity account (like a credit card or budget category) is shown as "outflow"
-- A credit to a liability/equity account is shown as "inflow"
-
-This approach ensures that transactions are displayed in an intuitive way regardless of the underlying accounting mechanics.
+This ensures intuitive display regardless of underlying accounting mechanics.
 
 ## Transaction Entry Options
 
-The `api.transactions` view is the primary way to record financial activities. It supports two modes of operation, catering to different user preferences and knowledge levels:
+The `api.transactions` view provides flexible transaction recording with two approaches:
 
-### 1. Using `type` for Simplified Entry (Recommended for Most Users)
-When you provide `type` ('inflow' or 'outflow'), `account_uuid` (the bank/credit card account involved in the real-world transaction), and `category_uuid` (the budget category or income source), the system automatically handles the underlying double-entry accounting.
+### 1. Simplified Entry (Recommended)
+Use `type`, `account_uuid`, and `category_uuid` for intuitive transaction recording:
 
 ```sql
--- Add a transaction using the type-based simplified entry
+-- Record spending using simplified entry
 INSERT INTO api.transactions (
     ledger_uuid,
     date,
@@ -594,12 +525,12 @@ INSERT INTO api.transactions (
     account_uuid,              -- the bank account or credit card UUID
     category_uuid              -- the budget category UUID
 ) VALUES (
-    'your-ledger-uuid',
+    'd3pOOf6t',
     NOW(),
     'Grocery shopping',
     'outflow',
     5000,                      -- 5000 cents = $50.00
-    'your-checking-account-uuid',
+    'aK9sLp0Q',               -- checking account
     'your-groceries-category-uuid'
 ) RETURNING uuid;
 
@@ -607,80 +538,42 @@ INSERT INTO api.transactions (
 UPDATE api.transactions
    SET amount = 6000,          -- 6000 cents = $60.00
        description = 'Updated grocery shopping'
- WHERE uuid = 'your-transaction-uuid'; -- Use the UUID of the transaction to update
+ WHERE uuid = 'your-transaction-uuid';
 ```
 
-This approach:
-- Uses intuitive concepts like "inflow" and "outflow"
-- Automatically determines which internal accounts to debit and credit based on the `type`, `account_uuid`, and `category_uuid` provided.
-- Shields users from needing to understand double-entry accounting details
-- Supports full CRUD operations (insert, update, delete). For updates, changing `amount`, `description`, or `date` is straightforward. Modifying `type`, `account_uuid`, or `category_uuid` can be more complex as it might change the fundamental nature of the transaction and the accounts debited/credited.
-- Is exposed via PostgREST as a standard RESTful resource
+Benefits:
+- Uses intuitive "inflow" and "outflow" concepts
+- Automatically handles double-entry accounting
+- Supports full CRUD operations
+- No accounting knowledge required
 
-### 2. Specifying Debit and Credit Accounts Directly (For Accounting Professionals or Complex Transactions)
-For complete control over the double-entry process, you can directly specify `debit_account_uuid` and `credit_account_uuid`. When using this mode, you should not provide `type`, `account_uuid`, or `category_uuid` (or they will be ignored if the system prioritizes explicit debit/credit accounts).
+### 2. Direct Debit/Credit Entry (Advanced)
+For complete control, specify debit and credit accounts directly:
 
 ```sql
--- Add a transaction by directly specifying debit and credit accounts
+-- Record transaction with explicit debit/credit accounts
 INSERT INTO api.transactions (
     ledger_uuid,
     description,
     date,
     amount,
-    debit_account_uuid,
-    credit_account_uuid
+    debit_account_uuid,         -- account to debit
+    credit_account_uuid         -- account to credit
 ) VALUES (
-    'your-ledger-uuid',
+    'd3pOOf6t',
     'Grocery shopping',
     NOW(),
     5000,                       -- 5000 cents = $50.00
-    'your-groceries-category-uuid',  -- account UUID to debit
-    'your-checking-account-uuid'     -- account UUID to credit
+    'your-groceries-category-uuid',  -- debit the category
+    'aK9sLp0Q'                      -- credit the checking account
 ) RETURNING uuid;
 ```
 
-This approach:
-- Gives complete control over the double-entry accounting process
-- Requires understanding which account to debit and which to credit according to double-entry principles.
-- Is useful for complex transactions or for users familiar with accounting principles
-- Follows standard PostgreSQL table operations
+Benefits:
+- Complete control over double-entry process
+- Useful for complex transactions
+- Requires accounting knowledge
 
-Both modes of using the `api.transactions` view maintain the integrity of your double-entry accounting system while offering flexibility. Using the `type`, `account_uuid`, and `category_uuid` parameters is particularly useful for applications where users shouldn't need to understand detailed accounting principles to manage their budget effectively.
-
-### View Account Transactions
-
-An API function like `api.get_account_transactions` or a view like `data.account_transactions` might be available for this. The example below illustrates the kind of information such a function/view would provide.
-
-```sql
--- Example: View transactions for a specific account using its UUID
--- SELECT * FROM api.get_account_transactions('your-account-uuid');
-
--- Example: View transactions for the account with internal ID 4 using a hypothetical data view
--- SELECT * FROM data.account_transactions WHERE account_id = 4;
-```
-
-Example Result (from a hypothetical `api.get_account_transactions` function or similar view):
-```
-    date    |   category    |   description    |   type   | amount | balance
-------------+---------------+------------------+----------+--------+--------
- 2025-04-06 | Groceries     | Buy Groceries    | outflow  |   5000 | 492000
- 2025-04-06 | Income        | Commission Income| inflow   |  10000 | 497000
- 2025-04-05 | Internet      | Pay Internet Bill| outflow  |   9000 | 487000
- 2025-04-05 | Groceries     | Buy Milk         | outflow  |   4000 | 496000
- 2025-04-05 | Income        | Paycheck         | inflow   | 500000 | 500000
-```
-
-Note: All amounts are in cents (500000 = $5000.00, 4000 = $40.00, etc.).
-
-The transaction view would typically provide:
-- **date**: The date when the transaction occurred
-- **category**: The budget category or account associated with the transaction
-- **description**: The transaction description
-- **type**: Whether money flowed into the account (inflow) or out of it (outflow)
-- **amount**: The transaction amount (always positive, with the direction indicated by the type)
-- **balance**: The account balance after this transaction (running balance)
-
-The function/view would automatically handle the display logic based on the account type. Transactions are usually sorted by date (newest first) and then by creation time (newest first) to maintain a logical sequence.
 
 ## Contributing
 
