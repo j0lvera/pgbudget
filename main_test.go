@@ -61,6 +61,27 @@ func contains(slice []string, str string) bool {
 	return false
 }
 
+// setTestUserContext sets the user context for the database session
+// This simulates what the Go microservice would do for each authenticated request
+func setTestUserContext(ctx context.Context, conn *pgx.Conn, userID string) error {
+	// Set the session variable to persist for the entire connection
+	_, err := conn.Exec(ctx, "SELECT set_config('app.current_user_id', $1, false)", userID)
+	return err
+}
+
+// verifyTestUserContext verifies that the user context is set correctly
+func verifyTestUserContext(ctx context.Context, conn *pgx.Conn, expectedUserID string) error {
+	var userFromSession string
+	err := conn.QueryRow(ctx, `SELECT utils.get_user()`).Scan(&userFromSession)
+	if err != nil {
+		return fmt.Errorf("failed to get user from utils.get_user(): %w", err)
+	}
+	if userFromSession != expectedUserID {
+		return fmt.Errorf("expected user %q, got %q", expectedUserID, userFromSession)
+	}
+	return nil
+}
+
 // setupTestLedger creates a new ledger with standard accounts and sample transactions
 // using the public API layer (views and functions).
 // Returns the ledger UUID, a map of account UUIDs by name, and a map of transaction UUIDs by name.
@@ -204,17 +225,19 @@ func TestDatabase(t *testing.T) {
 		},
 	)
 
-	// Database-native Authentication Context:
-	// The application now uses PostgreSQL's current_user for authentication instead of JWT claims.
-	// utils.get_user() returns current_user, and RLS policies use this for user identification.
-	// Tests connect as the default database user from pgcontainer.
+	// Session-based Authentication Context:
+	// The application uses session variables to set user context for RLS policies.
+	// utils.get_user() checks for 'app.current_user_id' session variable first,
+	// then falls back to current_user for backward compatibility.
 	testUserID := pgcontainer.DefaultDbUser
-	// No additional setup needed - utils.get_user() now uses current_user directly
-	// Verify the current user is set correctly
-	var currentUser string
-	err = conn.QueryRow(ctx, `SELECT current_user`).Scan(&currentUser)
-	is.NoErr(err) // Should be able to get current user
-	is.Equal(currentUser, testUserID) // Current user should match expected test user
+	
+	// Set the application user context for this test session
+	err = setTestUserContext(ctx, conn, testUserID)
+	is.NoErr(err) // Should be able to set user context
+	
+	// Verify the user context is set correctly
+	err = verifyTestUserContext(ctx, conn, testUserID)
+	is.NoErr(err) // User context should be set correctly
 
 	// Basic connection test
 	t.Run(
