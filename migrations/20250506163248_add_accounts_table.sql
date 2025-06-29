@@ -1,6 +1,7 @@
 -- +goose Up
 -- +goose StatementBegin
 
+-- creates the accounts table to store different types of accounts for ledgers.
 create table data.accounts
 (
     id            bigint generated always as identity primary key,
@@ -16,66 +17,40 @@ create table data.accounts
     metadata      jsonb,
     user_data     text        not null default utils.get_user(),
 
-    -- fks
+    -- links the account to a ledger. accounts are deleted if the parent ledger is deleted.
     ledger_id     bigint      not null references data.ledgers (id) on delete cascade,
 
+    -- constraints
     constraint accounts_uuid_unique unique (uuid),
-    constraint accounts_name_unique unique (name, ledger_id),
+    constraint accounts_name_ledger_unique unique (name, ledger_id, user_data),
     constraint accounts_name_length_check check (char_length(name) <= 255),
     constraint accounts_user_data_length_check check (char_length(user_data) <= 255),
     constraint accounts_description_length_check check (char_length(description) <= 255),
     constraint accounts_type_check check (
         type in ('asset', 'liability', 'equity', 'revenue', 'expense')
-        ),
+    ),
+    -- ensures 'internal_type' is consistent with 'type'.
+    -- 'asset' and 'expense' accounts are 'asset_like' (debits increase balance).
+    -- 'liability', 'equity', and 'revenue' accounts are 'liability_like' (credits increase balance).
     constraint accounts_internal_type_check check (
         (type = 'asset' and internal_type = 'asset_like') or
-        (type = 'expenses' and internal_type = 'asset_like') or
+        (type = 'expense' and internal_type = 'asset_like') or
         (type = 'liability' and internal_type = 'liability_like') or
         (type = 'equity' and internal_type = 'liability_like') or
         (type = 'revenue' and internal_type = 'liability_like')
-        )
+    )
 );
 
-create trigger accounts_updated_at_tg
-    before update
-    on data.accounts
-    for each row
-execute procedure utils.set_updated_at_fn();
-
--- create a trigger function to set internal_type based on account type
-create or replace function utils.set_account_internal_type_fn()
-    returns trigger as
-$$
-begin
-    -- determine internal type based on account type
-    if new.type = 'asset' or new.type = 'expense' then
-        new.internal_type := 'asset_like';
-    else
-        new.internal_type := 'liability_like';
-    end if;
-
-    return new;
-end;
-$$ language plpgsql;
-
--- create a trigger to automatically set internal_type before insert
-create trigger accounts_set_internal_type_tg
-    before insert
-    on data.accounts
-    for each row
-execute procedure utils.set_account_internal_type_fn();
-
--- allow authenticated user to access the accounts table.
-grant all on data.accounts to pgb_web_user;
-grant usage, select on sequence data.accounts_id_seq to pgb_web_user;
-
--- enable RLS
+-- enables row level security (rls) on the data.accounts table.
 alter table data.accounts
     enable row level security;
 
+-- creates an rls policy on data.accounts to ensure users can only access and modify their own accounts.
 create policy accounts_policy on data.accounts
     using (user_data = utils.get_user())
     with check (user_data = utils.get_user());
+
+comment on policy accounts_policy on data.accounts is 'Ensures that users can only access and modify their own accounts based on the user_data column.';
 
 -- +goose StatementEnd
 
@@ -84,12 +59,6 @@ create policy accounts_policy on data.accounts
 
 drop policy if exists accounts_policy on data.accounts;
 
-revoke all on data.accounts from pgb_web_user;
-
-drop trigger if exists accounts_updated_at_tg on data.accounts;
-drop trigger if exists accounts_set_internal_type_tg on data.accounts;
-drop function if exists utils.set_account_internal_type_fn();
-
-drop table data.accounts;
+drop table if exists data.accounts;
 
 -- +goose StatementEnd

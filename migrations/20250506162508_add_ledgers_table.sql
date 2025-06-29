@@ -22,16 +22,6 @@ create table data.ledgers
     constraint ledgers_description_length_check check (char_length(description) <= 255)
 );
 
-create trigger ledgers_updated_at_tg
-    before update
-    on data.ledgers
-    for each row
-execute procedure utils.set_updated_at_fn();
-
--- allow authenticated user to access the ledgers table.
-grant all on data.ledgers to pgb_web_user;
-grant usage, select on sequence data.ledgers_id_seq to pgb_web_user;
-
 -- enable RLS
 alter table data.ledgers
     enable row level security;
@@ -40,16 +30,14 @@ create policy ledgers_policy on data.ledgers
     using (user_data = utils.get_user())
     with check (user_data = utils.get_user());
 
+comment on policy ledgers_policy on data.ledgers is 'Ensures that users can only access and modify their own ledgers based on the user_data column.';
+
 -- +goose StatementEnd
 
 -- +goose Down
 -- +goose StatementBegin
 
 drop policy if exists ledgers_policy on data.ledgers;
-
-revoke all on data.ledgers from pgb_web_user;
-
-drop trigger if exists ledgers_updated_at_tg on data.ledgers;
 
 drop table data.ledgers;
 

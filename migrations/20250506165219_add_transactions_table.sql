@@ -18,6 +18,7 @@ create table data.transactions
     credit_account_id bigint      not null references data.accounts (id),
     debit_account_id  bigint      not null references data.accounts (id),
 
+    deleted_at        timestamptz default null, -- For soft deletes
     user_data         text        not null default utils.get_user(),
 
     -- fks
@@ -30,16 +31,6 @@ create table data.transactions
     constraint transactions_user_data_length_check check (char_length(user_data) < 255),
     constraint transactions_status_check check (status in ('pending', 'posted'))
 );
-
-create trigger transactions_updated_at_tg
-    before update
-    on data.transactions
-    for each row
-execute procedure utils.set_updated_at_fn();
-
--- allow authenticated user to access the transactions table.
-grant all on data.transactions to pgb_web_user;
-grant usage, select on sequence data.transactions_id_seq to pgb_web_user;
 
 -- enable RLS
 alter table data.transactions
@@ -56,10 +47,9 @@ create policy transactions_policy on data.transactions
 
 drop policy if exists transactions_policy on data.transactions;
 
-revoke all on data.transactions from pgb_web_user;
+-- It's good practice to drop columns in Down, though dropping the table handles it.
+-- alter table data.transactions drop column if exists deleted_at;
 
-drop trigger if exists transactions_updated_at_tg on data.transactions;
-
-drop table data.transactions;
+drop table if exists data.transactions;
 
 -- +goose StatementEnd
