@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2025-08-23
+
+### Added
+- **Balance Snapshots System**: Fast O(1) balance lookups via `api.get_account_balance()`
+- **Running Balances**: `api.get_account_transactions()` now includes `running_balance` column
+- **Enhanced Error Handling**: Comprehensive validation with user-friendly error messages
+- **Balance API Functions**: Complete balance management utilities
+  - `api.get_ledger_balances()` - Get all account balances in a ledger
+  - `api.rebuild_ledger_balance_snapshots()` - Data repair utility
+- **Validation Utilities**: New validation functions for comprehensive input checking
+  - `utils.validate_transaction_data()` - Transaction amount, date, and type validation
+  - `utils.validate_input_data()` - Input sanitization and validation
+  - `utils.handle_constraint_violation()` - User-friendly constraint error messages
+- **Comprehensive Test Coverage**: 100+ test cases including 15+ new error handling scenarios
+- **Balance History Tracking**: Complete balance history for every account at every transaction
+- **Automatic Balance Maintenance**: Balance snapshots created and updated via triggers
+
+### Changed
+- **Performance Improvement**: Balance calculations now O(1) instead of O(n) transaction scanning
+- **Enhanced Error Messages**: All validation errors now provide clear, actionable feedback
+- **Code Architecture**: Eliminated duplication between API functions and view triggers
+- **Transaction History**: Running balance column added to transaction history output
+- **Validation Logic**: Single source of truth for validation across all functions
+
+### Enhanced
+- **Input Validation**: Names, descriptions, amounts, and dates now comprehensively validated
+- **Business Rules**: Transaction amount limits ($1M max), date ranges (±10 years)
+- **Constraint Handling**: Duplicate names and constraint violations show friendly messages
+- **Error Context**: All error messages now include specific details and suggested fixes
+- **Database Performance**: Proper indexing and efficient queries for balance operations
+
+### Technical
+- **Database Schema**: Added `data.balance_snapshots` table with automatic triggers
+- **Migration Files**: 3 new migrations for enhanced error handling and balance system
+- **Architecture**: Maintained backward compatibility while adding significant new features
+- **Testing**: All existing functionality preserved with enhanced validation
+
 ## [0.2.0] - 2025-04-05
 
 ### Added
@@ -50,7 +87,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial release with core functionality
 - Refactored migrations to remove duplicate find_category function
 
-[unreleased]: https://github.com/j0lvera/pgbudget/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/j0lvera/pgbudget/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/j0lvera/pgbudget/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/j0lvera/pgbudget/compare/v0.1.5...v0.2.0
 [0.1.5]: https://github.com/j0lvera/pgbudget/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/j0lvera/pgbudget/compare/v0.1.3...v0.1.4
