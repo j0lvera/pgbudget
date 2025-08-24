@@ -142,9 +142,9 @@ Example output:
 ```
  category_uuid | category_name | budgeted | activity | balance 
 ---------------+---------------+----------+----------+---------
- mN8xPqR3      | Groceries     |    20000 |    -5000 |   15000
- zKHL0bud      | Internet      |     7500 |    -7500 |       0
- pQ4vWx7N      | Income        |        0 |        0 |   72500
+ r95bZcwu      | Groceries     |    40000 |    -8500 |   31500
+ P6lNFJrD      | Rent          |   120000 |  -120000 |       0
+ rqFGEd8I      | Utilities     |    15000 |    -7500 |    7500
 ```
 
 **Budget status for specific month:**
@@ -156,10 +156,40 @@ Example output:
 ```
  category_uuid | category_name | budgeted | activity | balance 
 ---------------+---------------+----------+----------+---------
- mN8xPqR3      | Groceries     |    10000 |    -2500 |    7500
- zKHL0bud      | Internet      |     7500 |    -7500 |       0
- pQ4vWx7N      | Income        |        0 |        0 |   35000
+ r95bZcwu      | Groceries     |    20000 |    -4250 |   15750
+ P6lNFJrD      | Rent          |   120000 |  -120000 |       0
+ rqFGEd8I      | Utilities     |     7500 |    -3750 |    3750
 ```
+
+**Budget totals:**
+```sql
+SELECT * FROM api.get_budget_totals('d3pOOf6t');
+```
+
+Example output:
+```
+ income | income_remaining_from_last_month | budgeted | left_to_budget 
+--------+----------------------------------+----------+----------------
+ 350000 |                                0 |   175000 |         175000
+```
+
+**Budget totals for specific month:**
+```sql
+SELECT * FROM api.get_budget_totals('d3pOOf6t', '202508');
+```
+
+Example output:
+```
+ income | income_remaining_from_last_month | budgeted | left_to_budget 
+--------+----------------------------------+----------+----------------
+ 175000 |                            87500 |    87500 |          87500
+```
+
+**Understanding budget totals:**
+- **income**: Total income received in the period
+- **income_remaining_from_last_month**: Income balance carried over from previous month (month view only)
+- **budgeted**: Total amount assigned to all categories in the period
+- **left_to_budget**: Current balance of Income account (available to assign)
 
 **Account balance:**
 ```sql
