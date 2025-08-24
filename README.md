@@ -147,6 +147,20 @@ Example output:
  pQ4vWx7N      | Income        |        0 |        0 |   72500
 ```
 
+**Budget status for specific month:**
+```sql
+SELECT * FROM api.get_budget_status('d3pOOf6t', '202508');
+```
+
+Example output:
+```
+ category_uuid | category_name | budgeted | activity | balance 
+---------------+---------------+----------+----------+---------
+ mN8xPqR3      | Groceries     |    10000 |    -2500 |    7500
+ zKHL0bud      | Internet      |     7500 |    -7500 |       0
+ pQ4vWx7N      | Income        |        0 |        0 |   35000
+```
+
 **Account balance:**
 ```sql
 SELECT api.get_account_balance('aK9sLp0Q');
