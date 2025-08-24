@@ -190,3 +190,6 @@ fabric.properties
 .aider*
 
 migrations_old
+
+# Crush directory
+.crush
