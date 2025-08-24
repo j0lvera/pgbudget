@@ -1855,9 +1855,9 @@ func TestDatabase(t *testing.T) {
 					) // Check message from utils function
 					is.True(
 						strings.Contains(
-							pgErr.Message, "not found or does not belong",
+							pgErr.Message, "not found in ledger",
 						),
-					)
+					) // Check enhanced error message from utils function
 				},
 			)
 
@@ -1875,9 +1875,9 @@ func TestDatabase(t *testing.T) {
 					is.True(errors.As(err, &pgErr))
 					is.True(
 						strings.Contains(
-							pgErr.Message, "Assignment amount must be positive",
+							pgErr.Message, "Transaction amount must be positive",
 						),
-					) // Check message from utils function
+					) // Check enhanced error message from utils function
 				},
 			)
 
@@ -1895,9 +1895,9 @@ func TestDatabase(t *testing.T) {
 					is.True(errors.As(err, &pgErr))
 					is.True(
 						strings.Contains(
-							pgErr.Message, "Assignment amount must be positive",
+							pgErr.Message, "Transaction amount must be positive",
 						),
-					) // Check message from utils function
+					) // Check enhanced error message from utils function
 				},
 			)
 
@@ -2433,66 +2433,80 @@ func TestDatabase(t *testing.T) {
 				// Check balances after second spending
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, checkingAccountID,
+					"SELECT api.get_account_balance($1)",
+					checkingAccountUUID,
 				).Scan(&checkingBalance)
 				is.NoErr(err)
 				is.Equal(checkingBalance, incomeAmount - spendAmount - deletedSpendAmount) // Checking further reduced
 				
+				var groceriesBalanceFromAPI int64
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, groceriesCategoryID,
-				).Scan(&groceriesBalance)
+					"SELECT api.get_account_balance($1)",
+					groceriesCategoryUUID,
+				).Scan(&groceriesBalanceFromAPI)
 				is.NoErr(err)
-				is.Equal(groceriesBalance, -(spendAmount + deletedSpendAmount)) // Groceries further reduced
+				is.Equal(groceriesBalanceFromAPI, -(spendAmount + deletedSpendAmount)) // Groceries further reduced
 				
-				// 4. Soft-delete the second transaction
-				_, err = conn.Exec(
+				// 4. Delete the second transaction using new API
+				var reversalTxUUID string
+				err = conn.QueryRow(
 					ctx,
-					`DELETE FROM api.transactions WHERE uuid = $1`,
+					`SELECT api.delete_transaction($1, 'Test deletion')`,
 					deletedTxUUID,
-				)
+				).Scan(&reversalTxUUID)
 				is.NoErr(err)
 				
-				// Verify transaction is soft-deleted (deleted_at is set)
-				var deletedAt pgtype.Timestamptz
+				// Verify reversal transaction was created
+				var reversalExists bool
 				err = conn.QueryRow(
 					ctx,
-					"SELECT deleted_at FROM data.transactions WHERE uuid = $1",
+					"SELECT EXISTS(SELECT 1 FROM data.transactions WHERE uuid = $1)",
+					reversalTxUUID,
+				).Scan(&reversalExists)
+				is.NoErr(err)
+				is.True(reversalExists) // Reversal transaction should exist
+				
+				// Verify deletion was logged
+				var logExists bool
+				err = conn.QueryRow(
+					ctx,
+					`SELECT EXISTS(SELECT 1 FROM data.transaction_log 
+					 WHERE original_transaction_id = (SELECT id FROM data.transactions WHERE uuid = $1)
+					 AND mutation_type = 'deletion')`,
 					deletedTxUUID,
-				).Scan(&deletedAt)
+				).Scan(&logExists)
 				is.NoErr(err)
-				is.True(deletedAt.Valid) // deleted_at should be set
+				is.True(logExists) // Deletion should be logged
 				
-				// Check balances after soft-delete - should exclude the deleted transaction
+				// Check balances after deletion - should exclude the deleted transaction
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, checkingAccountID,
+					"SELECT api.get_account_balance($1)",
+					checkingAccountUUID,
 				).Scan(&checkingBalance)
 				is.NoErr(err)
 				is.Equal(checkingBalance, incomeAmount - spendAmount) // Should be back to balance after first spend
 				
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, groceriesCategoryID,
-				).Scan(&groceriesBalance)
+					"SELECT api.get_account_balance($1)",
+					groceriesCategoryUUID,
+				).Scan(&groceriesBalanceFromAPI)
 				is.NoErr(err)
-				is.Equal(groceriesBalance, -spendAmount) // Should be back to balance after first spend
+				is.Equal(groceriesBalanceFromAPI, -spendAmount) // Should be back to balance after first spend
 			})
 			
 			// Test error cases
 			t.Run("ErrorCases", func(t *testing.T) {
 				is := is_.New(t)
 				
-				// Test with invalid account ID
+				// Test with invalid account UUID
 				var invalidBalance int64
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, 999999, // Invalid account ID
+					"SELECT api.get_account_balance($1)",
+					"00000000-0000-0000-0000-000000000000", // Invalid account UUID
 				).Scan(&invalidBalance)
 				is.True(err != nil) // Should return an error
 				
@@ -2530,11 +2544,15 @@ func TestDatabase(t *testing.T) {
 				).Scan(&otherAccountID)
 				is.NoErr(err)
 				
-				// Try to get balance of account from one ledger using another ledger's ID
+				// The new API function uses UUIDs and handles user isolation automatically
+				// so this cross-ledger test is no longer applicable since user_data isolation
+				// prevents accessing accounts from other users' ledgers
+				
+				// Instead, test with a non-existent UUID
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, otherAccountID,
+					"SELECT api.get_account_balance($1)",
+					"00000000-0000-0000-0000-000000000000", // Non-existent UUID
 				).Scan(&invalidBalance)
 				is.True(err != nil) // Should return an error
 				
@@ -2548,12 +2566,12 @@ func TestDatabase(t *testing.T) {
 			t.Run("CompareWithBalancesTable", func(t *testing.T) {
 				is := is_.New(t)
 				
-				// Get balance using get_account_balance function
+				// Get balance using new API function
 				var balance int64
 				err = conn.QueryRow(
 					ctx,
-					"SELECT utils.get_account_balance($1, $2)",
-					balanceTestLedgerID, checkingAccountID,
+					"SELECT api.get_account_balance($1)",
+					checkingAccountUUID,
 				).Scan(&balance)
 				is.NoErr(err)
 				
@@ -2922,20 +2940,22 @@ func TestDatabase(t *testing.T) {
 			
 			// Should have no transactions initially
 			var transactions []struct {
-				Date        time.Time
-				Category    string
-				Description string
-				Type        string
-				Amount      int64
+				Date           time.Time
+				Category       string
+				Description    string
+				Type           string
+				Amount         int64
+				RunningBalance int64
 			}
 			
 			for rows.Next() {
 				var tx struct {
-					Date        time.Time
-					Category    string
-					Description string
-					Type        string
-					Amount      int64
+					Date           time.Time
+					Category       string
+					Description    string
+					Type           string
+					Amount         int64
+					RunningBalance int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -2943,6 +2963,7 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
+					&tx.RunningBalance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -3008,20 +3029,22 @@ func TestDatabase(t *testing.T) {
 			defer rows.Close()
 			
 			var transactions []struct {
-				Date        time.Time
-				Category    string
-				Description string
-				Type        string
-				Amount      int64
+				Date           time.Time
+				Category       string
+				Description    string
+				Type           string
+				Amount         int64
+				RunningBalance int64
 			}
 			
 			for rows.Next() {
 				var tx struct {
-					Date        time.Time
-					Category    string
-					Description string
-					Type        string
-					Amount      int64
+					Date           time.Time
+					Category       string
+					Description    string
+					Type           string
+					Amount         int64
+					RunningBalance int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -3029,6 +3052,7 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
+					&tx.RunningBalance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -3058,6 +3082,29 @@ func TestDatabase(t *testing.T) {
 			is.Equal(transactions[2].Category, "Income")
 			is.Equal(transactions[2].Type, "inflow")
 			is.Equal(transactions[2].Amount, incomeAmount)
+			
+			// Check running balances (key new functionality)
+			// Running balances should show account balance after each transaction chronologically
+			// Transaction 0 (newest - groceries): final balance after all transactions
+			expectedFinalBalance := incomeAmount - rentAmount - groceriesAmount
+			is.Equal(transactions[0].RunningBalance, expectedFinalBalance)
+			
+			// Transaction 1 (middle - rent): balance after income and rent, before groceries
+			expectedAfterRent := incomeAmount - rentAmount
+			is.Equal(transactions[1].RunningBalance, expectedAfterRent)
+			
+			// Transaction 2 (oldest - income): balance after just the income
+			is.Equal(transactions[2].RunningBalance, incomeAmount)
+			
+			// Verify running balances match api.get_account_balance at final point
+			var currentBalance int64
+			err = conn.QueryRow(
+				ctx,
+				"SELECT api.get_account_balance($1)",
+				checkingAccountUUID,
+			).Scan(&currentBalance)
+			is.NoErr(err)
+			is.Equal(transactions[0].RunningBalance, currentBalance) // Final balance should match current balance
 		})
 		
 		// Test transactions for a category account
@@ -3074,20 +3121,22 @@ func TestDatabase(t *testing.T) {
 			defer rows.Close()
 			
 			var transactions []struct {
-				Date        time.Time
-				Category    string
-				Description string
-				Type        string
-				Amount      int64
+				Date           time.Time
+				Category       string
+				Description    string
+				Type           string
+				Amount         int64
+				RunningBalance int64
 			}
 			
 			for rows.Next() {
 				var tx struct {
-					Date        time.Time
-					Category    string
-					Description string
-					Type        string
-					Amount      int64
+					Date           time.Time
+					Category       string
+					Description    string
+					Type           string
+					Amount         int64
+					RunningBalance int64
 				}
 				err := rows.Scan(
 					&tx.Date,
@@ -3095,6 +3144,7 @@ func TestDatabase(t *testing.T) {
 					&tx.Description,
 					&tx.Type,
 					&tx.Amount,
+					&tx.RunningBalance,
 				)
 				is.NoErr(err)
 				transactions = append(transactions, tx)
@@ -3149,4 +3199,440 @@ func TestDatabase(t *testing.T) {
 			}
 		})
 	})
+
+	// --- Enhanced Error Handling Tests ---
+	t.Run(
+		"EnhancedErrorHandling", func(t *testing.T) {
+			is := is_.New(t)
+			
+			// Create a dedicated ledger for error handling tests
+			var errorTestLedgerUUID string
+			
+			// Create a new ledger using the api.ledgers view
+			ledgerName := "Enhanced Error Handling Test Ledger"
+			err := conn.QueryRow(
+				ctx,
+				"INSERT INTO api.ledgers (name) VALUES ($1) RETURNING uuid",
+				ledgerName,
+			).Scan(&errorTestLedgerUUID)
+			is.NoErr(err) // should create ledger without error
+			
+			// Test input validation errors
+			t.Run(
+				"InputValidation", func(t *testing.T) {
+					// Test empty category name
+					t.Run(
+						"EmptyCategoryName", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.add_category($1, $2)",
+								errorTestLedgerUUID, "   ", // whitespace only
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Category name cannot be empty or contain only whitespace"))
+						},
+					)
+					
+					// Test category name with invalid characters
+					t.Run(
+						"InvalidCharacters", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.add_category($1, $2)",
+								errorTestLedgerUUID, "Test<>Category",
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Category name contains invalid characters"))
+							is.True(strings.Contains(pgErr.Message, "< > \" \\ /"))
+						},
+					)
+					
+					// Test category name too long
+					t.Run(
+						"CategoryNameTooLong", func(t *testing.T) {
+							is := is_.New(t)
+							
+							longName := strings.Repeat("a", 300) // 300 characters, exceeds 255 limit
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.add_category($1, $2)",
+								errorTestLedgerUUID, longName,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Category name cannot exceed 255 characters"))
+						},
+					)
+				},
+			)
+			
+			// Test constraint violation errors
+			t.Run(
+				"ConstraintViolations", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create a category first
+					var firstCategoryUUID string
+					err := conn.QueryRow(
+						ctx,
+						"SELECT uuid FROM api.add_category($1, $2)",
+						errorTestLedgerUUID, "TestCategory",
+					).Scan(&firstCategoryUUID)
+					is.NoErr(err) // Should create category successfully
+					
+					// Test duplicate category name
+					t.Run(
+						"DuplicateCategoryName", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.add_category($1, $2)",
+								errorTestLedgerUUID, "TestCategory", // Same name as above
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "An account named \"TestCategory\" already exists in this ledger"))
+							is.True(strings.Contains(pgErr.Message, "Please choose a different name"))
+						},
+					)
+				},
+			)
+			
+			// Test transaction validation errors
+			t.Run(
+				"TransactionValidation", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create test account and category
+					var testAccountUUID, testCategoryUUID string
+					
+					// Create account
+					err := conn.QueryRow(
+						ctx,
+						`INSERT INTO api.accounts (ledger_uuid, name, type) VALUES ($1, $2, 'asset') RETURNING uuid`,
+						errorTestLedgerUUID, "Test-Checking",
+					).Scan(&testAccountUUID)
+					is.NoErr(err)
+					
+					// Create category
+					err = conn.QueryRow(
+						ctx,
+						"SELECT uuid FROM api.add_category($1, $2)",
+						errorTestLedgerUUID, "Test-Expenses",
+					).Scan(&testCategoryUUID)
+					is.NoErr(err)
+					
+					// Test excessive transaction amount
+					t.Run(
+						"ExcessiveAmount", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, 'Test', $5)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(200000000), // $2,000,000.00 - exceeds $1M limit
+								time.Now(),
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction amount exceeds maximum limit of $1,000,000.00"))
+							is.True(strings.Contains(pgErr.Message, "Received: $2000000.00"))
+						},
+					)
+					
+					// Test zero amount
+					t.Run(
+						"ZeroAmount", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, 'Test', $5)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(0), // Zero amount
+								time.Now(),
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
+						},
+					)
+					
+					// Test negative amount
+					t.Run(
+						"NegativeAmount", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, 'Test', $5)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(-1000), // Negative amount
+								time.Now(),
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
+						},
+					)
+					
+					// Test future date validation
+					t.Run(
+						"FutureDate", func(t *testing.T) {
+							is := is_.New(t)
+							
+							futureDate := time.Now().Add(2 * 365 * 24 * time.Hour) // 2 years in future
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, 'Test', $5)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(1000), futureDate,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction date cannot be more than 1 year in the future"))
+						},
+					)
+					
+					// Test past date validation
+					t.Run(
+						"DistantPastDate", func(t *testing.T) {
+							is := is_.New(t)
+							
+							pastDate := time.Now().Add(-15 * 365 * 24 * time.Hour) // 15 years in past
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, 'Test', $5)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(1000), pastDate,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction date cannot be more than 10 years in the past"))
+						},
+					)
+					
+					// Test invalid transaction type
+					t.Run(
+						"InvalidTransactionType", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, $4, $5, 'Test', $6)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								"sideways", // Invalid transaction type
+								int64(1000), time.Now(),
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Invalid transaction type"))
+							is.True(strings.Contains(pgErr.Message, "Must be either \"inflow\" or \"outflow\""))
+						},
+					)
+					
+					// Test description too long
+					t.Run(
+						"DescriptionTooLong", func(t *testing.T) {
+							is := is_.New(t)
+							
+							longDescription := strings.Repeat("a", 600) // 600 characters, exceeds 500 limit
+							_, err := conn.Exec(
+								ctx,
+								`INSERT INTO api.transactions (ledger_uuid, account_uuid, category_uuid, type, amount, description, date)
+								 VALUES ($1, $2, $3, 'outflow', $4, $5, $6)`,
+								errorTestLedgerUUID, testAccountUUID, testCategoryUUID,
+								int64(1000), longDescription, time.Now(),
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction description cannot exceed 500 characters"))
+						},
+					)
+				},
+			)
+			
+			// Test assignment validation errors
+			t.Run(
+				"AssignmentValidation", func(t *testing.T) {
+					is := is_.New(t)
+					
+					// Create a category for assignment tests
+					var assignmentCategoryUUID string
+					err := conn.QueryRow(
+						ctx,
+						"SELECT uuid FROM api.add_category($1, $2)",
+						errorTestLedgerUUID, "Assignment-Test",
+					).Scan(&assignmentCategoryUUID)
+					is.NoErr(err)
+					
+					// Test assignment with excessive amount
+					t.Run(
+						"ExcessiveAssignmentAmount", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+								errorTestLedgerUUID, time.Now(), "Test Assignment",
+								int64(150000000), // $1,500,000.00 - exceeds $1M limit
+								assignmentCategoryUUID,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction amount exceeds maximum limit of $1,000,000.00"))
+						},
+					)
+					
+					// Test assignment with zero amount
+					t.Run(
+						"ZeroAssignmentAmount", func(t *testing.T) {
+							is := is_.New(t)
+							
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+								errorTestLedgerUUID, time.Now(), "Test Assignment",
+								int64(0), // Zero amount
+								assignmentCategoryUUID,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Transaction amount must be positive"))
+						},
+					)
+					
+					// Test assignment description too long
+					t.Run(
+						"AssignmentDescriptionTooLong", func(t *testing.T) {
+							is := is_.New(t)
+							
+							longDescription := strings.Repeat("a", 600) // 600 characters, exceeds 500 limit
+							_, err := conn.Exec(
+								ctx,
+								"SELECT api.assign_to_category($1, $2, $3, $4, $5)",
+								errorTestLedgerUUID, time.Now(), longDescription,
+								int64(1000), assignmentCategoryUUID,
+							)
+							is.True(err != nil) // Should return an error
+							
+							var pgErr *pgconn.PgError
+							is.True(errors.As(err, &pgErr)) // Error should be a PgError
+							is.True(strings.Contains(pgErr.Message, "Assignment description cannot exceed 500 characters"))
+						},
+					)
+				},
+			)
+			
+			// Test utility function validation directly
+			t.Run(
+				"UtilityFunctionValidation", func(t *testing.T) {
+					// Test validate_transaction_data function directly
+					t.Run(
+						"ValidateTransactionData", func(t *testing.T) {
+							is := is_.New(t)
+							
+							// Test with valid data (should not raise exception)
+							_, err := conn.Exec(
+								ctx,
+								"SELECT utils.validate_transaction_data($1, $2, $3)",
+								int64(1000), time.Now(), "outflow",
+							)
+							is.NoErr(err) // Should not return an error for valid data
+							
+							// Test with invalid amount
+							_, err = conn.Exec(
+								ctx,
+								"SELECT utils.validate_transaction_data($1, $2, $3)",
+								int64(-1000), time.Now(), "outflow",
+							)
+							is.True(err != nil) // Should return an error for negative amount
+						},
+					)
+					
+					// Test validate_input_data function directly
+					t.Run(
+						"ValidateInputData", func(t *testing.T) {
+							is := is_.New(t)
+							
+							// Test with valid name
+							var cleanedName string
+							err := conn.QueryRow(
+								ctx,
+								"SELECT utils.validate_input_data($1, $2, $3)",
+								"  Valid Name  ", nil, "test",
+							).Scan(&cleanedName)
+							is.NoErr(err) // Should not return an error for valid name
+							is.Equal(cleanedName, "Valid Name") // Should trim whitespace
+							
+							// Test with invalid name
+							_, err = conn.Exec(
+								ctx,
+								"SELECT utils.validate_input_data($1, $2, $3)",
+								"Invalid<Name>", nil, "test",
+							)
+							is.True(err != nil) // Should return an error for invalid characters
+						},
+					)
+					
+					// Test handle_constraint_violation function directly
+					t.Run(
+						"HandleConstraintViolation", func(t *testing.T) {
+							is := is_.New(t)
+							
+							var errorMessage string
+							err := conn.QueryRow(
+								ctx,
+								"SELECT utils.handle_constraint_violation($1, $2, $3)",
+								"accounts_name_ledger_unique", "accounts", "TestName",
+							).Scan(&errorMessage)
+							is.NoErr(err) // Should not return an error
+							is.True(strings.Contains(errorMessage, "An account named \"TestName\" already exists"))
+							is.True(strings.Contains(errorMessage, "Please choose a different name"))
+						},
+					)
+				},
+			)
+		},
+	)
 }

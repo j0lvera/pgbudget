@@ -58,7 +58,7 @@ end;
 $$ language plpgsql stable security definer;
 
 
--- simple function to get account transactions without running balances
+-- simple function to get account transactions with running balances
 create or replace function utils.get_account_transactions(
     p_account_uuid text,
     p_user_data text default utils.get_user()
@@ -68,7 +68,8 @@ returns table (
     category text,
     description text,
     type text,
-    amount bigint
+    amount bigint,
+    running_balance bigint
 ) as $$
 declare
     v_account_id bigint;
@@ -85,7 +86,8 @@ begin
         raise exception 'Account with UUID % not found for current user', p_account_uuid;
     end if;
 
-    -- return account transactions without balance calculation
+    -- return account transactions with running balances from balance snapshots
+    -- this uses the balance_snapshots table which stores the balance after each transaction
     return query
     select
         t.date,
@@ -104,9 +106,16 @@ begin
             then 'inflow'
             else 'outflow'
         end as type,
-        t.amount
+        t.amount,
+        -- get the running balance from the balance snapshot for this transaction
+        coalesce(bs.balance, 0) as running_balance
     from 
         data.transactions t
+        left join data.balance_snapshots bs on (
+            bs.transaction_id = t.id 
+            and bs.account_id = v_account_id
+            and bs.user_data = p_user_data
+        )
     where 
         (t.debit_account_id = v_account_id or t.credit_account_id = v_account_id)
         and t.deleted_at is null
