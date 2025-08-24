@@ -193,3 +193,4 @@ migrations_old
 
 # Crush directory
 .crush
+.crush.json
